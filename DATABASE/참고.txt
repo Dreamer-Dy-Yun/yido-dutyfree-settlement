@@ -1,0 +1,38 @@
+    # # 이하는 완전한 삽질. 공부용으로나 쓸 수 있을 듯.
+    # async def upsert_dataframe(self, table: TableModel, df: DataFrame):
+    #     async with self.session_maker() as session:
+    #         try:
+    #             table_name = table.__tablename__
+    #             uniqs = self.uniqueness[table_name]
+    #             base_cols = set(self.base_fields)
+    #             exclude_cols = set(uniqs) | base_cols
+
+    #             rows = df.to_dict(orient="records")
+    #             stmt: Insert = insert(table).values(rows)
+
+    #             update_cols = {
+    #                 c: getattr(stmt.excluded, c)
+    #                 for c in df.columns
+    #                 if c not in exclude_cols and hasattr(stmt.excluded, c)
+    #             }
+
+    #             # 최소한 1개는 SET 되어야 SQL이 성립함
+    #             if not update_cols:
+    #                 update_cols = {
+    #                     c: getattr(stmt.excluded, c)
+    #                     for c in uniqs if hasattr(stmt.excluded, c)
+    #                 }
+
+    #             stmt = stmt.on_conflict_do_update(
+    #                 index_elements=uniqs,
+    #                 set_=update_cols
+    #             )
+
+    #             logger.info(f"⏫ UPSERT {table_name} rows={len(rows)} keys={uniqs} set={list(update_cols.keys())}")
+    #             await session.execute(stmt)
+    #             await session.commit()
+
+    #         except Exception as e:
+    #             await session.rollback()
+    #             logger.exception(f"❌ UPSERT 실패 @ {table.__tablename__} | 이유: {str(e)}")
+    #             raise e

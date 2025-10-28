@@ -1,0 +1,16 @@
+# PGVS Server Dockerfile
+FROM postgres:15
+
+# 환경 변수 설정
+ENV POSTGRES_DB=pgvs
+ENV POSTGRES_USER=pgvs_user
+ENV POSTGRES_PASSWORD=pgvs_password
+
+# 포트 노출
+EXPOSE 5432
+
+# 초기화 스크립트 복사 (선택사항)
+# COPY init.sql /docker-entrypoint-initdb.d/
+
+# 컨테이너 시작 시 실행할 명령
+CMD ["postgres"] 

@@ -1,0 +1,19 @@
+line-length = 120
+
+
+[lint]
+select = ["E", "F", "I", "N"]  
+# E: PEP8 스타일
+# F: 오류
+# I: isort
+# N: 네이밍
+
+
+ignore = ["E501", "I001", "I002"]
+
+# E501: 너무 긴 줄 허용
+# I001, I002: isort 관련 경고 무시
+
+
+[format]
+quote-style = "double"
