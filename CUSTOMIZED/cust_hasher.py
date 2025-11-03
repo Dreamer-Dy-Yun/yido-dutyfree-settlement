@@ -1,9 +1,6 @@
-import hashlib
-from pathlib import Path
-
-# ##############################################################################################
-# Module name : cust_hasher
-# Module class : 해싱 클래스
+###########################################
+# Module name : cust_hasher.py
+# Module class : Hasher
 # Written by : Yun Dae-young 
 # Contact : Dreamer.Dy.Yun@Gmail.com
 # Created at : 2025.08.?? (기억 안남)
@@ -11,9 +8,10 @@ from pathlib import Path
 # Supported by : cursor ai
 # Note : 
 #        2025.09.23 : 기존 파일(data_archiver.py)에서 분리
-# ##############################################################################################
+############################################
 
-
+import hashlib
+from pathlib import Path
 
 class Hasher:
     # TODO : 상황보고 멀티 프로세싱 고려

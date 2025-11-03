@@ -124,6 +124,8 @@ class Measured(BaseModel):
 
 class Normalized(BaseModel):
     __tablename__ = "normalized"
+    # TODO : 원래는 이 테이블은 모델별로 생성하는 것이 맞으나, 시간 문제로 하나로 퉁침. 
+    # TODO : 테이블을 나누게 되면, vector_visual_normed 차원을 모델별로 동적 생성/관리 할 것
     # 시리얼 넘버는 유니크 하지 않으므로, measured.id를 외래키로 사용. 
     measured_id: Mapped[int] = mapped_column(Integer, ForeignKey("measured.id", ondelete="CASCADE"), nullable=False)
     vector_visual_normed: Mapped[list[float]] = mapped_column(Vector(3000), nullable=False)

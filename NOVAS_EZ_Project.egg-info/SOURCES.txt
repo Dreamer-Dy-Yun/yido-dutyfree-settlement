@@ -12,6 +12,7 @@ CUSTOMIZED/cust_logger.py
 CUSTOMIZED/cust_parser.py
 CUSTOMIZED/cust_retrier.py
 CUSTOMIZED/cust_validator.py
+CUSTOMIZED/cust_web_helper.py
 DATABASE/__init__.py
 DATABASE/config.py
 DATABASE/cruder.py
@@ -30,9 +31,15 @@ OPEN_SSH/hasher.py
 OPEN_SSH/ict_data_extractor.py
 OPEN_SSH/ssh_connector.py
 WEB_SERVER/__init__.py
-WEB_SERVER/fastapi_example copy.py
+WEB_SERVER/app.py
 WEB_SERVER/funcs_for_api.py
 WEB_SERVER/main.py
+WEB_SERVER/routers/__init__.py
+WEB_SERVER/routers/router_pmf.py
+WEB_SERVER/routers/router_root.py
+WEB_SERVER/routers/router_similarity.py
+WEB_SERVER/routers/setting.py
 test/TEST_parquet.py
+test/test.py
 test/test_modify copy.py
 test/test_offload.py

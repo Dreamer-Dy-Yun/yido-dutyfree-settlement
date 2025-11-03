@@ -4,7 +4,7 @@ from DATABASE.cruder import CRUDer
 import pandas as pd
 from pathlib import Path
 import numpy as np
-
+from typing import Any
 
 async def get_dual_pmf_chart_data(
         cruder: CRUDer,
@@ -17,7 +17,7 @@ async def get_dual_pmf_chart_data(
         right_date_to: date | None = None, 
         right_measured_by: str | None = None,
         resolution: int = 400
-    ) -> list[dict[str, any]]:
+    ) -> list[dict[str, Any]]:
     # TODO : 상황 보고 데이터 송신 방법 변경
     # TODO : 에러 반환은 나중에..
     # TODO : 동작 확인되면 정리(함수로 나누어 호출).
@@ -28,7 +28,7 @@ async def get_dual_pmf_chart_data(
     if not right_date_from and not right_date_to:
         do_right_side = False
 
-    result : list[dict[str, any]] = []  # 결과 타입
+    result : list[dict[str, Any]] = []  # 결과 타입
 
     # 스펙 정보 확보(정규화 목적)
     _, df_spec = await get_spec_parquet(cruder, parent_path_spec, model_name)
@@ -38,10 +38,10 @@ async def get_dual_pmf_chart_data(
     # afe_left, afe_right의 .serialized_meta_data()를 사용해도 되지만 로직상 예쁘지 않아서 따로 처리
     meta_data = AnalyzedFileExporter(sa, model_name).serialized_meta_data()
 
-    analized_left : list[tuple[int, float]] = None
-    analized_right : list[tuple[int, float]] = None
+    analized_left : list[tuple[int, float]] | None = None
+    analized_right : list[tuple[int, float]] | None = None
 
-    if True:    # 가독성을 위해 ... 나중에 따로 빼든지 할 것. 근데 따로 뺴기에는 좀 애매...
+    if True:    # 가독성을 위해(들여쓰기) ... 나중에 따로 빼든지 할 것. 근데 따로 뺴기에는 좀 애매...
         # 모델의 측정 데이터 세트 조회(현재는 postGre 안에 리스트 처리해 둬서 Postgresql에서 직접 조회)
         list_measured_left = await cruder.get_measured_data(model_name, left_date_from, left_date_to, left_measured_by)
         if not list_measured_left:
@@ -53,7 +53,7 @@ async def get_dual_pmf_chart_data(
         # 모델의 측정 데이터 세트 조회(현재는 postGre 안에 리스트 처리해 둬서 Postgresql에서 직접 조회)
         list_measured_right = await cruder.get_measured_data(model_name, right_date_from, right_date_to, right_measured_by)
         if not list_measured_right:
-            analized_right = AnalyzedFileExporter(sa.analyze(list_measured_left), model_name).serialized_zero_pmf_data()
+            analized_right = AnalyzedFileExporter(sa, model_name).serialized_zero_pmf_data()
         else:
             analized_right = AnalyzedFileExporter(sa.analyze(list_measured_right), model_name).serialized_pmf_data()
 
@@ -65,7 +65,7 @@ async def get_dual_pmf_chart_data(
         if analized_right:
             pmf_data.append(analized_right[i])
 
-        single_chart_data : dict[str, any] = {
+        single_chart_data : dict[str, Any] = {
             "specInfo": meta_data[i]['specInfo'],   
             "chartSpecLine": meta_data[i]['chartSpecLine'],   
             "pmfData": pmf_data,
@@ -81,7 +81,7 @@ async def get_single_item_trend(
         model_name: str | None = None, 
         serial_no: str | None = None, 
         resolution: int = 400
-    ) -> dict[dict[str, any]]: 
+    ) -> dict[dict[str, Any]]: 
     
     data = await cruder.get_latest_measured_datum(measured_by, model_name, serial_no)
 
@@ -98,7 +98,7 @@ async def get_single_item_trend(
 
     afe = AnalyzedFileExporter(sa, model_name)
 
-    trend_data : dict[dict[str, any]] = {}
+    trend_data : dict[dict[str, Any]] = {}
 
     trend_data["measuredBy"] = measured_by
     trend_data["modelName"] = model_name
@@ -148,7 +148,7 @@ async def get_time_series_data(
     measured_by: str | None = None
     ) -> dict[str, dict[str, float]]: 
 
-    data : list[dict[str, any]] = await cruder.get_time_series_data(model_name, inspection_idx, date_from, date_to, measured_by)
+    data : list[dict[str, Any]] = await cruder.get_time_series_data(model_name, inspection_idx, date_from, date_to, measured_by)
 
     result: dict[str, dict[str, float]] = {}
     for row in data:
@@ -179,7 +179,7 @@ async def normalize_and_upsert_all_models(cruder: CRUDer, dir_base_spec: Path, m
 async def process_and_upsert_vector_data(cruder: CRUDer, model_name: str, spec_id: int, spec: pd.DataFrame) -> int:
 
     df_to_upsert : pd.DataFrame = pd.DataFrame()
-    rows_measured : list[dict] = await cruder.get_measured_after_last_normalized(model_name, latest_only=False)
+    rows_measured : list[dict] = await cruder.get_measured_since_last_normalized(model_name, latest_only=False)
 
     if len(rows_measured) == 0:
         return 0
@@ -209,6 +209,153 @@ def uniformize_length(data_quantized : list[list[float]], pad_val: float = 0.0, 
         row_len = min(len(row), max_len)
         arr[i, :row_len] = row[:row_len]
     return arr 
+
+
+
+# 유사도 관련 함수들
+
+async def get_defective_similarity_hits(
+    cruder: CRUDer, 
+    model_name: str, 
+    serial_no: str, 
+    defective_serials: list[str], 
+    top_n_rate: float = 0.01, 
+    date_from: date | None = None,
+    date_to: date | None = None,
+    metric: str = "cosine",
+    except_itself: bool = False
+    ) -> dict[str, dict[str, Any]]:
+    """
+    해당 모델(model_name)의 시리얼 넘버(serial_no)의 유사도를 조회하고, 
+    유사도 결과 중 대상 시리얼 넘버(defective_serials)에 해당하는 시리얼 넘버의 유사도 결과 반환
+    """
+    result: dict[str, dict[str, Any]] = {}
+
+    data_size = await cruder.get_measured_data_size(model_name=model_name)
+
+    records = await cruder.get_relative_similarities(model_name, serial_no, data_size, top_n_rate, date_from, date_to, metric, except_itself)
+
+    for defective_serial in defective_serials :
+        if defective_serial in records:
+            result[defective_serial] = records[defective_serial]
+
+    if not except_itself and serial_no in records:
+        result[serial_no] = records[serial_no]
+    
+    return result
+
+
+async def get_serial_similarity_hits_from_defects(
+    cruder: CRUDer, 
+    model_name: str, 
+    serial_no: str, 
+    defective_serials: list[str], 
+    top_n_rate: float = 0.01, 
+    date_from: date | None = None,
+    date_to: date | None = None,
+    metric: str = "cosine",
+    except_itself: bool = False
+    ) -> dict[str, dict[str, Any]]:
+    """
+    해당 모델(model_name)의 시리얼 넘버(serial_no)의 유사도를 조회하고, 
+    유사도 결과 중 대상 시리얼 넘버(defective_serials)에 해당하는 시리얼 넘버의 유사도 결과 반환
+    """
+    result: dict[str, dict[str, Any]] = {}
+
+    data_size = await cruder.get_measured_data_size(model_name=model_name)
+
+    for defective_serial in defective_serials :
+        records = await cruder.get_relative_similarities(model_name, defective_serial, data_size, top_n_rate, date_from, date_to, metric, except_itself)
+        if serial_no in records:
+            result[defective_serial] = records[serial_no]
+
+    if not except_itself:
+        temp = await cruder.get_absolute_similarities(model_name, serial_no, 1, date_from, date_to, metric, False)
+        result[serial_no] = temp[serial_no]
+
+    return result
+
+
+async def get_df_defects(
+    cruder: CRUDer, 
+    df_defective: pd.DataFrame, 
+    top_n_rate: float = 0.01, 
+    date_from: date | None = None,
+    date_to: date | None = None,
+    metric: str = "cosine",
+    except_itself: bool = False
+    ) -> pd.DataFrame:
+
+    """
+    df_defective : serial_no, model_name, instrument_name 컬럼을 가진 데이터프레임
+    해당 모델(model_name)의 시리얼 넘버(serial_no)의 유사도를 조회하고, 
+    유사도 결과 중 대상 시리얼 넘버(defective_serials)에 해당하는 시리얼 넘버의 유사도 결과 반환
+    """
+    # TODO : Pydantic의 BaseModel 사용하여 DTO 정의(리팩토링시)
+    instrument_name : str | None = None
+    model_name : str | None = None
+    serial_no : str | None = None
+    num_of_records : int | None = None
+
+    target_models : list[str] = df_defective["model_name"].unique()
+    dict_model_n_num_of_records: dict[str, int] = {}
+    for model_name in target_models:
+        num_of_records = await cruder.get_measured_data_size(model_name=model_name)
+        dict_model_n_num_of_records[model_name] = num_of_records
+
+    list_data : list[dict[str, Any]] = []
+    for xrow in df_defective.itertuples():
+        instrument_name = xrow.instrument_name    
+        model_name = xrow.model_name
+        serial_no = xrow.serial_no
+        num_of_records = dict_model_n_num_of_records[model_name]
+        records = await cruder.get_relative_similarities(model_name, serial_no, num_of_records, top_n_rate, date_from, date_to, metric, except_itself, False)
+
+        for xvalue in records.values():
+            xvalue["similarity"] = round((1 - xvalue["rank"] / num_of_records) * 100, 5)
+        list_data.extend(records.values())
+
+    return pd.DataFrame(list_data)
+
+
+async def get_similars_to_defects(cruder: CRUDer, date_from: date, date_to: date) -> pd.DataFrame:
+
+    """
+    불량 시리얼 넘버 조회 (DB)
+    불량 시리얼 넘버와 유사한 측정치 조회 (DB)
+
+    최적화는 안된 상태
+    """
+    # TODO : 여러번 조회하는데, 추후 한번으로 바꿀 것.
+
+    df_defective = await cruder.get_external_defects_info()
+
+    df = await get_df_defects(
+        cruder, 
+        df_defective=df_defective, 
+        top_n_rate=0.1,
+        date_from=date_from,
+        date_to=date_to,
+        metric="cosine",
+        except_itself=True
+    )
+    
+    df.sort_values(by="measured_at", ascending=False, inplace=True)
+
+    return df
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

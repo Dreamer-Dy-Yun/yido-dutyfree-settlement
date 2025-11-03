@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 테스트
+_TEST/
+TEST/
+test_*.py
+*_test.py
+
+# 로그
+*.log
+
+# 환경 변수 (로컬)
+.env
+.env.local
+
+# Git
+.git/
+.gitignore
+
+# 문서
+*.md
+!README.md
+
+# 임시 파일
+*.tmp
+*.bak
+*.copy
+ttttt*.py
+
+# 데이터 파일 (필요시 주석 해제)
+# *.parquet
+# *.csv
+# TEMPLATE/
+

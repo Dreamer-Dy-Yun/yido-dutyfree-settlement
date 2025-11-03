@@ -1,0 +1,36 @@
+###########################################
+# docker-compose.yml for NOVAS EZ
+# Created at : 2025.10.31
+# Usage: docker-compose up -d
+############################################
+
+version: '3.8'
+
+services:
+  # FastAPI 애플리케이션
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: novas_ez_api
+    environment:
+      # 데이터베이스 설정
+      DB_NAME: ${DB_NAME:-novas_ez}
+      DB_USER: ${DB_USER:-admin}
+      DB_PASSWORD: ${DB_PASSWORD:-123!@#qwe}
+      DB_HOST: ${DB_HOST:-localhost}
+      DB_PORT: ${DB_PORT:-5432}
+      # 경로 설정 (볼륨 마운트 경로)
+      PARENT_PATH_SPEC: ${PARENT_PATH_SPEC:-/app/data/SPEC}
+      PARENT_PATH_MEASURED: ${PARENT_PATH_MEASURED:-/app/data/MEASURED}
+      # CORS 설정
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # 데이터 디렉토리 마운트 (호스트 경로를 수정하여 사용)
+      - ./data:/app/data
+      # 또는 Windows 경로 예시:
+      # - C:/Users/user/Novas_Ez:/app/data
+    restart: unless-stopped
+

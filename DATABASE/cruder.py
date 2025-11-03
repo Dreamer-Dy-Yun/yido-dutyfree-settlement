@@ -7,6 +7,7 @@
 # Updated at : 2025.09.16
 # Supported by : ChatGPT-4o
 # Note : SQLAlchemy ORM 모델 정의
+#   ※ 나중에 적당히 나눠야 함
 #   2025.09.16 : 최신 정보 조회 방법 변경 (is_latest -> order_by(xxxx.desc()))
 #                (is_latest 폐기 예정. 폐기 사유 : is_latest 사용시 데이터 입력시마다 불필요한 업데이트 필요.)
 #                is_latest 예정에 따른 쿼리 변경
@@ -17,13 +18,17 @@
 ############################################
 
 
+from ast import stmt
 from typing import Any
+
+from sqlalchemy.util import NoneType
 from DATABASE.pg_manager import PGDBManager
-from sqlalchemy import select, Select, tuple_, literal, cast
+from sqlalchemy import select, Select, tuple_, literal, cast, distinct
 from sqlalchemy.sql import func
 from DATABASE import models
 from datetime import date, timedelta, datetime
 import pandas as pd
+from sqlalchemy.sql.elements import BinaryExpression
 
 
 class CRUDer:
@@ -91,7 +96,10 @@ class CRUDer:
         return result.mappings().all()
 
 
-    async def get_measured_after_last_normalized(self, model_name: str | None = None,  latest_only: bool = True,) -> list[dict]:
+    async def get_measured_since_last_normalized(self, model_name: str | None = None,  latest_only: bool = True,) -> list[dict]:
+        """
+        Measured 테이블에서 마지막 정규화된 데이터 이후의 데이터 조회
+        """
 
         # TODO : 동작 검증 필요
         
@@ -172,11 +180,15 @@ class CRUDer:
         self, 
         instrument_name:str | None = None, 
         model_name:str | None = None,
-        serial_no:str | None = None
-        ) -> dict[str, any]:
+        serial_no:str | None = None,
+        get_list_measured: bool = True,
+        ) -> dict[str, Any]:
 
         md: type[models.Measured] = models.Measured
-        stmt : Select = select(md.instrument_name, md.model_name, md.serial_no, md.list_measured)
+        stmt : Select = select(md.instrument_name, md.model_name, md.serial_no, md.measured_at)
+
+        if get_list_measured:
+            stmt = stmt.add_columns(md.list_measured)
         
         if serial_no:
             stmt = stmt.where(md.serial_no == serial_no)
@@ -286,20 +298,219 @@ class CRUDer:
 
 
     async def upsert_external_defect(self, df: pd.DataFrame) -> int:
-        return await self.db.upsert_dataframe(models.ExternalDefect, df)
+        return await self.db.batch_upsert_dataframe(models.ExternalDefect, df)
 
 
     async def upsert_normalized (self, df: pd.DataFrame) -> int:
-        return await self.db.upsert_dataframe(models.Normalized, df)
+        return await self.db.batch_upsert_dataframe(models.Normalized, df)
 
     # async def get_normalized(self, measured_id: int) -> pd.DataFrame:
     #     return await self.db.get_dataframe(models.Normalized, df)
 
+    async def get_vector_data(self, serial_no: str) -> tuple[str, str, list[float]]:
+        """
+        해당 시리얼 넘버의 최신 벡터 데이터 조회
+        """
+        md_n: type[models.Normalized] = models.Normalized
+        md_m: type[models.Measured] = models.Measured
+
+        stmt : Select = select(md_m.model_name, md_m.serial_no, md_n.vector_visual_normed)
+        stmt = stmt.join(md_m, md_m.id == md_n.measured_id)
+        stmt = stmt.where(md_m.serial_no == serial_no)
+        stmt = stmt.order_by(md_m.measured_at.desc()).limit(1)
+        result = await self.db.execute_query(stmt)
+        row = result.mappings().first()
+        if not row:
+            return ("", "", [])
+        return (row[md_m.model_name.name], row[md_m.serial_no.name], row[md_n.vector_visual_normed.name])
+
+
+    async def get_relative_similarities(
+        self, 
+        model_name: str, 
+        serial_no: str, 
+        num_of_records: int, 
+        top_k_rate: float = 0.01, 
+        date_from: date | None = None,
+        date_to: date | None = None,
+        metric: str = "cosine", 
+        except_itself: bool = True,
+        return_vector: bool = True
+        ) -> dict[str, dict[str, Any]]:
+        """
+        해당 모델의 시리얼 넘버의 유사도를 조회
+        target_data_size : 대상 데이터 건수 
+            ※ await cruder.get_measured_data_size(model_name=model_name) 호출 후 전달
+        top_k_rate : 상위 몇 건의 데이터를 대상으로 유사도 조회할 것인지 비율
+        """
+
+        if top_k_rate < 0.0 or top_k_rate > 1.0:
+            raise ValueError("top_k_rate must be between 0.0 and 1.0")
+        
+        top_k = int(num_of_records * top_k_rate)
+
+        return await self.get_absolute_similarities(model_name, serial_no, top_k, date_from, date_to, metric, except_itself, return_vector)
+
+
+    async def get_absolute_similarities(
+        self, 
+        model_name: str, 
+        serial_no: str, 
+        top_k: int = 100, 
+        date_from: date | None = None,
+        date_to: date | None = None,
+        metric: str = "cosine", 
+        except_itself: bool = True,
+        return_vector: bool = True
+        ) -> dict[str, dict[str, Any]]:        
+        """
+        해당 모델의 시리얼 넘버의 유사도를 조회
+        k : 상위 몇 건의 데이터를 대상으로 유사도 조회할 것인지
+        metric : 유사도 계산 방법
+        except_itself : 자기 자신을 제외할 것인지
+        시리얼 넘버는 유일하지만, 모든 모델이 같은 벡터 DB에 존재하므로, 모델명 정보
+        """
+
+        _, _, query_vector = await self.get_vector_data(serial_no)
+
+        if query_vector is None or len(query_vector) == 0:
+            return {}
+
+        match metric:
+            case "cosine":
+                # 코사인 거리 (1- cosθ)
+                return await self._get_cosine_distance(model_name, serial_no, query_vector, top_k, date_from, date_to, except_itself, return_vector)
+            # case "Euclidean":
+            #     # 유클리드 거리
+            #     return
+            # case "Dot Product":
+            #     # 내적 유사도 : 
+            #     # Dot Product는 원래 유사할 수록 큰 값을 가지나, 
+            #     # PostgreSQL에서는 유사할수록 작은값을 가지도록 부호 반전함.
+            #     return
+            case _:
+                raise ValueError(f"Invalid metric: {metric}")
+
+
+    async def _get_cosine_distance(
+        self, 
+        model_name: str, 
+        serial_no: str, 
+        query_vector: list[float], 
+        k: int = 100, 
+        date_from: date | None = None, 
+        date_to: date | None = None, 
+        except_itself: bool = True,
+        return_vector: bool = True
+        ) -> dict[str, dict[str, Any]]:
+        md_n: type[models.Normalized] = models.Normalized
+        md_m: type[models.Measured] = models.Measured
+
+        dist : BinaryExpression[float] = md_n.vector_visual_normed.cosine_distance(query_vector)
+
+        stmt_sub = select(md_m.instrument_name, md_m.id, md_m.model_name, md_m.serial_no, md_m.measured_at,)
+        stmt_sub = stmt_sub.where(md_m.model_name == model_name)
+        if date_from:
+            stmt_sub = stmt_sub.where(md_m.measured_at >= date_from)
+        if date_to:
+            stmt_sub = stmt_sub.where(md_m.measured_at <= date_to + timedelta(days=1))
+        if except_itself:
+            stmt_sub = stmt_sub.where(md_m.serial_no != serial_no)
+        stmt_sub = stmt_sub.distinct(md_m.serial_no) 
+        stmt_sub = stmt_sub.order_by(md_m.serial_no, md_m.measured_at.desc())
+        stmt_sub = stmt_sub.subquery()
+
+        stmt : Select = select(
+                stmt_sub.c.instrument_name.label(md_m.instrument_name.name),
+                stmt_sub.c.model_name.label(md_m.model_name.name),
+                stmt_sub.c.serial_no.label(md_m.serial_no.name),
+                stmt_sub.c.measured_at.label(md_m.measured_at.name),
+                md_n.measured_id.label(md_n.measured_id.name),
+                dist.label("dist")
+            )
+        if return_vector:
+            stmt = stmt.add_columns(md_n.vector_visual_normed.label(md_n.vector_visual_normed.name))
+        stmt = stmt.select_from(md_n)
+        stmt = stmt.join(stmt_sub, stmt_sub.c.id == md_n.measured_id)
+        stmt = stmt.order_by(dist, md_n.id)
+        stmt = stmt.limit(k)
+      
+
+        res = await self.db.execute_query(stmt)
+        rows = res.mappings().all()
+
+        result: dict[str, dict[str, Any]] = {}    # serial_no: {measured_id: int, rank: int, distance: float, vector_visual_normed: list[float]}
+        for rank, row in enumerate(rows, start=1):
+            result[row["serial_no"]] = {
+                "serial_query": serial_no,
+                "measured_id": row["measured_id"],
+                "instrument_name": row["instrument_name"],
+                "model_name": row["model_name"],
+                "serial_result": row["serial_no"],
+                "measured_at": row["measured_at"],
+                "rank": rank,
+                "distance": float(row["dist"]),
+            }  
+            if return_vector:
+                result[row["serial_no"]]["vector_visual_normed"] = row["vector_visual_normed"]
+        return result
+
+    async def get_measured_data_size(
+        self, 
+        instrument_name: str | None = None, 
+        model_name: str | None = None, 
+        distinct_: bool = True
+        ) -> int:
+        """
+        해당 모델의 측정 데이터 건수 조회
+        distinct = True 일 경우 시리얼 넘버수 조회, False 일 경우 측정 데이터 건수 전체 조회
+        """
+        md_m: type[models.Measured] = models.Measured
+
+        if distinct_:
+            stmt = select(func.count(distinct(md_m.serial_no)))
+        else:
+            stmt = select(func.count(md_m.id))
+
+        if model_name:
+            stmt = stmt.where(md_m.model_name == model_name)
+        if instrument_name:
+            stmt = stmt.where(md_m.instrument_name == instrument_name)
+
+        result = await self.db.execute_query(stmt)
+        return result.scalar_one()
+
+
+    async def get_external_defects_info(
+        self, 
+        occurred_date_from: date|None = None, 
+        occurred_date_to: date|None = None, 
+        recognized_date_from: date|None = None,
+        recognized_date_to: date|None = None,
+        latest_only: bool = True
+        ) -> pd.DataFrame:
+        md_e: type[models.ExternalDefect] = models.ExternalDefect
+        md_m: type[models.Measured] = models.Measured
+
+        stmt: Select = select(md_m.instrument_name, md_m.model_name, md_e.serial_no, md_e.occurred_at, md_m.measured_at)
+        stmt = stmt.select_from(md_e)
+        stmt = stmt.join(md_m, md_m.serial_no == md_e.serial_no)
+        if occurred_date_from:
+            stmt = stmt.where(md_e.occurred_at >= occurred_date_from)
+        if occurred_date_to:
+            stmt = stmt.where(md_e.occurred_at <= occurred_date_to)
+        if recognized_date_from:
+            stmt = stmt.where(md_e.recognized_at >= recognized_date_from)
+        if recognized_date_to:
+            stmt = stmt.where(md_e.recognized_at <= recognized_date_to)
+        if latest_only:
+            stmt = stmt.distinct(md_m.model_name, md_e.serial_no)
+        stmt = stmt.order_by(md_m.model_name, md_e.serial_no, md_e.occurred_at.desc())
+        result = await self.db.execute_query(stmt)
+        return pd.DataFrame(result.mappings().all()) 
 
 '''
 # id 기반 CRUD. 만들고 보니 쓸데 없음.
-
-
 class CRUDHandler:
     def __init__(self, db_manager: PGDBManager, model_class: type[DeclarativeMeta]):
         self.db = db_manager

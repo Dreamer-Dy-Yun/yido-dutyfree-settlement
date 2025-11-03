@@ -192,6 +192,7 @@ class SpecAnalyzer:
         self.pmf = np.zeros((cols, resolution), dtype=np.float32)
 
         # d3 정규화 없을 줄 알고 계산한거라, 굳이 필요 없을수도..
+        # 대상 데이터가 50만행 이상이면 최적화 고려(멀티 프로세싱. 이 부분만 병목.) 
         for i in range(cols):
             counts = np.bincount(clipped_data[:, i], minlength=resolution)
 
@@ -342,10 +343,10 @@ class AnalyzedFileExporter:
             logger.error(f"failed to make file {file_kind} data: {e}")
 
 
-    def serialized_meta_data(self) -> list[dict[str, any]]:
+    def serialized_meta_data(self) -> list[dict[str, Any]]:
         # 이 함수는 PMF 데이터와 독립
         # SPEC 데이터에만 의존
-        data: list[dict[str, any]] = []
+        data: list[dict[str, Any]] = []
         for i in range(len(self.sa.list_spec)):
             data.append({
                 "specInfo":{
@@ -371,10 +372,10 @@ class AnalyzedFileExporter:
         return data
 
 
-    def _serialized_cpk_data(self) -> list[dict[str, any]]:
+    def _serialized_cpk_data(self) -> list[dict[str, Any]]:
         # 이 함수는 SPEC 및 PMF 데이터에 의존
         # 안쓸 예정
-        data: list[dict[str, any]] = []
+        data: list[dict[str, Any]] = []
         for i in range(len(self.sa.list_between_spec_total)):
             data.append({
                     "mu": self.sa.list_mu[i].item(),
@@ -385,24 +386,24 @@ class AnalyzedFileExporter:
         return data
 
 
-    def _serialized_judgement_data(self) -> list[dict[str, any]]:
+    def _serialized_judgement_data(self) -> list[dict[str, Any]]:
         # 이 함수는 SPEC 및 PMF 데이터에 의존
         # 안쓸 예정
-        if self.sa.list_reverse_tolerance[i].item():
-            violationUsl: int = 0
-            violationLsl: int = 0
-            violationInner: int = self.sa.list_between_spec_total[i].item()
-            okTotal: int = self.sa.list_exceeded_spec_total[i].item()
-            ngTotal: int = self.sa.list_between_spec_total[i].item()
-        else:
-            violationUsl: int = self.sa.list_exceeded_usl[i].item() 
-            violationLsl: int = self.sa.list_exceeded_lsl[i].item()
-            violationInner: int = 0
-            okTotal: int = self.sa.list_between_spec_total[i].item()
-            ngTotal: int = self.sa.list_exceeded_spec_total[i].item()  
-
-        data: list[dict[str, any]] = []
+        data: list[dict[str, Any]] = []
         for i in range(len(self.sa.list_between_spec_total)):
+            if self.sa.list_reverse_tolerance[i].item():
+                violationUsl: int = 0
+                violationLsl: int = 0
+                violationInner: int = self.sa.list_between_spec_total[i].item()
+                okTotal: int = self.sa.list_exceeded_spec_total[i].item()
+                ngTotal: int = self.sa.list_between_spec_total[i].item()
+            else:
+                violationUsl: int = self.sa.list_exceeded_usl[i].item() 
+                violationLsl: int = self.sa.list_exceeded_lsl[i].item()
+                violationInner: int = 0
+                okTotal: int = self.sa.list_between_spec_total[i].item()
+                ngTotal: int = self.sa.list_exceeded_spec_total[i].item()  
+
             data.append({
                     "ok": {
                         "total": okTotal,
@@ -426,8 +427,8 @@ class AnalyzedFileExporter:
         return data
 
 
-    def serialized_trend_data(self) -> dict[int, dict[str, any]]:
-        data: dict[int, dict[str, any]] = {}
+    def serialized_trend_data(self) -> dict[int, dict[str, Any]]:
+        data: dict[int, dict[str, Any]] = {}
         for i in range(len(self.sa.list_spec)):
             chartIdx = self.sa.list_index[i].item()
             measuredValue = self.sa.data_original[0][i].item()
@@ -451,7 +452,7 @@ class AnalyzedFileExporter:
 #     value: number;           // 값 (차트의 Bin 크기(resolution)로 정규화된 값)
 # }
 
-    def serialized_pmf_data(self) -> list[dict[str, any]]:
+    def serialized_pmf_data(self) -> list[dict[str, Any]]:
         '''
         아래와 같은 느낌의 데이터
         "pmfData": [
@@ -463,7 +464,7 @@ class AnalyzedFileExporter:
         
         '''
         # shape[0]: 측정지점 개수, shape[1]: bin 개수
-        data: list[dict[str, any]] = []
+        data: list[dict[str, Any]] = []
 
         for i in range(len(self.sa.list_spec)):
             # _serialized_judgement_data, _serialized_cpk_data 를 사용하지 않는 것은 반복문을 줄이기 위함. 사실 써도 큰 차이는 없을 듯
@@ -503,12 +504,12 @@ class AnalyzedFileExporter:
             })
         return data
 
-    def serialized_zero_pmf_data(self) -> list[dict[str, any]]:
+    def serialized_zero_pmf_data(self) -> list[dict[str, Any]]:
         '''
         빈 데이터 반환. 측정 데이터가 없을 때 사용
         '''
         # shape[0]: 측정지점 개수, shape[1]: bin 개수
-        data: list[dict[str, any]] = []
+        data: list[dict[str, Any]] = []
 
         for i in range(len(self.sa.list_spec)):
             # _serialized_judgement_data, _serialized_cpk_data 를 사용하지 않는 것은 반복문을 줄이기 위함. 사실 써도 큰 차이는 없을 듯

@@ -128,7 +128,7 @@ class PGDBManager:
 
     def initialize_engine(self, dbname: str, user: str, password: str, host: str, port: int = 5432, client_encoding: str = "utf8"):
         if self.async_engine is None:
-            logger.info(f"{user}:password@{host}:{str(port)}/{dbname}")
+            logger.info(f"{user}:***@{host}:{str(port)}/{dbname}")
 
             pw: str = urllib.parse.quote_plus(password)
             uri: str = f"postgresql+asyncpg://{user}:{pw}@{host}:{str(port)}/{dbname}"
@@ -164,6 +164,8 @@ class PGDBManager:
                     query = text(query)
                 logger.info(f"⏩SQL : {str(query)} | params: {params}")
                 result = await session.execute(query, params or {})
+                # DDL/DML 반영을 위해 명시적으로 커밋
+                await session.commit()
                 return result
             except Exception as e:
                 await session.rollback()
@@ -192,6 +194,26 @@ class PGDBManager:
             logger.exception(f"❌ TRUNCATE 실패 @ {table.__tablename__} | 이유: {str(e)}")
             return False
 
+
+    async def batch_upsert_dataframe(self, table: DeclarativeBase, df: DataFrame, allowed_param_size: int = 10000) -> int:
+        # TODO : Copy / executemany 등을 이용한 최적화 시도 (필요시)
+        # TODO : 배치 크기 최적화 시도 (바인딩 개수 계산 방법 확인 필요)
+        
+        cnt_rows: int = len(df)
+        cnt_cols: int = len(df.columns)
+
+        if cnt_rows == 0:
+            return 0
+
+        number_of_rows_for_one_request: int = allowed_param_size // cnt_cols
+
+        cnt_upserted: int = 0
+
+        for i in range(0, cnt_rows, number_of_rows_for_one_request):
+            df_batch: DataFrame = df.iloc[i:i+number_of_rows_for_one_request]
+            cnt_upserted += await self.upsert_dataframe(table, df_batch)
+
+        return cnt_upserted
 
     async def upsert_dataframe(self, table: DeclarativeBase, df: DataFrame) -> int:
         '''

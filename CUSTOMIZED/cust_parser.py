@@ -22,7 +22,7 @@ from datetime import datetime, date, time
 from enum import Enum
 
 JSON: TypeAlias = Union[Dict[str, Any], List[Any]]
-DB_PARAMS = Union[Dict[str, any], List[Dict[str, any]], None]
+DB_PARAMS = Union[Dict[str, Any], List[Dict[str, Any]], None]
 AIO_RESULT: TypeAlias = List[Union[Any, BaseException]]
 
 

@@ -11,7 +11,7 @@
 import asyncio
 import functools
 from typing import Callable, Awaitable, Any
-from cust_logger import logger
+from CUSTOMIZED.cust_logger import logger
 
 def async_retry(
     exceptions: tuple = (Exception,),
