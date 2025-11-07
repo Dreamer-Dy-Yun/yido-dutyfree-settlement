@@ -19,7 +19,6 @@ from io import BytesIO
 import re
 
 
-
 class Export:
     @staticmethod
     async def as_excel(df: pd.DataFrame | dict[str, pd.DataFrame], filename: str) -> StreamingResponse:

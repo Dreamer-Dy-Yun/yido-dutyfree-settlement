@@ -14,6 +14,7 @@
 
 from typing import Dict, Any, List, Literal
 import asyncio
+from datetime import datetime
 from google.oauth2.service_account import Credentials
 import gspread
 from pathlib import Path
@@ -152,6 +153,10 @@ async def verify_n_upsert_serial_no(
         field_name_detection_person: md.recognized_by.name,
         field_name_note: md.note.name
     })
+    
+    # 모델에 필요한 컬럼만 선택 (불필요한 컬럼 제거)
+    # model_columns = [col.name for col in md.__table__.columns]
+    # df_to_upsert = df_to_upsert[[col for col in model_columns if col in df_to_upsert.columns]]
 
     for column in md.__table__.columns:
         col_name = column.name
@@ -180,22 +185,24 @@ async def verify_n_upsert_serial_no(
     return len(df_to_upsert)
 
 
-async def sync_external_defect_data(name:str | None = None) -> dict[str, Any]:
+async def sync_external_defect_data(cruder: CRUDer, name:str | None = None) -> dict[str, Any]:
 
     result : dict[str, Any] = {
-        "status": "success",
         "message": "",
-        "count": 0
+        "applied_row_count": 0,
+        "time_consumed_sec": 0
     }
     cnt : int = 0
     msg : str = ""
-    status : Literal["success", "error"] = "success"
+    start_time : datetime = datetime.now()
 
     try :
         logger.info(f"📌 {name} 데이터 동기화 시작")
 
-        service_account_info : dict[str, Any] = await CRUDer(db_manager).get_google_service_account(name)
-        
+        service_account_info : dict[str, Any] = await cruder.get_google_service_account(name)
+        if service_account_info is None:
+            raise ValueError(f"등록된 이름의 Google Service Account가 없습니다.")
+
         service_account : Path = Path(service_account_info["path_account"])  
         service_scopes : List[str] = service_account_info["scopes"]  
         spreadsheet_id : str = service_account_info["spreadsheet_id"]
@@ -206,23 +213,21 @@ async def sync_external_defect_data(name:str | None = None) -> dict[str, Any]:
         ws : gspread.Worksheet = sh.worksheet(worksheet_name)
         df_sheet : pd.DataFrame = get_data_form_sheet(ws)
         logger.info(f"    - 구글 스프레드 시트에 [시스템] 필드 데이터 완료: {df_sheet.shape[0]}행")
-        cnt = await verify_n_upsert_serial_no(df_sheet, ws, CRUDer(db_manager))
+        cnt = await verify_n_upsert_serial_no(df_sheet, ws, cruder)
         logger.info(f"    - {name}의 {worksheet_name}의 데이터를 DB에 반영 완료")
         msg = f"📌 [{name}] 데이터 동기화 완료 : {cnt}행"
         logger.info(msg)
-        status = "success"
 
     except Exception as e:
         msg = f"📌 [{name}] 데이터 동기화 오류 발생: {e}"
         cnt = -1
-        status = "error"
         logger.error(msg, exc_info=True)
 
     finally:
-        result["count"] = cnt        
-        result["status"] = status
+        result["applied_row_count"] = cnt        
         result["message"] = msg
-        return result
+        result["time_consumed_sec"] = (datetime.now() - start_time).total_seconds()
+    return result
 
 
 # #TEST################################################################################################

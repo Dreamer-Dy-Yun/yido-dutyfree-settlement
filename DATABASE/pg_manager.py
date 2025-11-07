@@ -16,6 +16,7 @@
 #       2025.10.17 : PGDBManager.execute_query() 확장
 #       2025.10.20 : PGDBManager.upsert_dataframe() 반환값 변경(None → 업데이트 된 행 수(int))
 #                    PGDBManager 클래스 변수를 인스턴스 변수로 변경
+#       2025.11.07 : PGDBManager.upsert_dataframe() 수정(불필요한 컬럼 제거)(롤백하면서 제거된 로직 복구)
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 
@@ -133,7 +134,7 @@ class PGDBManager:
             pw: str = urllib.parse.quote_plus(password)
             uri: str = f"postgresql+asyncpg://{user}:{pw}@{host}:{str(port)}/{dbname}"
             self.client_encoding = client_encoding
-            self.async_engine = create_async_engine(uri, echo=True)
+            self.async_engine = create_async_engine(uri, echo=False)
             self.session_maker = sessionmaker(
                 bind=self.async_engine,
                 class_=AsyncSession,
@@ -162,7 +163,7 @@ class PGDBManager:
             try:
                 if isinstance(query, str):
                     query = text(query)
-                logger.info(f"⏩SQL : {str(query)} | params: {params}")
+                # logger.info(f"⏩SQL : {str(query)} | params: {params}")
                 result = await session.execute(query, params or {})
                 # DDL/DML 반영을 위해 명시적으로 커밋
                 await session.commit()
@@ -236,27 +237,34 @@ class PGDBManager:
         # 항상 그렇듯 극한 성능 필요하면 언어 변경 및 SQL 수기 작성 필요 
         async with self.session_maker() as session:
             try:
-                logger.info(f"🚀 START [upsert_dataframe]")
+                # logger.info(f"🚀 START [upsert_dataframe]")
                 table_name: str = table.__tablename__
                 uniqs: list = self.uniqueness[table_name]
 
                 if not uniqs:
                     raise ValueError(f"Can't find PK/UK in {table_name}")
 
-                rows: list[dict] = df.to_dict(orient="records")
+                # 모델에 정의된 컬럼만 선택 (불필요한 컬럼 제거)
+                model_columns = [col.name for col in table.__table__.columns]
+                df_filtered = df[[col for col in model_columns if col in df.columns]]
+                
+                rows: list[dict] = df_filtered.to_dict(orient="records")
 
                 stmt: Insert = insert(table).values(rows)
                 ce: ColumnElement = stmt.excluded
 
-                update_cols = {c: getattr(ce, c) for c in df.columns if hasattr(ce, c)}
+                update_cols = {c: getattr(ce, c) for c in df_filtered.columns if hasattr(ce, c)}
 
+                # 키/유니크 값만 있는 경우: conflict 시 아무것도 하지 않음 (insert만 수행)
                 if not update_cols:
-                    raise ValueError(f"No column to update except for PK/UK")
+                    stmt = stmt.on_conflict_do_nothing(index_elements=uniqs)
+                else:
+                    stmt = stmt.on_conflict_do_update(index_elements=uniqs, set_=update_cols)
 
-                # index_elements에는 list, set, dict 타입 사용 가능
-                stmt = stmt.on_conflict_do_update(index_elements=uniqs, set_=update_cols)
-
-                logger.info(f"⏫ UPSERT {table_name} rows={len(rows)} keys={uniqs} set={list(update_cols.keys())}")
+                # if update_cols:
+                #     logger.info(f"⏫ UPSERT {table_name} rows={len(rows)} keys={uniqs} set={list(update_cols.keys())}")
+                # else:
+                #     logger.info(f"⏫ INSERT {table_name} rows={len(rows)} keys={uniqs} (no update columns)")
                 await session.execute(stmt)
                 await session.commit()
 

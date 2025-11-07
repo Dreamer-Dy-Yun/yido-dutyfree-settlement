@@ -139,7 +139,7 @@ class ICTDataExtractor:
 
     def _get_essential_column_indexes(self, df_original: pd.DataFrame, essential_columns: set[str]) -> list[int]:
 
-        list_header: list[int] = df_original.columns.to_list()
+        list_header: list[str] = df_original.columns.to_list()
         list_columns: list[int] = []
 
         for column in range(len(list_header)):

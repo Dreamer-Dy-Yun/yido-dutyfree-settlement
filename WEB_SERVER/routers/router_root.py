@@ -1,13 +1,5 @@
-from fastapi import APIRouter, Query, Response, HTTPException, Depends
-from fastapi.responses import Response
-from DATABASE.cruder import CRUDer
-from pathlib import Path
-import orjson
-import gzip
-import CUSTOMIZED.cust_parser as cp
-from WEB_SERVER.routers.settings import get_cruder
+from fastapi import APIRouter, HTTPException, Depends
 from WEB_SERVER.routers.settings import get_db_manager
-from WEB_SERVER.routers.settings import ffa
 from sqlalchemy import text
 
 router = APIRouter(prefix="", tags=["root"])

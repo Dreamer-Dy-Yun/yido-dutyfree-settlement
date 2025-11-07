@@ -15,6 +15,7 @@
 #   2025.10.02 : 컬럼명 변경 및 관련부 변경(DB 설계 참조)
 #   2025.10.17 : PGDBManager.execute_query() 일괄 적용
 #   2025.10.20 : get_measured_after_last_normalized() 추가
+#   2025.11.06 : 빌더 패턴 고려 중
 ############################################
 
 
@@ -304,8 +305,10 @@ class CRUDer:
     async def upsert_normalized (self, df: pd.DataFrame) -> int:
         return await self.db.batch_upsert_dataframe(models.Normalized, df)
 
+
     # async def get_normalized(self, measured_id: int) -> pd.DataFrame:
     #     return await self.db.get_dataframe(models.Normalized, df)
+
 
     async def get_vector_data(self, serial_no: str) -> tuple[str, str, list[float]]:
         """
@@ -327,7 +330,8 @@ class CRUDer:
 
     async def get_relative_similarities(
         self, 
-        model_name: str, 
+        instrument_name: str | None,
+        model_name: str | None,
         serial_no: str, 
         num_of_records: int, 
         top_k_rate: float = 0.01, 
@@ -335,7 +339,9 @@ class CRUDer:
         date_to: date | None = None,
         metric: str = "cosine", 
         except_itself: bool = True,
-        return_vector: bool = True
+        return_vector: bool = True,
+        return_measured_values: bool = True,
+        anchor_serial_no: str | None = None
         ) -> dict[str, dict[str, Any]]:
         """
         해당 모델의 시리얼 넘버의 유사도를 조회
@@ -349,19 +355,25 @@ class CRUDer:
         
         top_k = int(num_of_records * top_k_rate)
 
-        return await self.get_absolute_similarities(model_name, serial_no, top_k, date_from, date_to, metric, except_itself, return_vector)
+        if except_itself:
+            top_k += 1
+
+        return await self.get_absolute_similarities(instrument_name, model_name, serial_no, top_k, date_from, date_to, metric, except_itself, return_vector, return_measured_values,anchor_serial_no)
 
 
     async def get_absolute_similarities(
         self, 
-        model_name: str, 
+        instrument_name: str | None,
+        model_name: str | None,
         serial_no: str, 
         top_k: int = 100, 
         date_from: date | None = None,
         date_to: date | None = None,
         metric: str = "cosine", 
         except_itself: bool = True,
-        return_vector: bool = True
+        return_vector: bool = True,
+        return_measured_values: bool = True,
+        anchor_serial_no: str | None = None
         ) -> dict[str, dict[str, Any]]:        
         """
         해당 모델의 시리얼 넘버의 유사도를 조회
@@ -379,7 +391,7 @@ class CRUDer:
         match metric:
             case "cosine":
                 # 코사인 거리 (1- cosθ)
-                return await self._get_cosine_distance(model_name, serial_no, query_vector, top_k, date_from, date_to, except_itself, return_vector)
+                return await self._get_cosine_distance(instrument_name, model_name, serial_no, query_vector, top_k, date_from, date_to, except_itself, return_vector, return_measured_values, anchor_serial_no)
             # case "Euclidean":
             #     # 유클리드 거리
             #     return
@@ -394,14 +406,17 @@ class CRUDer:
 
     async def _get_cosine_distance(
         self, 
-        model_name: str, 
+        instrument_name: str | None,
+        model_name: str | None, 
         serial_no: str, 
         query_vector: list[float], 
         k: int = 100, 
         date_from: date | None = None, 
         date_to: date | None = None, 
         except_itself: bool = True,
-        return_vector: bool = True
+        return_vector: bool = True,
+        return_measured_values: bool = True,
+        anchor_serial_no: str | None = None
         ) -> dict[str, dict[str, Any]]:
         md_n: type[models.Normalized] = models.Normalized
         md_m: type[models.Measured] = models.Measured
@@ -409,7 +424,14 @@ class CRUDer:
         dist : BinaryExpression[float] = md_n.vector_visual_normed.cosine_distance(query_vector)
 
         stmt_sub = select(md_m.instrument_name, md_m.id, md_m.model_name, md_m.serial_no, md_m.measured_at,)
-        stmt_sub = stmt_sub.where(md_m.model_name == model_name)
+        if return_measured_values:
+            stmt_sub = stmt_sub.add_columns(md_m.list_measured)
+        if instrument_name:
+            stmt_sub = stmt_sub.where(md_m.instrument_name == instrument_name)
+        if model_name:
+            stmt_sub = stmt_sub.where(md_m.model_name == model_name) 
+        if anchor_serial_no:
+            stmt_sub = stmt_sub.where(md_m.serial_no == anchor_serial_no)
         if date_from:
             stmt_sub = stmt_sub.where(md_m.measured_at >= date_from)
         if date_to:
@@ -430,6 +452,8 @@ class CRUDer:
             )
         if return_vector:
             stmt = stmt.add_columns(md_n.vector_visual_normed.label(md_n.vector_visual_normed.name))
+        if return_measured_values:
+            stmt = stmt.add_columns(stmt_sub.c.list_measured.label(stmt_sub.c.list_measured.name))
         stmt = stmt.select_from(md_n)
         stmt = stmt.join(stmt_sub, stmt_sub.c.id == md_n.measured_id)
         stmt = stmt.order_by(dist, md_n.id)
@@ -452,14 +476,17 @@ class CRUDer:
                 "distance": float(row["dist"]),
             }  
             if return_vector:
-                result[row["serial_no"]]["vector_visual_normed"] = row["vector_visual_normed"]
+                result[row["serial_no"]][str(md_n.vector_visual_normed.name)] = row[md_n.vector_visual_normed.name]
+            if return_measured_values:
+                result[row["serial_no"]][str(stmt_sub.c.list_measured.name)] = row[stmt_sub.c.list_measured.name]
         return result
+
 
     async def get_measured_data_size(
         self, 
         instrument_name: str | None = None, 
         model_name: str | None = None, 
-        distinct_: bool = True
+        distinct_serial: bool = True
         ) -> int:
         """
         해당 모델의 측정 데이터 건수 조회
@@ -467,7 +494,7 @@ class CRUDer:
         """
         md_m: type[models.Measured] = models.Measured
 
-        if distinct_:
+        if distinct_serial:
             stmt = select(func.count(distinct(md_m.serial_no)))
         else:
             stmt = select(func.count(md_m.id))
@@ -476,9 +503,32 @@ class CRUDer:
             stmt = stmt.where(md_m.model_name == model_name)
         if instrument_name:
             stmt = stmt.where(md_m.instrument_name == instrument_name)
+        stmt = stmt.group_by(md_m.model_name)
 
         result = await self.db.execute_query(stmt)
         return result.scalar_one()
+
+
+    async def get_measured_data_sizes(self, date_from: date | None = None, date_to: date | None = None, distinct_serial: bool = True) -> pd.DataFrame:
+        """
+        해당 모델의 측정 데이터 건수 조회
+        distinct = True 일 경우 시리얼 넘버수 조회, False 일 경우 측정 데이터 건수 전체 조회
+        """
+        md_m: type[models.Measured] = models.Measured
+
+        if distinct_serial:
+            stmt = select(md_m.model_name, func.count(distinct(md_m.serial_no)).label("count"))
+        else:
+            stmt = select(md_m.model_name, func.count(md_m.id).label("count"))
+        if date_from:
+            stmt = stmt.where(md_m.measured_at >= date_from)
+        if date_to:
+            stmt = stmt.where(md_m.measured_at <= date_to + timedelta(days=1))
+        stmt = stmt.group_by(md_m.model_name)
+
+        result = await self.db.execute_query(stmt)
+
+        return pd.DataFrame(result.mappings().all())
 
 
     async def get_external_defects_info(

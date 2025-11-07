@@ -10,13 +10,14 @@ from WEB_SERVER.routers.settings import PARENT_PATH_SPEC
 from WEB_SERVER.routers.settings import PARENT_PATH_MEASURED
 from WEB_SERVER.routers.settings import as_gzip_response
 from WEB_SERVER.routers.settings import handle_http_error
+from async_lru import alru_cache    
 
 
-router = APIRouter(prefix="", tags=["pmf"])
+router = APIRouter(prefix="/api/pmf", tags=["pmf"])
 
 
 # PMF 데이터 조회 (기본 바이올린 데이터)
-@router.get("/api/pmf")
+@router.get("/get/pmf_data")
 @handle_http_error
 async def get_pmf_data(
         model_name: str = Query(..., description="모델명", example="DB92-05606E"),
@@ -44,8 +45,9 @@ async def get_pmf_data(
     return as_gzip_response(result_data)
 
 
-@router.get("/api/single_item_trend")
+@router.get("/get/single_item_trend")
 @handle_http_error
+@alru_cache(maxsize=1000)
 async def get_single_item_trend(
     measured_by: str | None = Query(None, description="ICT 장비명", example="1호기"),
     model_name: str | None = Query(None, description="모델명", example="DB92-05606E"),
@@ -64,7 +66,7 @@ async def get_single_item_trend(
     return as_gzip_response(result_data)
 
 
-@router.get("/api/instruments")
+@router.get("/get/instruments")
 @handle_http_error
 async def get_instrument_names(cruder: CRUDer = Depends(get_cruder)):
     result_data = await ffa.get_instrument_names(cruder)
@@ -72,14 +74,14 @@ async def get_instrument_names(cruder: CRUDer = Depends(get_cruder)):
 
 
 
-@router.get("/api/models")
+@router.get("/get/models")
 @handle_http_error
 async def get_model_names(cruder: CRUDer = Depends(get_cruder)):
     result_data = await ffa.get_model_names(cruder)
     return as_gzip_response(result_data)
 
 
-@router.get("/api/time_series")
+@router.get("/get/time_series")
 @handle_http_error
 async def get_time_series_data(
     model_name: str = Query(..., description="모델명", example="DB92-05606E"),
