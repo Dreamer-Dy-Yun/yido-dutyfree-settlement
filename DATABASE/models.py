@@ -58,6 +58,7 @@ class Instrument(BaseModel):
     user: Mapped[str | None] = mapped_column(String(255), nullable=True)
     port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dir_base_source : Mapped[str | None] = mapped_column(Text, nullable=True) 
+    dir_base_destination : Mapped[str | None] = mapped_column(Text, nullable=True) 
     ssh_key_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     network_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     network_password: Mapped[str] = mapped_column(Text, nullable=True)  # 현재 사용예정 없으나, 사용시 암호화 정책/인터페이스 수립 할 것.
@@ -141,17 +142,22 @@ class Normalized(BaseModel):
 
 class Process(BaseModel):
     __tablename__ = "process"
-
-    instrument_name: Mapped[str | None] = mapped_column(String(50), ForeignKey("instrument.name", ondelete="SET NULL"), nullable=True)
-    path_full_source: Mapped[str] = mapped_column(Text, nullable=True)
-    path_full_current: Mapped[str] = mapped_column(Text, nullable=True)
-    hashed_file: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False, unique=True)
+    instrument_name: Mapped[str | None] = mapped_column(String(50), ForeignKey("instrument.name", ondelete="SET NULL"), nullable=False)
+    model_name: Mapped[str | None] = mapped_column(String(20), ForeignKey("model.name", ondelete="SET NULL"), nullable=False)
+    path_full_source: Mapped[str] = mapped_column(Text, nullable=False)
+    path_full_destination: Mapped[str] = mapped_column(Text, nullable=True)
+    hashed: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=True)          #처음 리스트 확보할 때는 파일이 없기 때문에 해시 불가. 따라서 유니크 제약조건 제거
     is_retrieved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_parsed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
     retrieved_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
-    status: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")  # PENDING, RETRIEVED, PARSED, ARCHIVED, ERROR
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-
+    __table_args__ = (
+        UniqueConstraint("instrument_name", "model_name", "path_full_source", name="uq_process_instrument_model_path"),
+    )
+    
 class ShortGroup(BaseModel):
     __tablename__ = "short_groups"
 

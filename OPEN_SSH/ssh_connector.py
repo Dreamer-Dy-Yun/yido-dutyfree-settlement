@@ -7,6 +7,8 @@
 # Updated at : 2025.07.03
 # Supported by : ChatGPT-4o
 # Note : 
+#        TODO : 시간나면 Queue 로 비동기로 시도 할 것.(처리속도 >> 네트워크 속도 이므로 현재로써는 문제 없을 듯)
+#        2025.11.12 : 함수 명 변경 (is_datetime_in_period -> is_datetime_in_range)
 ############################################
 
 import asyncssh
@@ -16,12 +18,11 @@ from pathlib import Path, PurePosixPath
 from typing import Literal, Sequence
 from datetime import datetime, timezone
 from CUSTOMIZED.cust_logger import logger, timer
-
-
+import pandas as pd
 
 class OpenSSHConnector():
 
-    def __init__(self, hostname: str, username: str, port: int = 22, ssh_key_path: Path = None):
+    def __init__(self, hostname: str, username: str, port: int = 22, ssh_key_path: Path | None = None):
         self.hostname: str = hostname
         self.username: str = username
         self.ssh_key_path:Path = ssh_key_path or Path.home() / ".ssh" / "id_rsa"
@@ -59,6 +60,7 @@ class OpenSSHConnector():
             self._actions.update({"UPLOAD": (self._sftp.put, "파일 업로드", FileUploadError)})
             self._actions.update({"DOWNLOAD": (self._sftp.get, "파일 다운로드", FileDownloadError)})
             logger.info(f"✅📶 SSH 서버 연결 성공 : {self.username}@{self.hostname} : {self.port}")
+            return self
         
         except Exception as e:
             logger.exception(f"❗ SSH 서버 연결 실패 : {self.username}@{self.hostname} : {self.port}")
@@ -96,9 +98,11 @@ class OpenSSHConnector():
         after : datetime = None,
         before : datetime = None, 
         criterion : Literal["Created", "Modified"] = None,
-        allowed_extensions: list[str] = None
+        allowed_extensions: list[str] = None,
+        excluded_extensions: list[str] = [".git", ".svn", ".DS_Store", ".idea", ".vscode", ".", ".."]
         ) -> set[Path]:
         """
+        ☆ 비효율. 로직상 수차례 통신 필요. 사용하지 않을 예정 ☆
         지정한 디렉토리 내의 파일 및 폴더(엔트리) 경로 목록을 반환.
 
         매개변수:
@@ -131,21 +135,23 @@ class OpenSSHConnector():
         type_file: int = 1
         type_directory: int = 2
 
+        ts_start: float | None = after.timestamp() if after is not None else None
+        ts_end: float | None = before.timestamp() if before is not None else None
+
         for entry in entries:
-            if entry.filename in [".git", ".svn", ".DS_Store", ".idea", ".vscode", ".", ".."]:
+            if entry.filename in excluded_extensions:
                 continue
 
-            full_path = PurePosixPath(dir_path) / entry.filename
-            full_path = posixpath.normpath(str(full_path))
+            full_path = Path((dir_source / entry.filename).as_posix())
             stat = entry.attrs
             
             if stat.type == type_file:
                 match criterion:
                     case "Created":
-                        if not self.is_datetime_in_period(datetime.fromtimestamp(stat.ctime, tz=timezone.utc), after, before):
+                        if not self.is_timestamp_in_range(stat.ctime, ts_start, ts_end):
                             continue
                     case "Modified":
-                        if not self.is_datetime_in_period(datetime.fromtimestamp(stat.mtime, tz=timezone.utc), after, before):
+                        if not self.is_timestamp_in_range(stat.mtime, ts_start, ts_end):
                             continue
                     case _:
                         pass
@@ -163,22 +169,30 @@ class OpenSSHConnector():
                     next_depth = depth - 1 
                     if next_depth != 0: 
                         result.update(await self.get_sourcefile_list(full_path, next_depth, after, before, criterion))  
-        # self.filepaths_source.update(result) # 적재
+        self.filepaths_source.update(result) # 적재
         return result
 
-    def is_datetime_in_period(self, timestamp: datetime, start:datetime|None=None, end:datetime|None=None) -> bool:
-        """배타적 시간 범위 검사"""
+
+    def is_datetime_in_range(self, timestamp: datetime, start:datetime|None=None, end:datetime|None=None) -> bool:
+        """시간 범위 검사"""
         return (start is None or start < timestamp) and (end is None or timestamp <= end)
+    
+    
+    def is_timestamp_in_range(self, timestamp: float, ts_start:float|None=None, ts_end:float|None=None) -> bool:
+        """시간 범위 검사(타임스탬프 기준)"""
+        return (ts_start is None or ts_start < timestamp) and (ts_end is None or timestamp <= ts_end)
+    
 
     async def filter_sourcefiles_by_ext(self, *extensions: str) -> None:
-        """파일 확장자로 필터링"""
+        """파일 확장자로 필터링 (안씀. PowerShell 명령어 사용)"""
         extensions = tuple(e.lower() if e.startswith('.') else f'.{e.lower()}' for e in extensions)
-        self.filepaths_source = {path for path in self.filepaths_source if path.suffix.lower() in extensions}
+        filepaths_source = self.filepaths_source
+        self.filepaths_source = {path for path in filepaths_source if Path(path).suffix.lower() in extensions}
+        return self.filepaths_source
 
     async def check_if_files_exist(self, source_path_list: list[Path]) -> dict[str, bool]: 
         results = await asyncio.gather(*(self.check_if_file_exists(path) for path in source_path_list))
-        return dict(results)
-
+        return dict (results)
 
     async def check_if_file_exists(self, source_path: Path) -> tuple[str, bool]: 
         strpath:str = str(source_path)
@@ -189,24 +203,32 @@ class OpenSSHConnector():
             return strpath, False
 
 
-    async def download_files(self, dir_destination: Path,  target_sources: set[str] | None = None) -> dict[str, bool]:
+    async def download_files(
+        self, 
+        df: pd.DataFrame, 
+        colname_source: str = "path_full_source", 
+        colname_destination: str = "path_full_destination", 
+        colname_is_retrieved: str = "is_retrieved"
+        ) -> pd.DataFrame:
         """모든 파일 다운로드"""
-        if target_sources is None :
-            target_sources = self.filepaths_source
-
         timer.start(f"{self.username}@{self.hostname}")
-        self._make_desti_dirs(dir_destination)
         results = await asyncio.gather(
-            *[self.file_transfer("DOWNLOAD", dir_destination, path) for path in target_sources],
+            *[self.file_transfer("DOWNLOAD", getattr(row, colname_source), getattr(row, colname_destination)) for row in df.itertuples(index=False)],
             return_exceptions=True
         )
         timer.end(f"{self.username}@{self.hostname}")
-        # 성공한 파일만 반환
-        
-        download_results = {path : not isinstance(result, Exception) for path, result in zip(target_sources, results)}
+        # 성패 기재하여 반환
+        df[colname_is_retrieved] = [not isinstance(result, Exception) for result in results]
+        # df[colname_retrieved_at] = [datetime.now() if not isinstance(result, Exception) else None for result in results]
+        return df
 
 
-        return download_results
+    async def download_single_file(self, fullpath_sourcefile: Path, fullpath_destination: Path, ) -> dict[str, bool]:
+        """파일 다운로드"""
+        self._make_desti_dirs(fullpath_destination.parent)
+        result = await self.file_transfer("DOWNLOAD", fullpath_sourcefile, fullpath_destination)
+        return result
+
 
     def _make_desti_dirs(self, dir_destination: Path):
         try:
@@ -215,29 +237,30 @@ class OpenSSHConnector():
             raise PermissionError(f"[permission denied] 다운로드 경로({dir_destination})에 디렉터리를 만들 수 없습니다. 경로 및 권한을 확인하세요.") from e
             
 
-    async def upload_files(self, dir_destination: Path) -> None:
+    async def upload_files(self, df: pd.DataFrame, colname_source: str = "fullpath_source", colname_destination: str = "fullpath_destination") -> None:
         """모든 파일 업로드"""
         timer.start(f"{self.username}@{self.hostname} UPLOAD")
-        os.makedirs(dir_destination, exist_ok=True)
-        await asyncio.gather(*[self.file_transfer("UPLOAD",dir_destination, path) for path in self.filepaths_source])
+        await asyncio.gather(*[self.file_transfer("UPLOAD", getattr(row, colname_source), getattr(row, colname_destination)) for row in df.itertuples(index=False)], return_exceptions=True)
         timer.end(f"{self.username}@{self.hostname} UPLOAD")
 
         
-    async def file_transfer(self, mode:Literal["UPLOAD", "DOWNLOAD"], dir_destination: Path, path_sourcefile: Path) -> None:
-        # 쓸데 없이 과하긴 한데... 공부 할 겸 작성
-        file_destination = dir_destination / path_sourcefile.name
-
+    async def file_transfer(self, mode:Literal["UPLOAD", "DOWNLOAD"], fulpath_sourcefile: Path, fullpath_destination: Path, ) -> None:
         if mode not in self._actions:
             raise ValueError(f"지원하지 않는 전송 모드입니다: {mode}")
 
         func, str_mode, error_cls = self._actions[mode]
 
         try:
-            await func(str(path_sourcefile), str(file_destination))
-            logger.info(f"✅ {str_mode} 성공 : {path_sourcefile} \n{('\t')*4} → {file_destination}")
+            await func(str(fulpath_sourcefile), str(fullpath_destination))
+            tab_indent = '\t' * 4
+            logger.info(f"✅ {str_mode} 성공 : {fulpath_sourcefile} \n{tab_indent} → {fullpath_destination}")
         except Exception as e:
-            raise error_cls(str(path_sourcefile), str(dir_destination)) from e
+            raise error_cls(str(fulpath_sourcefile), str(fullpath_destination)) from e
         
+
+    async def get_connection(self) -> asyncssh.SSHClientConnection:
+        return self._conn
+
 
     async def is_connected(self) -> bool:
         """연결 상태 확인"""
@@ -246,13 +269,16 @@ class OpenSSHConnector():
     
     async def close(self) -> None:
         """연결 종료"""
-        if self._sftp:
-            self._sftp.exit()
-        if self._conn:
-            self._conn.close()
-            await self._conn.wait_closed()
-        logger.info(f"✅🔌 연결 종료 : {self.username}@{self.hostname}:{self.port}")
-
+        try :
+            if self._sftp:
+                self._sftp.exit()
+            if self._conn:
+                self._conn.close()
+                await self._conn.wait_closed()
+            logger.info(f"✅🔌 연결 종료 : {self.username}@{self.hostname}:{self.port}")
+        except Exception as e:
+            logger.exception(f"Error in close: {e}")
+        
 
     async def __aenter__(self):
         await self.connect_with_private_key()
@@ -296,6 +322,19 @@ class OpenSSHConnector():
             raise FileAccessError(norm_path) from e
 
 
+    async def run_command(self, command: str) -> asyncssh.SSHCompletedProcess:
+        if not await self.is_connected():
+            raise SSHConnectionError(self.username, self.hostname, self.port)
+        try:
+            return await self._conn.run(command)
+        except Exception as e:
+            logger.exception(f"SSH command execution failed: {command}")
+            raise SSHCommandError(command, str(e)) from e
+
+
+
+# Exception Classes
+
 class SSHConnectorError(Exception):
     """Base exception for OpenSSHConnector."""
     pass
@@ -336,48 +375,81 @@ class FileUploadError(SSHConnectorError):
         super().__init__(msg)
 
 
+class SSHCommandError(SSHConnectorError):
+    """Raised when an SSH command execution fails."""
+    def __init__(self, command: str, reason: str | None = None):
+        msg = f"[SSHCommandError] Command failed: {command}"
+        if reason:
+            msg += f" | Reason: {reason}"
+        super().__init__(msg)
 
 # #########################################################################
 # # === 사용 예시 === 
 # #########################################################################
 import asyncio                      # noqa
 from CUSTOMIZED.cust_retrier import Retrier    # noqa
-
+from CUSTOMIZED import cust_powershell as ps    # noqa
+import json    # noqa
+import pandas as pd    # noqa
 async def test_download(hostname:str, username:str, dir_source:Path, dir_destination:Path):
     rt = Retrier()
     async with OpenSSHConnector(hostname, username) as ssh:
         await rt.retry(lambda: ssh.get_sourcefile_list(dir_source), lambda: ssh.connect_with_private_key())
+        # Windows PowerShell 명령어 사용
+
+        cmd_source : str = ""
+        cmd_selection : str = ""
+        cmd_condition : str = ""
+
+        cmd_source = ps.Get_ChildItem(Path(f"C:/Users/admin/Desktop/Report/DB92-05608A/2025/09/09")).entry("file").recursive(True).build()
+        cmd_selection = ps.Select().full_name().creation_time(alias="CreationTime",with_milliseconds=True).build()
+        cmd_condition_1 : str = ps.Filter.after(datetime(2025, 9, 5, 11, 19, 16), "creation").build()
+        cmd_condition_2 : str = ps.Filter.by_extension("csv").build()
+        cmd_condition = cmd_condition_1 & cmd_condition_2
+        cmd_consumer : str = ps.ToJson().compress().build()
+        ps_cmd = ps.PSCommand().set_source(cmd_source).set_condition(cmd_condition).set_selection(cmd_selection).set_consumer(cmd_consumer).build()
+        result = await ssh.run_command(ps_cmd)
+        # print(result.stdout)
+        list_result = []
+
+
+        json_result = json.loads(result.stdout)
+        df_result = pd.DataFrame(json_result)
+ 
+   
+
+        cmd_source : str = ps.Get_ChildItem(Path(f"C:/Users/admin/Desktop/Report")).entry("directory").build()
+        cmd_selection : str = ps.Select().name().full_name().creation_time(with_milliseconds=True).build()
+        cmd_condition : str = ps.Filter.until(datetime(2025, 11, 14, 11, 19, 16), "creation").build()
+        ps_cmd = ps.PSCommand().set_source(cmd_source).set_condition(cmd_condition).set_selection(cmd_selection).build()
+        result = await ssh.run_command(ps_cmd)
+        print(result.stdout)
+
+        
+        dir_path_str = dir_source.as_posix()
+        cmd = f'powershell -Command "Get-ChildItem -Path \\"{dir_path_str}\\" -File -Recurse | Select-Object -ExpandProperty FullName"'
+        result = await ssh.run_command(cmd)
+        print(result.stdout)
+
+
 
         print(ssh.filepaths_source)
-        await rt.retry(lambda: ssh.filter_sourcefiles_by_ext("csv"), lambda: ssh.connect_with_private_key())
-        await rt.retry(lambda: ssh.download_files(dir_destination), lambda: ssh.connect_with_private_key())
+        await rt.retry(lambda: ssh.filter_sourcefiles_by_ext("txt"), lambda: ssh.connect_with_private_key())
+        await rt.retry(lambda: ssh.__download_files(dir_destination), lambda: ssh.connect_with_private_key())
 
 
 async def test_file_check(hostname:str, username:str, source_list: list[Path]):
     async with OpenSSHConnector(hostname, username) as ssh:
         return await ssh.check_if_files_exist(source_list)
-    
+
+
 async def main():
-    # hostname = "172.30.1.68"
-    # username = "user"
-    # dir_source1 = Path(r"C:/users/user/Desktop/CSVs")
-    # dir_source2 = Path(r"C:/users/user/Desktop/HTMLs")
-
-    # a = await test_file_check(hostname, username, [dir_source1, dir_source2])
-
-    # print(a)
-
 
     tasks = []
-    hostname1 = "192.168.0.104"
-    username1 = "knigh"
-    dir_source1 = Path(rf"C:\users\{username1}\Desktop\test")
+    hostname1 = "172.30.1.72"
+    username1 = "admin"
+    dir_source1 = Path(f"C:/Users/{username1}/Desktop/Report")
     dir_destination1 = Path(r"C:\TEST")
-
-    # hostname2 = "172.30.1.68"
-    # username2 = "user"
-    # dir_source2 = Path(r"C:/users/user/Desktop/CSVs")
-    # dir_destination2 = Path(r"C:\Users\윤대영\PycharmProjects\Novas_ez\TEST\testDL02")
 
     tasks.append(asyncio.create_task(test_download(hostname1, username1, dir_source1, dir_destination1)))
     # tasks.append(asyncio.create_task(test_download(hostname2, username2, dir_source2, dir_destination2)))

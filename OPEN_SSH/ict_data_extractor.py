@@ -101,7 +101,7 @@ class ICTDataExtractor:
         self.get_parquet_spec(header_spec)
         self._derive_norm_factors(adj_val_infinity)
         # timer.end("CPU")
-        logger.info("get() completed successfully")
+        # logger.info("get() completed successfully")
         
         return self
 
@@ -383,7 +383,8 @@ class ICTDataExtractor:
         if spec > usl or spec < lsl : reverse_tolerance = True
         """
         df = self.df_spec
-        df['reverse_tolerance'] = (df['spec'] > df['usl']) | (df['spec'] < df['lsl'])
+        # NA 값 처리를 위해 fillna(False) 추가 (원본 파일에서 부재)
+        df['reverse_tolerance'] = ((df['spec'] > df['usl']) | (df['spec'] < df['lsl'])).fillna(False)
 
         # 각각의 reverse_tolerance = True인 경우, usl과 lsl을 서로 바꿈
         mask : np.ndarray[np.bool_] = df['reverse_tolerance'].to_numpy()   # bool ndarray (복사 없음)
@@ -575,8 +576,7 @@ class ICTDataExtractor:
         self._validate_path(fullpath)
         self._validate_path_access(fullpath)
         if self._is_file_empty(fullpath):
-            logger.error(f"파일이 비어 있습니다: {fullpath}", exc_info=True)
-            raise 
+            raise ValueError(f"파일이 비어 있습니다: {fullpath}") 
 
     def _validate_dataframe_columns(self, required_columns:list =[]) -> None:
         df = self.df_original

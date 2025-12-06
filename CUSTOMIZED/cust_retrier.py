@@ -8,6 +8,7 @@
 # Supported by : ChatGPT-4o
 # Note :
 #   2025.07.16 : jitter 추가
+#   2025.11.19 : staticmethod 로 변경
 ############################################
 
 from typing import Callable, Awaitable, Any, Optional
@@ -15,8 +16,8 @@ import asyncio
 import random
 
 class Retrier:
+    @staticmethod
     async def retry(
-                self, 
                 func: Callable[[], Awaitable[Any]], 
                 on_retry: Optional[Callable[[], Awaitable[Any]]] = None, 
                 attempts: int = 5, 

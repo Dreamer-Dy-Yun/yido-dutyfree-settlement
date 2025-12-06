@@ -20,16 +20,21 @@ class Hasher:
         self._hashed_value: bytes = bytes()
         pass
 
-    def hash_file(self, path_file: Path):
-        if not path_file.exists():
-            raise FileNotFoundError(f"파일이 존재하지 않습니다: {path_file}")
-        
-        if not path_file.is_file():
-            raise ValueError(f"파일이 아닙니다: {path_file}")
-        
-        with open(path_file, 'rb') as f:
-            self._hashed_value = hashlib.sha256(f.read()).digest()
+    def hash_file(self, path_file: Path, ignore_errors: bool = True):
+        try:
+            if not path_file.exists():
+                raise FileNotFoundError(f"파일이 존재하지 않습니다: {path_file}")
+            
+            if not path_file.is_file():
+                raise ValueError(f"파일이 아닙니다: {path_file}")
 
+            with open(path_file, 'rb') as f:
+                self._hashed_value = hashlib.sha256(f.read()).digest()
+        except Exception as e:
+            if ignore_errors:
+                return self
+            else:
+                raise e
         return self
     
     @property

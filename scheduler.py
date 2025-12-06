@@ -1,3 +1,6 @@
+from typing import Any
+
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import asyncio
@@ -19,7 +22,7 @@ async def get_instrument_infos(db_name:str, db_user:str, db_password:str, db_hos
     async with pg_manager.PGDBManager(models.BaseModel, db_name, db_user, db_password, db_host, db_port) as session:
         result = await session.execute(select(models.Instrument))
         rows = result.fetchall()
-        return pd.DataFrame([dict(row._mapping) for row in rows])
+        return pd.DataFrame([dict[Any, Any](row._mapping) for row in rows])
 
 
 async def scheduled_task(name:str):

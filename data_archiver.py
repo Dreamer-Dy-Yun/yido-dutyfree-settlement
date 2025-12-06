@@ -4,7 +4,6 @@ from DATABASE.pg_manager import PGDBManager
 import asyncio
 from pathlib import Path
 import pandas as pd
-from datetime import datetime
 from typing import Literal
 from sqlalchemy.orm import DeclarativeMeta
 from sqlalchemy import update, Update
@@ -16,9 +15,8 @@ class DataArchiver:
     매서드들에 딕셔너리 생성시, 
     딕셔너리 리터럴로 안넣고 전부 .update 한 것은 작성자가 마음의 병이 있어 그런 것이니 너그러이 봐 줄 것.
     """
-    def __init__(self, db: PGDBManager) -> None:
-        self.db: PGDBManager = db
-
+    def __init__(self, db: PGDBManager):
+        self.db = db
 
     async def on_instrument(self, name: str, host: str, user: str, port: int, ssh_key_path: str = "") -> pd.DataFrame:
         data : dict ={}
@@ -30,21 +28,6 @@ class DataArchiver:
         data.update({md.port: port})
         data.update({md.ssh_key_path: ssh_key_path})   
         data.update({md.accessible: False})  # TODO : 접근 테스트 로직 넣을 것 
-        df = pd.DataFrame([data])
-        await self.db.upsert_dataframe(md, df)
-        return df
-
-
-    async def on_external_defect(self, serial_no:str, occurred_at:datetime, recognized_at:datetime, note:str ) -> pd.DataFrame:
-        """단건 처리만 가능. 현시점 모델 자체가 없음."""
-        data : dict ={}
-        md = models.external_defect
-
-        data.update({md.serial_no: serial_no})
-        data.update({md.occurred_at: occurred_at})
-        data.update({md.recognized_at: recognized_at})
-        data.update({md.note: note})
-
         df = pd.DataFrame([data])
         await self.db.upsert_dataframe(md, df)
         return df
@@ -100,37 +83,28 @@ class DataArchiver:
         return df
 
 
-    async def on_normalized(self, ict_data: ICTDataExtractor, datafile_subpath:str, datafile_hash:bytes) -> pd.DataFrame:
-        """단건 처리만 가능"""
-        data : dict ={}
-        md : type[models.Normalized] = models.Normalized
-
-        data.update({md.measured_id.name: ict_data.measured_by})
-        data.update({md.vector_visual_normed.name: ict_data.model_name}) # TODO :  벡터화 한 값 넣어야..
-        data.update({md.applied_spec_id.name: ict_data.serial_no}) 
-        df = pd.DataFrame([data])
-        await self.db.upsert_dataframe(md, df)
-        return df
-
-
-    async def process_on_archiving(
+    async def on_process_to_archive(
         self, 
         instrument_name:str, 
-        fullpath_current:str, 
+        model_name:str,
+        path_full_original:Path,
+        path_full_destination:Path,
         is_parsed:bool, 
-        status:int
+        status: Literal["PENDING", "RETRIEVED", "PARSED", "ARCHIVED", "ERROR"],
+        note:str | None = None
         ) -> pd.DataFrame:
         """단건 처리만 가능"""
         data : dict ={}
         md : type[models.Process] = models.Process
 
         data.update({md.instrument_name.name: instrument_name})
-        # data.update({"path_full_source": ""})                  #ICT 장비 내에서의 원본 파일 위치
-        data.update({md.hashed_file.name : Hasher().hash_file(fullpath_current).value}) 
-        data.update({md.path_full_current.name: str(fullpath_current)})
-        # data.update({"is_retrieved": ict_data.serial_no})     # ICT 장비에서 파일 확보 여부. SSH를 통한 리스트 상의 파일 내에서의 확보 여부. 애초에 리스트에 안담기면 방법 없음.
-        data.update({md.is_parsed.name: is_parsed})                   # 파싱 / 이동 완료 여부(변경 예정)
-        data.update({md.status.name: status}) 
+        data.update({md.model_name.name: model_name})
+        data.update({md.path_full_source.name: str(path_full_original)})
+        data.update({md.path_full_destination.name: str(path_full_destination)})
+        # data.update({md.hashed.name : Hasher().hash_file(Path(path_full_destination)).value}) 
+        data.update({md.is_parsed.name: is_parsed})             
+        data.update({md.status.name: status})
+        data.update({md.note.name: note}) 
 
         df = pd.DataFrame([data])
         await self.db.upsert_dataframe(md, df)
@@ -141,19 +115,23 @@ class DataArchiver:
             self, 
             ict_data: ICTDataExtractor, 
             target_process: Literal["spec", "measured"], 
-            base_folderpath: Path, 
-            sub_folderpath: Path
+            dir_base_destination: Path,
+            dir_sub_destination: Path,
             ):
+        path_full_destination: Path = Path("") 
+        
         method_name: str = f"suggest_file_name_{target_process}"
         file_name: str = getattr(ict_data, method_name)
-        fullpath: Path = Path(base_folderpath / sub_folderpath, file_name)
-        df: pd.DataFrame = getattr(ict_data, f"df_{target_process}")
-        df.to_parquet(fullpath)
-        method_name : str = f"on_{target_process}"
-        await getattr(self, method_name)(ict_data, fullpath, Hasher().hash_file(fullpath).value)
-        logger.info(f"Saved {target_process} to {fullpath}")
-        # TODO : 미완성
+        dir_destination : Path= dir_base_destination / dir_sub_destination
+        dir_destination.mkdir(parents=True, exist_ok=True)
+        path_full_destination = Path(dir_destination, file_name)
         
+        df: pd.DataFrame = getattr(ict_data, f"df_{target_process}")
+        df.to_parquet(path_full_destination)
+        method_name : str = f"on_{target_process}"
+        await getattr(self, method_name)(ict_data, path_full_destination, Hasher().hash_file(path_full_destination).value)
+        logger.info(f"Saved {target_process} to {path_full_destination}")
+
 
 
 
@@ -251,6 +229,8 @@ async def test():
     await u.save_parquet_n_upsert(ict_data, "spec", PARENT_PATH, Path(".", "TEST", "SPEC"))
 
     await u.save_parquet_n_upsert(ict_data, "measured", PARENT_PATH, Path(".", "TEST", "MEASURED"))
+
+    await u.on_process_to_archive(ict_data.measured_by, ict_data.model_name, path, True, 1)
 
     # path = Path(".", "TEST", "SPEC", ict_data.suggest_file_name_spec)
     # print(path.resolve()) 

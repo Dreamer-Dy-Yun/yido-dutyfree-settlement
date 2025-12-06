@@ -94,8 +94,8 @@ echo echo [🔐] Admin권한 공개키 등록 중... >> "%SSH_DEPLOY_SCRIPT_PATH
 echo set "sshdir=%%PROGRAMDATA%%\ssh" >> "%SSH_DEPLOY_SCRIPT_PATH%"
 echo mkdir "%%sshdir%%" ^>nul 2^>^&1 >> "%SSH_DEPLOY_SCRIPT_PATH%"
 echo if not exist "%%sshdir%%\administrators_authorized_keys" type nul ^> "%%sshdir%%\administrators_authorized_keys" >> "%SSH_DEPLOY_SCRIPT_PATH%"
-set "msg_succeed='    >> [O] Admin권한 공개키 등록 성공%'
-set "msg_failed='    >> [X] Admin권한 공개키 등록 실패%'
+set "msg_succeed='    >> [O] Admin권한 공개키 등록 성공%'"
+set "msg_failed='    >> [X] Admin권한 공개키 등록 실패%'"
 set "pscmd="
 set "pscmd=%pscmd% $key='%SSH_PUBLIC_KEY_CONTENT%';"
 set "pscmd=%pscmd% $f = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys';"

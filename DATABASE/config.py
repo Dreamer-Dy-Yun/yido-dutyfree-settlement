@@ -1,5 +1,6 @@
 import os
 from DATABASE import pg_manager, models
+from DATABASE.cruder import CRUDer
 
 db_manager = pg_manager.PGDBManager(
     models.BaseModel,
@@ -10,6 +11,7 @@ db_manager = pg_manager.PGDBManager(
     port=int(os.getenv("DB_PORT", "5432"))
 )
 
+cruder = CRUDer(db_manager)
 
 # Sqlalchemy 에서 지원하지 않으므로 직접 쿼리 실행
 # TODO : 언젠가 공통 모듈로 변경 예정

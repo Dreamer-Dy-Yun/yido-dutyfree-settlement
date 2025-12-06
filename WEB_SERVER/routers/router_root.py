@@ -1,8 +1,14 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
+from CUSTOMIZED.cust_parser import Parser
 from WEB_SERVER.routers.settings import get_db_manager
+from DATABASE.cruder import CRUDer
+from WEB_SERVER import funcs_for_api as ffa
 from sqlalchemy import text
+from WEB_SERVER.routers.settings import get_cruder
+import pandas as pd
 
 router = APIRouter(prefix="", tags=["root"])
+
 
 # 루트 엔드포인트
 @router.get("/")
@@ -11,22 +17,40 @@ async def root():
 
 
 @router.get("/health")
-async def health_check():
-    """기본 헬스체크 - 서버가 살아있는지 확인"""
-    return {"status": "healthy", "service": "NOVAS EZ API"}
+async def health_check(cruder: CRUDer = Depends(get_cruder)):
+    db_status: bool = await cruder.is_db_connected()
+    str_db_status: str = "connected" if db_status else "disconnected"
+    return {"status": "healthy", "service": "NOVAS EZ API", "database": str_db_status}
 
 
-@router.get("/health/ready")
-async def readiness_check(db_manager=Depends(get_db_manager)):
-    """레디니스 체크 - DB 연결 등 서비스 준비 상태 확인"""
-    try:
-        # DB 연결 테스트
-        await db_manager.execute_query(text("SELECT 1"))
-        return {
-            "status": "ready",
-            "service": "NOVAS EZ API",
-            "database": "connected"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Service not ready: {str(e)}")
+@router.post("/upsert/instrument")
+async def upsert_instrument(
+    body: dict = Body(..., description="인스트루먼트 정보", example={
+        "name": "ICT장비 이름",
+        "host": "192.168.1.100",
+        "user": "user",
+        "port": 22,
+        "dir_base_source": "/path/to/source",
+        "dir_base_destination": "/path/to/destination",
+        "ssh_key_path": "/path/to/key",
+        "network_name": "network",
+        "network_password": "password",
+        "accessible": True
+    }),
+    cruder: CRUDer = Depends(get_cruder)
+):
+    """인스트루먼트 정보 업데이트"""
+    none_values : list[str] = ['None', ""]
+    temp_dict : dict = {
+        "name": body.get("name"),
+        "host": Parser.to_string(body.get("host"), none_values=none_values, ignore_case=False),
+        "user": Parser.to_string(body.get("user"), none_values=none_values, ignore_case=False),
+        "port": Parser.to_integer(body.get("port"), none_values=none_values, ignore_error=True),
+        "dir_base_source": Parser.to_string(body.get("dir_base_source"), none_values=none_values, ignore_case=False),
+        "dir_base_destination": Parser.to_string(body.get("dir_base_destination"), none_values=none_values, ignore_case=False),
+        "ssh_key_path": Parser.to_string(body.get("ssh_key_path"), none_values=none_values, ignore_case=False),
+    }
+    
+    await ffa.upsert_instrument(cruder, pd.DataFrame([temp_dict]))
+    return {"status": "success"}
 

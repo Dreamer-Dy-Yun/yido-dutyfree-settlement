@@ -69,7 +69,7 @@ class ICTArchiveRunner:
 
             try:
                 # 여기서 에러나면 크래시. 진행하면 안됨. 그냥 크래시.
-                await self.data_archiver.process_on_archiving(measured_by, path_to_move, is_parsed, status)
+                await self.data_archiver.on_process_to_archive(measured_by, path_to_move, is_parsed, status)
             except Exception as e:
                 logger.error(f"아카이빙 프로세스 에러: {e}", exc_info=True)
                 # 로그만 남기고 크래시

@@ -24,7 +24,7 @@ from typing import Any
 
 from sqlalchemy.util import NoneType
 from DATABASE.pg_manager import PGDBManager
-from sqlalchemy import select, Select, tuple_, literal, cast, distinct
+from sqlalchemy import select, Select, tuple_, literal, cast, distinct, text
 from sqlalchemy.sql import func
 from DATABASE import models
 from datetime import date, timedelta, datetime
@@ -205,9 +205,10 @@ class CRUDer:
         result = await self.db.execute_query(stmt)
         return result.mappings().first()
 
-
+###############################################
+# Instrument
+###############################################
     async def get_instrument_names(self) -> list[str]:
-
         md: type[models.Instrument] = models.Instrument
         stmt : Select = select(md.name)
 
@@ -215,16 +216,32 @@ class CRUDer:
         return result.scalars().all()
 
 
-    async def get_latest_retrieved_time(self, instrument_name:str) -> datetime:
-        """결과가 없으면 datetime.min(0001-01-01 00:00:00) 반환"""
-        md: type[models.Process] = models.Process
-        
-        stmt = select(md.retrieved_at).where(md.instrument_name == instrument_name).order_by(md.retrieved_at.desc()).limit(1)
-        
-        result = await self.db.execute_query(stmt)  
-        return datetime.min if result is None else result.scalars().first()
+    async def get_base_dir_destinations(self, instrument_name: str | None = None) -> list[dict[str, Any]]:
+        md: type[models.Instrument] = models.Instrument
+        stmt : Select = select(md.name, md.dir_base_destination)
+        if instrument_name:
+            stmt = stmt.where(md.name == instrument_name)
+        result = await self.db.execute_query(stmt)
+        return result.mappings().all()
 
 
+    async def get_instrument_infos(self, instrument_name: str | None = None) -> list[dict[str, Any]]:
+        md: type[models.Instrument] = models.Instrument
+        stmt : Select = select(md.__table__.columns)
+        if instrument_name:
+            stmt = stmt.where(md.name == instrument_name)
+        result = await self.db.execute_query(stmt)
+        return result.mappings().all()
+
+
+    async def upsert_instrument(self, df: pd.DataFrame) -> None:
+        md: type[models.Instrument] = models.Instrument
+        await self.db.upsert_dataframe(md, df)
+
+
+############################################
+# Model
+############################################
     async def get_model_names(self) -> list[str]:
 
         md: type[models.Model] = models.Model
@@ -234,11 +251,17 @@ class CRUDer:
         return result.scalars().all()
 
 
-    async def get_serial_nos(self) -> list[str]:
+    async def upsert_model_names(self, model_names: pd.DataFrame) -> int:
+        md: type[models.Model] = models.Model
+        return await self.db.upsert_dataframe(md, model_names)
 
+
+############################################
+# Measured
+############################################
+    async def get_serial_nos(self) -> list[str]:
         md: type[models.Measured] = models.Measured
         stmt : Select = select(md.serial_no).distinct()
-
         result = await self.db.execute_query(stmt)
         return result.scalars().all()
 
@@ -270,6 +293,9 @@ class CRUDer:
         return result.mappings().all()
 
 
+############################################
+# Google Service Account
+############################################
     async def get_google_service_account(self, name: str | None = None) -> dict[str, Any]:
         """
             ※ CRUD 외의 로직 포함되어 있음에 유의
@@ -294,6 +320,9 @@ class CRUDer:
         return result.mappings().first()
 
 
+############################################
+# External Defect
+############################################
     async def truncate_external_defect(self) -> None:
         await self.db.truncate_table(models.ExternalDefect)
 
@@ -301,7 +330,9 @@ class CRUDer:
     async def upsert_external_defect(self, df: pd.DataFrame) -> int:
         return await self.db.batch_upsert_dataframe(models.ExternalDefect, df)
 
-
+############################################
+# Normalized
+############################################
     async def upsert_normalized (self, df: pd.DataFrame) -> int:
         return await self.db.batch_upsert_dataframe(models.Normalized, df)
 
@@ -309,7 +340,54 @@ class CRUDer:
     # async def get_normalized(self, measured_id: int) -> pd.DataFrame:
     #     return await self.db.get_dataframe(models.Normalized, df)
 
+############################################
+# Process
+############################################
+    async def upsert_process (self, df: pd.DataFrame) -> int:
+        return await self.db.batch_upsert_dataframe(models.Process, df, allowed_param_size=20000)
 
+
+    async def get_latest_created_time(self, instrument_name:str, model_name:str | None = None) -> datetime:
+        """결과가 없으면 datetime.min(0001-01-01 00:00:00) 반환"""
+        md: type[models.Process] = models.Process
+        
+        stmt = select(md.created_at)
+        stmt = stmt.where(md.instrument_name == instrument_name)
+        if model_name:
+            stmt = stmt.where(md.model_name == model_name)
+        stmt = stmt.order_by(md.created_at.desc()).limit(1)
+        
+        result = await self.db.execute_query(stmt)  
+        return datetime.min if result is None else result.scalars().first()
+
+
+    async def get_latest_created_times(self, instrument_name:str) -> list[dict[str, Any]]:
+        md: type[models.Process] = models.Process
+        
+        stmt = select(md.instrument_name, md.model_name, md.created_at)
+        stmt = stmt.where(md.instrument_name == instrument_name)
+        stmt = stmt.order_by(md.model_name, md.created_at.desc())
+        stmt = stmt.distinct(md.model_name)
+        
+        result = await self.db.execute_query(stmt)  
+        return result.mappings().all()
+
+
+    async def get_unparsed_infos(self, instrument_name:str|None = None, model_name:str | None = None) -> list[dict[str, Any]]:
+        md: type[models.Process] = models.Process
+        stmt: Select = select(md.instrument_name, md.model_name, md.path_full_source, md.path_full_destination, md.is_parsed)
+        if instrument_name:
+            stmt = stmt.where(md.instrument_name == instrument_name)
+        if model_name:
+            stmt = stmt.where(md.model_name == model_name)
+        stmt = stmt.where(md.is_parsed == False)
+        result = await self.db.execute_query(stmt)
+        return result.mappings().all()
+
+
+############################################
+# Vector
+############################################
     async def get_vector_data(self, serial_no: str) -> tuple[str, str, list[float]]:
         """
         해당 시리얼 넘버의 최신 벡터 데이터 조회
@@ -558,6 +636,30 @@ class CRUDer:
         stmt = stmt.order_by(md_m.model_name, md_e.serial_no, md_e.occurred_at.desc())
         result = await self.db.execute_query(stmt)
         return pd.DataFrame(result.mappings().all()) 
+
+
+    async def get_unretrieved_files(self, instrument_name:str | None = None, model_name:str | None = None) -> list[dict[str, Any]]:
+        md: type[models.Process] = models.Process
+        stmt: Select = select(md.instrument_name, md.model_name, md.path_full_source, md.path_full_destination)
+        stmt = stmt.where(md.is_retrieved == False)
+        if instrument_name:
+            stmt = stmt.where(md.instrument_name == instrument_name)
+        if model_name:
+            stmt = stmt.where(md.model_name == model_name)
+        result = await self.db.execute_query(stmt)
+        return result.mappings().all()
+
+
+    async def is_db_connected(self) -> bool:
+        try:
+            status: bool = True
+            result = await self.db.execute_query(text("SELECT 1"))
+            return result.scalars().all()
+        except Exception as e:
+            status: bool = False
+        finally:
+            pass
+        return status
 
 '''
 # id 기반 CRUD. 만들고 보니 쓸데 없음.

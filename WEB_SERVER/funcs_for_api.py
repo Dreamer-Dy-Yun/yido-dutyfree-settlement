@@ -149,6 +149,12 @@ async def get_spec_parquet(
 async def get_instrument_names(cruder: CRUDer) -> list[str]: 
     return await cruder.get_instrument_names()
 
+async def upsert_instrument(
+    cruder: CRUDer, 
+    df: pd.DataFrame
+    ) -> None:
+    await cruder.upsert_instrument(df)
+
 
 async def get_model_names(cruder: CRUDer) -> list[str]: 
     return await cruder.get_model_names()

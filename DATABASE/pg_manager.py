@@ -19,19 +19,19 @@
 #       2025.11.07 : PGDBManager.upsert_dataframe() 수정(불필요한 컬럼 제거)(롤백하면서 제거된 로직 복구)
 # TODO : Steaming용 모듈 작성 고려
 ############################################
-
 import urllib
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlalchemy import Table, text, UniqueConstraint, Column
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from typing import Type, TypeVar, Optional
+from typing import Type, TypeVar, Optional, AsyncContextManager
 from pandas import DataFrame
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ColumnElement, Executable
 import asyncpg
 import asyncio
-
+import numpy as np
+import pandas as pd
 from CUSTOMIZED.cust_logger import logger
 
 TableModel = TypeVar('TableModel', bound=DeclarativeBase)
@@ -55,6 +55,8 @@ class DataBaseMaker:
         self.host: str = host
         self.port: int = port
         self.conn: Optional[asyncpg.Connection] = None
+        self._session_cm: AsyncContextManager[AsyncSession] | None = None
+        self.session: AsyncSession | None = None
 
 
     def run(self) -> bool:
@@ -100,6 +102,7 @@ class DataBaseMaker:
 
 class PGDBManager:
     """Postgre 전용 (비동기)"""
+    # TODO : DBManager 만들어서 상속 받기
 
     def __init__(self, base_model: Type[DeclarativeBase], db_name: str, user: str, password: str, host: str, port: int = 5432):
         self.db_name: str = db_name
@@ -119,12 +122,18 @@ class PGDBManager:
         self.base_fields: dict = {key : val for key, val in vars(self.base_model).items() if isinstance(val, Column)}
 
 
-    async def __aenter__(self):
-        self.session = self.session_maker()
+    async def __aenter__(self): # 변경후 검증 안됨
+        self._session_cm = self.session_maker()  
+        self.session = await self._session_cm.__aenter__()
         return self.session
 
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.session.__aexit__(exc_type, exc, tb)
+    async def __aexit__(self, exc_type, exc, tb): # 변경후 검증 안됨
+        try:
+            if self._session_cm is not None:
+                await self._session_cm.__aexit__(exc_type, exc, tb)
+        finally:
+            self.session = None
+            self._session_cm = None
 
 
     def initialize_engine(self, dbname: str, user: str, password: str, host: str, port: int = 5432, client_encoding: str = "utf8"):
@@ -216,7 +225,22 @@ class PGDBManager:
 
         return cnt_upserted
 
-    async def upsert_dataframe(self, table: DeclarativeBase, df: DataFrame) -> int:
+    @staticmethod
+    def normalize_datetime_columns(df: pd.DataFrame) -> pd.DataFrame:
+        result = df.copy()
+        for col in result.columns:
+            if np.issubdtype(result[col].dtype, np.datetime64):
+                # 일단 datetime으로 강제 파싱
+                result[col] = pd.to_datetime(result[col], errors="coerce")
+
+                # datetime → object로 변경
+                result[col] = result[col].astype("object")
+
+                # NaT → None
+                result.loc[result[col].isna(), col] = None
+        return result
+
+    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame) -> int:
         '''
         자동 Upserter.
         가용한 모든 df(DataFrame)컬럼 업데이트.
@@ -234,7 +258,11 @@ class PGDBManager:
         이를 방지하기 위해, "df[col_name].where(df[col_name].notna(), None)"으로 None으로 변환한 뒤 입력할 것.
         여기서 처리 할 수 있으나, 이 이상 범용화하면 성능저하가 우려되므로 필요한 경우에만 먼저 처리하여 입력 할 것.   
         '''
-        # 항상 그렇듯 극한 성능 필요하면 언어 변경 및 SQL 수기 작성 필요 
+        # 항상 그렇듯 극한 성능 필요하면 언어 변경 및 SQL 수기 작성 필요
+        
+        # Datetime 컬럼을 모두 object로 변환하여 NaT를 None으로 변환 
+        df = self.normalize_datetime_columns(df)
+
         async with self.session_maker() as session:
             try:
                 # logger.info(f"🚀 START [upsert_dataframe]")
@@ -273,7 +301,7 @@ class PGDBManager:
             except Exception as e:
                 await session.rollback()
                 logger.exception(f"❌ UPSERT 실패 @ {table.__tablename__} | 이유: {str(e)}")
-                raise e
+                raise
 
 
     def get_uniqueness(self, base_model: Type[DeclarativeBase]) -> dict:
