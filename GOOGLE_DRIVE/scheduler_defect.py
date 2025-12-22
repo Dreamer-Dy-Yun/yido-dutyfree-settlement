@@ -4,7 +4,7 @@ import asyncio
 from data_retriever_defect import sync_external_defect_data
 import CUSTOMIZED.cust_logger as logger
 
-async def main():
+async def main() -> None:
     try:
         scheduler = AsyncIOScheduler()
         

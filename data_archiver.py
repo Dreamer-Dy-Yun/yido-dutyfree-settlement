@@ -1,6 +1,6 @@
 from OPEN_SSH.ict_data_extractor import ICTDataExtractor
 from DATABASE import pg_manager, models
-from DATABASE.pg_manager import PGDBManager
+from DATABASE.db_manager import DBManager
 import asyncio
 from pathlib import Path
 import pandas as pd
@@ -15,7 +15,7 @@ class DataArchiver:
     매서드들에 딕셔너리 생성시, 
     딕셔너리 리터럴로 안넣고 전부 .update 한 것은 작성자가 마음의 병이 있어 그런 것이니 너그러이 봐 줄 것.
     """
-    def __init__(self, db: PGDBManager):
+    def __init__(self, db: DBManager):
         self.db = db
 
     async def on_instrument(self, name: str, host: str, user: str, port: int, ssh_key_path: str = "") -> pd.DataFrame:
@@ -74,10 +74,11 @@ class DataArchiver:
         data.update({md.serial_no.name: ict_data.serial_no}) 
         data.update({md.path_sub_datafile.name: str(datafile_subpath)})
         data.update({md.hashed_datafile.name: datafile_hash})
+        data.update({md.measured_points.name: len(ict_data.df_measured["measured_value"])})
         data.update({md.list_measured.name: ict_data.df_measured["measured_value"].tolist()}) 
         data.update({md.measured_at.name: ict_data.measured_at}) 
         data.update({md.is_latest.name: True}) 
-        data.update({md.passed.name: True}) 
+        data.update({md.passed.name: ict_data.passed}) 
         df = pd.DataFrame([data])
         await self.db.upsert_dataframe(md, df)
         return df
@@ -91,7 +92,9 @@ class DataArchiver:
         path_full_destination:Path,
         is_parsed:bool, 
         status: Literal["PENDING", "RETRIEVED", "PARSED", "ARCHIVED", "ERROR"],
-        note:str | None = None
+        note:str | None = None,
+        lock:int | None = False,
+        number_of_retries: int | None = None
         ) -> pd.DataFrame:
         """단건 처리만 가능"""
         data : dict ={}
@@ -105,10 +108,18 @@ class DataArchiver:
         data.update({md.is_parsed.name: is_parsed})             
         data.update({md.status.name: status})
         data.update({md.note.name: note}) 
-
+        data.update({md.is_locked.name: lock})
+        if number_of_retries is not None:
+            data.update({md.number_of_retries.name: number_of_retries})
         df = pd.DataFrame([data])
         await self.db.upsert_dataframe(md, df)
         return df
+
+
+    async def raise_if_points_mismatch(self, ict_data: ICTDataExtractor) -> None:
+        if ict_data.measured_points != len(ict_data.df_measured):
+            raise ValueError(f"Measured points mismatch: {ict_data.measured_points} != {len(ict_data.df_measured)}")
+        return
 
 
     async def save_parquet_n_upsert(
@@ -129,7 +140,7 @@ class DataArchiver:
         df: pd.DataFrame = getattr(ict_data, f"df_{target_process}")
         df.to_parquet(path_full_destination)
         method_name : str = f"on_{target_process}"
-        await getattr(self, method_name)(ict_data, path_full_destination, Hasher().hash_file(path_full_destination).value)
+        await getattr(self, method_name)(ict_data, dir_sub_destination / file_name, Hasher().hash_file(path_full_destination).value)
         logger.info(f"Saved {target_process} to {path_full_destination}")
 
 
@@ -142,10 +153,10 @@ class DataArchiver:
 class LatestUnsetter:
     """최신 여부 초기화 클래스"""
     
-    def __init__(self, db: PGDBManager):
+    def __init__(self, db: DBManager):
         self.db = db
 
-    async def on_spec(self, model_name: str | None = None):
+    async def on_spec(self, model_name: str | None = None) -> int:
         """
             해당 model_name의 spec에서 is_latest = true인 것들을 false로 변경
             ※ model_name은 제품의 모델명을 의미
@@ -169,7 +180,7 @@ class LatestUnsetter:
             await session.commit()
             return result.rowcount
 
-    async def on_measured(self, serial_no: str | None = None):
+    async def on_measured(self, serial_no: str | None = None) -> int:
         """해당 serial_no의 measured에서 is_latest = true인 것들을 false로 변경"""
 
         set_all_false : bool = False
@@ -211,7 +222,10 @@ async def test():
 
     db = pg_manager.PGDBManager(models.BaseModel, DB_NAME,DB_USER,DB_PASSWORD,DB_HOST,DB_PORT)
 
-    PARENT_PATH = Path("C:/Users/user/Novas_Ez")
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    PARENT_PATH = Path(os.getenv("DIR_BASE_FOR_PARQUET", "C:/Users/user/ict_parquets"))
     # 테이블이 없으면 자동으로 생성됨
     await db.drop_tables()
     await db.create_tables()

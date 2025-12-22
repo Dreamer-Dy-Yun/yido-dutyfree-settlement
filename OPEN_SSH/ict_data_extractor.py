@@ -13,6 +13,13 @@
 #                     (_get_essential_column_indexes 등 추가)
 #        2025.09.15 : 변경 : 초기 인덱스를 1로 변경(기존 0부터 시작)
 #                     Bug Fix : encoding 추가 csv reading 시 encoding을 누락
+#        2025.11.22 : 원본파일에서 Comment 컬럼이 제대로 처리되지 않음으로 인한 문제 처리.
+#                     ※ 특정 행의 컬럼 수가 헤더 컬럼 수보다 많음. 장비에서 Comma(",")처리가 제대로 안되어 있는 것으로 보임.
+#                     ※ 과거 데이터 처리를 위해 일단은 아래 함수들을 추가 하였으나, 추후 장비측의 문제가 해결되면 아래 함수들을 삭제 할 것.
+#                         - ICTDataExtractor._fix_comment_column_in_line 함수 추가
+#                         - ICTDataExtractor._set_header_columns 함수 추가
+#        2025.12.01 : _handle_pcb_name 변경. PCB Name이 콜론으로 나뉘어져 있는 경우 확인. 
+#        2025.12.11 : Group Test Result 처리를 위한 함수등 추가. passed도 이를 위해 사용.
 ############################################
 
 
@@ -25,6 +32,7 @@ from typing import List, cast
 import pandas as pd
 from dateutil import parser
 import numpy as np
+import csv
 
 class ICTDataExtractor:
     """
@@ -47,6 +55,8 @@ class ICTDataExtractor:
         self.serial_no: str = ""
         self.short_group_list: list[str] = []
         self.measured_points: int = 0
+        self._group_test_result: str = ""
+        self.passed: bool = False
         self.adj_val_infinity: float = 0.0
         self.adj_val_extreme: float = 0.0
         self.delta_spec_ratio: float = 0.0
@@ -57,6 +67,12 @@ class ICTDataExtractor:
         self._state_handlers: dict = self._set_state_handlers()
         self._read_short_group = False
         logger.info(f"ICT_DataReader initialized with file: {self.data_path}")
+
+        #------2025.11.21 확인된 문제를 해결하기 위한 변수----------
+        self.number_of_header_columns: int = 0
+        self.colnum_comment: int = 0
+        self.flg_header_columns: bool = False
+        #------------------------------------------------------ 
 
     @property
     def suggest_file_name_spec(self) ->str:
@@ -161,8 +177,9 @@ class ICTDataExtractor:
                 state: str = ""
                 
                 for line in lines:
-                    state = state if state == "Step" else self._get_value(line, 0).strip().replace("\n", "")
+                    state = state if state == "Step" else self._get_value(line, 0).replace("\n", "")
                     if self._is_valid_line(line):
+                        state = self._modify_if_group_test_result(state)
                         handler = self._state_handlers.get(state)
                         if handler:
                             handler(line)
@@ -175,6 +192,15 @@ class ICTDataExtractor:
         except Exception as e:
             logger.error(f"알 수 없는 에러: {e}", exc_info=True)
             raise
+    
+
+    def _modify_if_group_test_result(self, state: str) -> str:
+        # 이런걸 넣어야 하는게 너무 괴롭다.
+        if "Group Test Result" in state:
+            return "Group Test Result"
+        else:
+            return state
+
 
     def get_original(self, index_name: str = "index", start_index: int = 1, encoding: str = "euc-kr") -> pd.DataFrame:
         try :
@@ -503,6 +529,7 @@ class ICTDataExtractor:
             "Date": self._handle_date,
             "Serial No.": self._handle_serial_no,
             "PCB Name": self._handle_pcb_name,
+            "Group Test Result":self._handle_group_test_result,
             # TODO : 필요시 추가
         }
         return result
@@ -525,7 +552,43 @@ class ICTDataExtractor:
         else:
             return False
 
+    def _set_header_columns(self, line : str) -> None:
+        if not self.flg_header_columns:
+            reader : csv.reader = csv.reader([line])
+            current_row : list[str] = next(reader)
+            self.colnum_comment : int = current_row.index("Comment") # 어차피 해당 헤더만 처리해야 하므로 에러처리 따로 안함. 문제생기면 크래시 내야함.
+            self.number_of_header_columns = len(current_row)
+            self.flg_header_columns = True
+        else:
+            return
+
+    @staticmethod
+    def _fix_comment_column_in_line(line : str, number_of_header_columns : int, colnum_comment : int) -> str:
+        reader = csv.reader([line])
+        current_row = next(reader)
+        number_of_current_columns = len(current_row)
+
+        diff_columns : int = number_of_current_columns - number_of_header_columns
+        if diff_columns > 0:
+            list_before_comment : list[str] = current_row[ : colnum_comment]
+            num_soc : int = colnum_comment 
+            num_eoc : int = colnum_comment + diff_columns + 1
+            str_comment : str = str(",".join(current_row[num_soc : num_eoc]))
+            list_after_comment : list[str] = current_row[num_eoc : ]
+            
+            list_result : list[str] = []
+            list_result.extend(list_before_comment)
+            list_result.append(f'"{str_comment}"')
+            list_result.extend(list_after_comment)
+            result_row : str = ",".join(list_result)
+            return result_row
+        else:
+            return line
+
     def _handle_measured_data(self, line):
+        self._set_header_columns(line)
+        line = self._fix_comment_column_in_line(line, self.number_of_header_columns, self.colnum_comment)
+
         self._csv_records.append(line.strip())
 
     def _handle_short_group(self, _):
@@ -543,7 +606,14 @@ class ICTDataExtractor:
         self.serial_no = self._get_value(line, 1)
 
     def _handle_pcb_name(self, line):
-        self.model_name = self._get_value(line, 1)
+        self.model_name = (",").join(line.split(",")[1:]).strip()
+
+    def _handle_group_test_result(self, line):
+        self._group_test_result = self._get_value(line, 1)
+        if self._group_test_result.upper() == "OK":
+            self.passed = True
+        else:
+            self.passed = False
 
     def _get_columns_by_index(self, target_col_numbers: List[int]) -> pd.DataFrame:
         if self.df_original.empty:
@@ -586,9 +656,15 @@ class ICTDataExtractor:
 
 
 
+
+
+
+
+
+
 # 테스트 코드 -----------------------------------------------
 def test():
-    fullpath = Path(r"D:\ICT_TEST\1호기\06DB9205165ADVNAY920001_20250902093736.csv")
+    fullpath = Path(r"D:\ICT_DOWNLOAD\MI-02\DB92-05669A_R302,R320미삽\06DB9205669ADVNAYB30190_20251103094437.csv")
     ict = ICTDataExtractor()
     ict.get(fullpath)
 

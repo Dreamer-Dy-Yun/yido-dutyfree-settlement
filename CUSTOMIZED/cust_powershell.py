@@ -1,5 +1,5 @@
 ###########################################
-# Module name : cust_powershell.py 
+# Module name : cust_powershell.py (ver.1.0.0)
 # Module class : PSCommand, GetChildItem, Types, Filter, Select
 # Written by : Yun Dae-young 
 # Supported by : ChatGPT-5.1
@@ -8,9 +8,14 @@
 # Updated at : 2025.11.16
 # Note : ※ Customized PowerShell Command DSL (Python에서 없는것 같아서 만듦)
 #        ※ MidcroSoft에서는 Cmdlet / Provider / ScriptBlock / Formatting / Output 로 구분된다고 하나 이걸로 구분하지는 않음
+#        ※ 추가기능은 PowerShell 추가 학습함에 따라 수정/버전업 할 예정
+#        ※ 버전업시에는 Get-ChildItem을 그대로 쓰는것이 아닌, Get.file(), Get.directory() 등으로 변경하고, 
+#           그에 따라 허용된 명령어만 조합하는 방식으로 구현
 #        2025.11.16 : Select 추가. 클래스 명 변경(파워셀 명령어 구조 재확인으로 인한 변경)
 #        2025.11.17 : Consumer, Sort 추가
-#
+#        2025.11.21 : Get-ChildItem 수정 (Attributes로 변경)
+#        2025.11.21 : is_built 제거
+#        2025.11.28 : Encoding 추가
 ############################################
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ from pathlib import Path
 
 
 ############################################
-# PSCommand Expression Factory
+# PSCommand Factory
 ############################################
 class PSCommand:
     """
@@ -31,41 +36,49 @@ class PSCommand:
     STR_SELECT: str = "Select-Object"
     STR_SORT: str = "Sort-Object"
     STR_PIPE: str = "|"
+    STR_OUTPUT_ENCODING: str = "[Console]::OutputEncoding = [System.Text.Encoding]::"
 
-    def __init__(self):
-        self._source : SourceExpr | str = ""
-        self._condition : ConditionExpr | str = ""
-        self._selection : SelectExpr | str = ""
-        self._consumer : ConsumerExpr | str = ""
-        self._sort : SortExpr | str = ""
+    ENCODING_TYPE = {
+        "UTF-8": "UTF8",
+        "Unicode": "Unicode",
+        "BigEndianUnicode": "BigEndianUnicode",
+        "UTF-32": "UTF32",
+        "ASCII": "ASCII",
+        "Default": "Default"
+    }
+
+    EncodingType: TypeAlias = Literal["UTF-8", "Unicode", "BigEndianUnicode", "UTF-32", "ASCII", "Default"]
+
+    def __init__(self, via_cmd: bool = False):
+        self._source : str = ""
+        self._condition : str = ""
+        self._selection : str = ""
+        self._consumer : str = ""
+        self._sort : str = ""
+        self._via_cmd : bool = via_cmd
+        self._output_encoding : str = "UTF8"
+
+    def set_encoding(self, encoding: EncodingType = "UTF-8") -> PSCommand:
+        self._output_encoding = self.ENCODING_TYPE[encoding]
+        return self
 
     def set_source(self, source: SourceExpr | str) -> PSCommand:
-        if isinstance(source, SourceExpr) and not source.is_built():
-            raise ValueError("source is not built")
         self._source = str(source)
         return self
 
     def set_condition(self, condition: ConditionExpr | str) -> PSCommand:
-        if isinstance(condition, ConditionExpr) and not condition.is_built():
-            raise ValueError("filter is not built")
         self._condition = str(condition)
         return self
     
     def set_selection(self, selection: SelectExpr | str) -> PSCommand:
-        if isinstance(selection, SelectExpr) and not selection.is_built():
-            raise ValueError("selection is not built")
         self._selection = str(selection)
         return self
 
     def set_consumer(self, consumer: ConsumerExpr | str) -> PSCommand:
-        if isinstance(consumer, ConsumerExpr) and not consumer.is_built():
-            raise ValueError("consumer is not built")
         self._consumer = str(consumer)
         return self
 
     def set_sort(self, sort: SortExpr | str) -> PSCommand:
-        if isinstance(sort, SortExpr) and not sort.is_built():
-            raise ValueError("sort is not built")
         self._sort = str(sort)
         return self
 
@@ -78,7 +91,12 @@ class PSCommand:
         str_selection = str(self._selection)
 
         cmds : list[str] = []
+
+        if self._output_encoding:
+            cmds.append(self.STR_OUTPUT_ENCODING + self._output_encoding + "; ")
+
         cmds.append(str_source)  
+
         if self._condition:
             cmds.append(self.STR_PIPE)
             cmds.append(self.STR_WHERE)
@@ -94,20 +112,16 @@ class PSCommand:
         if self._consumer:
             cmds.append(self.STR_PIPE)
             cmds.append(self._consumer)
-        cmd : str = self.STR_PWSH + " \"" + " ".join(cmd for cmd in cmds if cmd) + "\""
+        cmd : str = " ".join(cmd for cmd in cmds if cmd)
+        if self._via_cmd:
+            cmd = cmd.replace('"', r'\"')
+            cmd = f'{self.STR_PWSH} "{cmd}"'
         return cmd
 
 
 class _CmdletExpr:
     def __init__(self, cmd: str = "") -> None:
         self._cmd : str = cmd
-        self._is_built : bool = False
-
-    def is_built(self) -> bool:
-        return self._is_built
-
-    def build(self) -> None:
-        raise NotImplementedError("Subclass must implement this method")
 
     def __str__(self) -> str:
         return self._cmd
@@ -142,50 +156,47 @@ class ConditionExpr(_CmdletExpr):
     def __init__(self, cmd: str):
         super().__init__(cmd)
 
-    def build(self) -> ConditionExpr:
-        self._is_built = True
-        return self
-
     def __and__(self, other: ConditionExpr) -> ConditionExpr:
         """ & (and) """
-        return ConditionExpr(f"{self._cmd} -and {other._cmd}").build()
+        return ConditionExpr(f"{self._cmd} -and {other._cmd}")
 
     def __or__(self, other: ConditionExpr) -> ConditionExpr:
         """ | (or) """
-        return ConditionExpr(f"{self._cmd} -or {other._cmd}").build()
+        return ConditionExpr(f"{self._cmd} -or {other._cmd}")
 
     def __invert__(self) -> ConditionExpr:
         """ ~ (not) """
-        return ConditionExpr(f"-not {self._cmd}").build()
+        return ConditionExpr(f"-not ({self._cmd})")
 
     def __ge__(self, other: ConditionExpr) -> ConditionExpr:
         """ >= (이상) """
-        return ConditionExpr(f"{self._cmd} -ge {other._cmd}").build()
+        return ConditionExpr(f"{self._cmd} -ge {other._cmd}")
 
     def __gt__(self, other: ConditionExpr) -> ConditionExpr:
         """ > (초과) """
-        return ConditionExpr(f"{self._cmd} -gt {other._cmd}").build()
+        return ConditionExpr(f"{self._cmd} -gt {other._cmd}")
 
     def __le__(self, other: ConditionExpr) -> ConditionExpr:
         """ <= (이하) """
-        return ConditionExpr(f"{self._cmd} -le {other._cmd}").build()
+        return ConditionExpr(f"{self._cmd} -le {other._cmd}")
 
     def __lt__(self, other: ConditionExpr) -> ConditionExpr:
         """ < (미만) """
-        return ConditionExpr(f"{self._cmd} -lt {other._cmd}").build()
+        return ConditionExpr(f"{self._cmd} -lt {other._cmd}")
 
     def __eq__(self, other: ConditionExpr) -> ConditionExpr:
         """ == (같음) """
-        return ConditionExpr(f"{self._cmd} -eq {other._cmd}").build()
+        return ConditionExpr(f"{self._cmd} -eq {other._cmd}")
 
     def __ne__(self, other: ConditionExpr) -> ConditionExpr:
         """ != (같지 않음) """
-        return ConditionExpr(f"{self._cmd} -ne {other._cmd}").build()
+        return ConditionExpr(f"{self._cmd} -ne {other._cmd}")
 
     @staticmethod
     def brkt(expr: ConditionExpr) -> ConditionExpr:
         """ ( ) """
-        return ConditionExpr(f"( {expr} )").build()
+        return ConditionExpr(f"( {expr} )")
+
 
 ############################################
 # Consumer Expression Factory
@@ -212,26 +223,49 @@ class SortExpr(_CmdletExpr):
 ############################################
 class Get_ChildItem(SourceExpr):
     STR_CMD = "Get-ChildItem"
+    STR_ATTRIBUTE = "-Attributes"
 
     RECURSE = {
         True: "-Recurse",
         False: "",
     }
 
-    ENTRY_TYPE = {
+    ATTRIBUTE_TYPE = {
         "all": "",
-        "file": "-File",
-        "directory": "-Directory",
+        "file": "!Directory",
+        "directory": "Directory",
+        "hidden": "Hidden",
+        "read_only": "ReadOnly",
+        "system": "System",
+        "archive": "Archive",
+        "compressed": "Compressed",
+        "encrypted": "Encrypted",
+        "offline": "Offline",
+        "sparse": "SparseFile",
+        "temporary": "Temporary",
     }
+    
+    AttributeType: TypeAlias = Literal["all", "file", "directory", "hidden", "read_only", "system", "archive", "compressed", "encrypted", "offline", "sparse", "temporary"]
 
-    def __init__(self, target: str | Path):
+    def __init__(self, target: str | Path | list[str | Path]):
         super().__init__()
-        self._target = f"'{target}'"
+        self._target : str = ""
+        if isinstance(target, list):
+            self._target = ", ".join(f"'{str(t)}'" for t in target)
+        else:
+            self._target = f"'{str(target)}'"
         self._recurse: str = ""
-        self._type: str = ""
+        self._attributes: list[str] = []
 
-    def entry(self, type_: Literal["file", "directory", "all"]) -> Get_ChildItem:
-        self._type = self.ENTRY_TYPE[type_]
+    def entry(self, type_: AttributeType) -> Get_ChildItem:
+        """
+          5.0 이상 대상.
+          5.0 이하는 추후 통합 예정 => 현재는 Filter.container() 사용할 것
+        """
+        lower_cased_type : str = type_.lower()
+        if lower_cased_type == "all":
+            return self
+        self._attributes.append(self.ATTRIBUTE_TYPE[lower_cased_type])
         return self
 
     def recursive(self, recursive: bool = True) -> Get_ChildItem:
@@ -240,15 +274,16 @@ class Get_ChildItem(SourceExpr):
 
     def build(self) -> SourceExpr:
         cmds : list[str] = []
+        attribute : str = ""
+
         cmds.append(self.STR_CMD)
         cmds.append(self._target)
         cmds.append(self._recurse)
-        cmds.append(self._type)
+        if self._attributes:
+            attribute = self.STR_ATTRIBUTE + " " + ", ".join(self._attributes)
+            cmds.append(attribute)
         self._cmd = " ".join(cmd for cmd in cmds if cmd)
-        self._is_built = True
-        result = SourceExpr(self._cmd)
-        result._is_built = True
-        return result
+        return SourceExpr(self._cmd)
 
 ############################################
 # Types Factory
@@ -260,16 +295,16 @@ class Types(ConditionExpr):
 
     @staticmethod
     def field(field_name: str) -> ConditionExpr:
-        return ConditionExpr(f"{Types.OBJ}.{field_name}").build()
+        return ConditionExpr(f"{Types.OBJ}.{field_name}")
 
     @staticmethod
     def datetime(datetime_value: datetime) -> ConditionExpr:
         str_datetime = datetime_value.strftime(Types.STR_DATETIME)
-        return ConditionExpr(f"{Types.TYPE_DATETIME}'{str_datetime}'").build()
+        return ConditionExpr(f"{Types.TYPE_DATETIME}'{str_datetime}'")
 
     @staticmethod
     def value(value: str) -> ConditionExpr:
-        return ConditionExpr(f"'{value}'").build()
+        return ConditionExpr(f"'{value}'")
 
 
 ############################################
@@ -284,20 +319,52 @@ class Filter(ConditionExpr):
         "last_write": "LastWriteTime",
     }
     DICT_SELECT_TYPE = {
-        "name": "Name ",
-        "full_name": "FullName ",
-        "extension": "Extension ",
-        "length": "Length ",
-        "creation_time": "CreationTime ",
-        "last_access_time": "LastAccessTime ",
-        "last_write_time": "LastWriteTime ",
+        "is_container": "PsIsContainer",
+        "name": "Name",
+        "full_name": "FullName",
+        "extension": "Extension",
+        "length": "Length",
+        "creation_time": "CreationTime",
+        "last_access_time": "LastAccessTime",
+        "last_write_time": "LastWriteTime",
     }
+    
+    DICT_CONTAINER_TYPE = {
+        "file": "File",
+        "directory": "Directory",
+        "all": "",
+    }
+
     TimestampType: TypeAlias = Literal["creation", "last_access", "last_write"]
     SelectType: TypeAlias = Literal["name", "full_name", "extension", "length", "creation_time", "last_access_time", "last_write_time"]
+    ContainerType: TypeAlias = Literal["file", "directory"]
 
     def __init__(self, cmd: str):
         super().__init__(cmd)
-        
+    
+    @staticmethod
+    def container(kind: ContainerType = "file") -> ConditionExpr:
+        """PowerShell 5.0이하는 파일/폴더 선택시 이걸 사용할 것"""
+        if kind == "file":
+            return ~ Types.field("PsIsContainer")
+        elif kind == "directory":
+            return Types.field("PsIsContainer")
+        else:
+            return ConditionExpr("")
+
+    @staticmethod
+    def by_name(name: str, wildcard_preposision: Literal["*", "?"] | None = None, wildcard_postposition: Literal["*", "?"] | None = None) -> ConditionExpr:
+        str_name : str = name
+        if wildcard_preposision:
+            str_name = f"{wildcard_preposision}{str_name}"
+        if wildcard_postposition:
+            str_name = f"{str_name}{wildcard_postposition}"
+        return Types.field("Name") == Types.value(str_name)
+
+    @staticmethod
+    def by_full_name(full_name: Path) -> ConditionExpr:
+        return Types.field("FullName") == Types.value(str(full_name))
+
     @staticmethod
     def by_extension(extension: str = "csv") -> ConditionExpr:
         ext = extension if extension.startswith('.') else f'.{extension}'
@@ -359,6 +426,7 @@ class Sort(SortExpr):
 
     def by_full_name(self, descending: bool = False) -> Sort:
         self.by_property("FullName", descending)
+        return self
 
     def by_extension(self, descending: bool = False) -> Sort:
         self.by_property("Extension", descending)
@@ -380,10 +448,9 @@ class Sort(SortExpr):
         self.by_property("LastWriteTime", descending)
         return self
 
-    def build(self) -> SelectExpr:
+    def build(self) -> SortExpr:
         self._cmd = " ".join(self._cmds)
-        self._is_built = True
-        return self
+        return SortExpr(self._cmd)
 
 ############################################
 # Select Factory
@@ -484,12 +551,12 @@ class Select(SelectExpr):
         self._add_cmd_count(f"-Skip {count}")
         return self
     
-    def build(self) -> Select:
-        self._cmd_property = self.STR_PROPERTY + " " + ", ".join(self._cmds_property)
-        self._cmd_count = " ".join(self._cmds_count)
-        self._cmd = self._cmd_property + " " + self._cmd_count
-        self._is_built = True
-        return self
+    def build(self) -> SelectExpr:
+        cmd_property : str = ""
+        if self._cmds_property:
+            cmd_property = self.STR_PROPERTY + " " + ", ".join(self._cmds_property)
+        cmd_count : str = " ".join(self._cmds_count)
+        return SelectExpr(f"{cmd_property} {cmd_count}".strip())
 
 ############################################
 # Consumer Expression Factory
@@ -500,40 +567,38 @@ class ToJson(ConsumerExpr):
         super().__init__(cmd)
         self._cmds : list[str] = []
 
-    def compress(self) -> ConsumerExpr:
+    def compress(self) -> ToJson:
         self._cmds.append(f"-Compress")
         return self
     
-    def depth(self, depth: int) -> ConsumerExpr:
+    def depth(self, depth: int) -> ToJson:
         self._cmds.append(f"-Depth {depth}")
         return self
 
-    def enums_as_strings(self) -> ConsumerExpr:
+    def enums_as_strings(self) -> ToJson:
         self._cmds.append(f"-EnumsAsStrings")
         return self
 
-    def as_array(self) -> ConsumerExpr:
+    def as_array(self) -> ToJson:
         self._cmds.append(f"-AsArray")
         return self
     
     def build(self) -> ConsumerExpr:
         self._cmd = self.STR_CMD + " " + " ".join(self._cmds)
-        self._is_built = True
-        return self
+        return ConsumerExpr(self._cmd)
 
 ############################################
 # Test
 ############################################
 if __name__ == "__main__":
     # Find
-    find_cmd = Get_ChildItem(".").entry("file").build()
 
-    # Time Expression
-    # time_condi = Filter.since(datetime.now()) & Filter.until(datetime.now())
-    time_condi = Filter.after(datetime.now()) & Filter.before(datetime.now())
-    extension_condi = Filter.by_extension("csv")
-    selection = Select().name().extension().full_name().length().creation_time(with_milliseconds=True).last_access_time(with_milliseconds=True).last_write_time(with_milliseconds=True).build()
-    full_condi = extension_condi & ConditionExpr.brkt(time_condi)
-    # Wrap
-    full_cmd = PSCommand().set_source(find_cmd).set_condition(full_condi).set_selection(selection).build()
-    print(full_cmd)
+    dir_source_base = Path("D:\BLIZZARD")
+
+    cmd_source = Get_ChildItem(dir_source_base).build() # 5.0 이상 대상.
+    cmd_condition = Filter.container("directory")
+    cmd_selection = Select().name().build()
+    cmd_consumer = ToJson().compress().build()
+    cmd = PSCommand().set_source(cmd_source).set_condition(cmd_condition).set_selection(cmd_selection).set_consumer(cmd_consumer).build()
+
+    print(cmd)

@@ -51,7 +51,7 @@ class _sheet_name_sanitizer:
     def __init__(self):
         self._used = set()
 
-    def set_used_sheet_names(self, sheet_names: list[str]):
+    def set_used_sheet_names(self, sheet_names: list[str]) -> None:
         self._used = set(sheet_names)
 
     def get(self, name: str, default: str = "Sheet") -> str:

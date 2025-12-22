@@ -1,11 +1,23 @@
+###########################################
+# Module name : router_similarity.py
+# Module functions : sync_defect_data, 
+#                   get_defects_url_by_name, 
+#                   normalize_and_upsert_all_models, 
+#                   get_serial_similarity_hits_from_defects, 
+#                   download_defects_similars_xlsx
+# Written by : Yun Dae-young 
+# Contact : Dreamer.Dy.Yun@Gmail.com
+# Created at : 2025.??.??
+# Updated at : 2025.12.03
+# Supported by : Chat GPT-4o / Cursor AI
+# Note : 
+############################################
+
 from fastapi import APIRouter, Query, Depends, Body
-from fastapi.responses import RedirectResponse
 from DATABASE.cruder import CRUDer
 from WEB_SERVER.routers.settings import get_cruder
-from WEB_SERVER.routers.settings import get_db_manager
-from WEB_SERVER.routers.settings import PARENT_PATH_SPEC
-from WEB_SERVER.routers.settings import PARENT_PATH_MEASURED
-from WEB_SERVER.routers.settings import ffa
+from WEB_SERVER.routers.settings import DIR_BASE
+from WEB_SERVER.routers.settings import svc
 from WEB_SERVER.routers.settings import as_gzip_response
 from WEB_SERVER.routers.settings import handle_http_error
 from WEB_SERVER.routers.settings import Export
@@ -17,7 +29,7 @@ from async_lru import alru_cache
 router = APIRouter(prefix="/api/similarity", tags=["similarity"])
 
 # 루트 엔드포인트
-@router.post("/set/defect")
+@router.post("/set/defect", summary="불량 데이터 동기화", description="Google 스프레드시트에서 외부 불량 데이터를 동기화합니다.")
 @handle_http_error
 async def sync_defect_data(
     body: dict = Body(..., description="요청 본문", example={"name": "시장불량"}),
@@ -28,23 +40,23 @@ async def sync_defect_data(
     return as_gzip_response(result_data)
 
 
-@router.get("/get/url/google_spreadsheet/defects", response_description="Google 스프레드시트 URL")
+@router.get("/get/url/google_spreadsheet/defects", summary="Google 스프레드시트 URL 조회", description="불량 데이터가 저장된 Google 스프레드시트의 URL을 조회합니다.", response_description="Google 스프레드시트 URL")
 @handle_http_error
 async def get_defects_url_by_name(
     name: str = Query("시장불량", description="Google Service Account 이름", example="시장불량"),
     cruder: CRUDer = Depends(get_cruder),
 ) -> str:
-    return await ffa.get_google_spreadsheet_url_by_name(cruder, name)
+    return await svc.get_google_spreadsheet_url_by_name(cruder, name)
 
 
-@router.post("/set/normalize_and_upsert_all_models")
+@router.post("/set/normalize_and_upsert_all_models", summary="모델 정규화 및 벡터 업서트", description="모든 모델의 측정 데이터를 정규화하고 벡터 데이터로 변환하여 저장합니다.")
 @handle_http_error
 async def normalize_and_upsert_all_models(cruder: CRUDer = Depends(get_cruder)):
-    result_data = await ffa.normalize_and_upsert_all_models(cruder, PARENT_PATH_SPEC)
+    result_data = await svc.normalize_and_upsert_all_models(cruder, DIR_BASE)
     return as_gzip_response(result_data)
 
-@alru_cache(maxsize=1000)
-@router.get("/get/trends")
+
+@router.get("/get/trends", summary="불량 유사도 트렌드 조회", description="불량 데이터와 유사한 시리얼의 트렌드 데이터를 조회합니다.")
 @handle_http_error
 async def get_serial_similarity_hits_from_defects(
     instrument_name: str | None = Query(None, description="ICT 기기명", example="1호기"),
@@ -57,9 +69,14 @@ async def get_serial_similarity_hits_from_defects(
 ):
 
     if not cp.Parser.to_string(serial_no):
-        serial_no = (await cruder.get_latest_measured_datum())["serial_no"]
+        latest_datum = await cruder.get_latest_measured_datum()
+        if latest_datum is None:
+            raise ValueError("측정 데이터가 없습니다. serial_no를 명시적으로 제공해주세요.")
+        serial_no = latest_datum["serial_no"]
 
-    result_data = await ffa.get_serial_similarity_hits_from_defects(
+    await svc.normalize_and_upsert_all_models(cruder, DIR_BASE)
+
+    result_data = await svc.get_serial_similarity_hits_from_defects(
         cruder,
         instrument_name,
         serial_no,
@@ -71,7 +88,7 @@ async def get_serial_similarity_hits_from_defects(
     return as_gzip_response(result_data, numpy_serialize=True)
     
 
-@router.get("/download/xlsx/defects_similars")
+@router.get("/download/xlsx/defects_similars", summary="불량 유사도 Excel 다운로드", description="불량 데이터와 유사한 시리얼 데이터를 Excel 파일로 다운로드합니다.")
 @handle_http_error
 async def download_defects_similars_xlsx(
     date_from: str = Query(..., description="시작일자 YYYY-MM-DD", example="2025-01-01"),
@@ -80,7 +97,7 @@ async def download_defects_similars_xlsx(
     cruder: CRUDer = Depends(get_cruder),
 ):
     sheet_name = date_from + " ~ " + date_to
-    result_data = await ffa.get_similars_to_defects(
+    result_data = await svc.get_similars_to_defects(
         cruder,
         cp.Parser.to_date(date_from, ignore_error=False),
         cp.Parser.to_date(date_to, ignore_error=False),

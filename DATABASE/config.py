@@ -8,14 +8,16 @@ db_manager = pg_manager.PGDBManager(
     user=os.getenv("DB_USER", "admin"),
     password=os.getenv("DB_PASSWORD", "123!@#qwe"),
     host=os.getenv("DB_HOST", "localhost"),
-    port=int(os.getenv("DB_PORT", "5432"))
+    port=int(os.getenv("DB_PORT", "5432")),
+    pool_size=int(os.getenv("DB_POOL_SIZE", "20")), 
+    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "50"))  
 )
 
 cruder = CRUDer(db_manager)
 
 # Sqlalchemy 에서 지원하지 않으므로 직접 쿼리 실행
 # TODO : 언젠가 공통 모듈로 변경 예정
-async def apply_postgres_vector_scale_index(db_manager: pg_manager.PGDBManager):
+async def apply_postgres_vector_scale_index(db_manager: pg_manager.PGDBManager) -> None:
     await db_manager.execute_query("CREATE EXTENSION IF NOT EXISTS vectorscale;")
     await db_manager.execute_query(
         "CREATE INDEX IF NOT EXISTS ix_normalized_vec_diskann_cos ON normalized USING diskann (vector_visual_normed vector_cosine_ops);"

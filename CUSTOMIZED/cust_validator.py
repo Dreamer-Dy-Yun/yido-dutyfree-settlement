@@ -21,7 +21,7 @@ AIO_RESULT: TypeAlias = List[Union[Any, BaseException]]
 class Raise:
     class If:
         @staticmethod
-        def empty(variable: Any, name_variable: str = "Unassigned"):
+        def empty(variable: Any, name_variable: str = "Unassigned") -> Any:
 
             empty_types = (str, list, dict, set)  # 빈 값 검사 대상
 
@@ -42,13 +42,13 @@ class Raise:
             return variable
 
         @staticmethod
-        def exceed(value: float, maximum: float):
+        def exceed(value: float, maximum: float) -> float:
             if value > maximum:
                 raise ValueError(f"◈Exceeded value◈\n\tvalue : {value}\n\tmaximum value : {maximum}")
             return value
 
         @staticmethod
-        def below(value: float, minimum: float, value_name: str = "value"):
+        def below(value: float, minimum: float, value_name: str = "value") -> float:
             if value < minimum:
                 raise ValueError(f"◈Below Minimum◈\n\t{value_name} : {value}\n\tMinimum : {minimum}")
             return value

@@ -14,11 +14,13 @@
 import asyncssh
 import os
 import posixpath
+import uuid
 from pathlib import Path, PurePosixPath
-from typing import Literal, Sequence
-from datetime import datetime, timezone
+from typing import Literal, Sequence, Self
+from datetime import datetime
 from CUSTOMIZED.cust_logger import logger, timer
 import pandas as pd
+import asyncio
 
 class OpenSSHConnector():
 
@@ -63,7 +65,8 @@ class OpenSSHConnector():
             return self
         
         except Exception as e:
-            logger.exception(f"❗ SSH 서버 연결 실패 : {self.username}@{self.hostname} : {self.port}")
+            # logger.exception(f"❗ SSH 서버 연결 실패 : {self.username}@{self.hostname} : {self.port}")  #에러 트레이스 필요할 때.
+            logger.error(f"❗ SSH 서버 연결 실패 : {self.username}@{self.hostname} : {self.port} - {type(e).__name__}: {e}")
             raise ConnectionError(f"Unable to connect to the SSH server : {e}")
         
 
@@ -184,7 +187,7 @@ class OpenSSHConnector():
     
 
     async def filter_sourcefiles_by_ext(self, *extensions: str) -> None:
-        """파일 확장자로 필터링 (안씀. PowerShell 명령어 사용)"""
+        """파일 확장자로 필터링 (가급적 이것 말고 PowerShell/Linux 명령어 사용 할 것)"""
         extensions = tuple(e.lower() if e.startswith('.') else f'.{e.lower()}' for e in extensions)
         filepaths_source = self.filepaths_source
         self.filepaths_source = {path for path in filepaths_source if Path(path).suffix.lower() in extensions}
@@ -208,15 +211,23 @@ class OpenSSHConnector():
         df: pd.DataFrame, 
         colname_source: str = "path_full_source", 
         colname_destination: str = "path_full_destination", 
-        colname_is_retrieved: str = "is_retrieved"
+        colname_is_retrieved: str = "is_retrieved",
+        task_name: str = None,
         ) -> pd.DataFrame:
         """모든 파일 다운로드"""
-        timer.start(f"{self.username}@{self.hostname}")
+
+        if not task_name:
+            task_name = uuid.uuid4()
+
+        msg: str = f"{self.username}@{self.hostname} (Task ID: {task_name})"
+
+        timer.start(msg)
+        logger.debug(f"Downloading files information: \n{df}")  # DEBUG
         results = await asyncio.gather(
             *[self.file_transfer("DOWNLOAD", getattr(row, colname_source), getattr(row, colname_destination)) for row in df.itertuples(index=False)],
             return_exceptions=True
         )
-        timer.end(f"{self.username}@{self.hostname}")
+        timer.end(msg)
         # 성패 기재하여 반환
         df[colname_is_retrieved] = [not isinstance(result, Exception) for result in results]
         # df[colname_retrieved_at] = [datetime.now() if not isinstance(result, Exception) else None for result in results]
@@ -230,7 +241,7 @@ class OpenSSHConnector():
         return result
 
 
-    def _make_desti_dirs(self, dir_destination: Path):
+    def _make_desti_dirs(self, dir_destination: Path) -> None:
         try:
             os.makedirs(dir_destination, exist_ok=True)
         except PermissionError as e:
@@ -249,13 +260,16 @@ class OpenSSHConnector():
             raise ValueError(f"지원하지 않는 전송 모드입니다: {mode}")
 
         func, str_mode, error_cls = self._actions[mode]
+        tab_indent = '\t' * 4
 
         try:
+            logger.info(f"✅ {str_mode} 시작 : {fulpath_sourcefile} \n{tab_indent} → {fullpath_destination}")
             await func(str(fulpath_sourcefile), str(fullpath_destination))
-            tab_indent = '\t' * 4
             logger.info(f"✅ {str_mode} 성공 : {fulpath_sourcefile} \n{tab_indent} → {fullpath_destination}")
         except Exception as e:
             raise error_cls(str(fulpath_sourcefile), str(fullpath_destination)) from e
+        # finally:
+        #     pass
         
 
     async def get_connection(self) -> asyncssh.SSHClientConnection:
@@ -280,12 +294,12 @@ class OpenSSHConnector():
             logger.exception(f"Error in close: {e}")
         
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         await self.connect_with_private_key()
         return self
     
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
         await self.close()
         if exc_type is not None:
             logger.error(f"Error Occurred: {exc_type.__name__}: {exc_val}")
@@ -326,11 +340,34 @@ class OpenSSHConnector():
         if not await self.is_connected():
             raise SSHConnectionError(self.username, self.hostname, self.port)
         try:
-            return await self._conn.run(command)
+            result = await self._conn.run(command)
+            return result
         except Exception as e:
             logger.exception(f"SSH command execution failed: {command}")
             raise SSHCommandError(command, str(e)) from e
 
+    def test_run(self, command: str) -> asyncssh.SSHCompletedProcess:
+        """
+        동기적으로 명령을 실행하는 테스트 메서드.
+        이미 실행 중인 이벤트 루프가 있으면 RuntimeError를 발생시킵니다.
+        비동기 컨텍스트에서는 직접 await self.run_command(command)를 사용하세요.
+        """
+        try:
+            # 이미 실행 중인 루프가 있는지 확인
+            loop = asyncio.get_running_loop()
+            # 실행 중인 루프가 있으면 (get_running_loop()가 성공하면) 예외 발생
+            raise RuntimeError(
+                "test_run() cannot be called from a running event loop. "
+                "In async context, use 'await self.run_command(command)' instead."
+            )
+        except RuntimeError as e:
+            # get_running_loop()가 RuntimeError를 발생시킨 경우 (실행 중인 루프가 없음)
+            # 에러 메시지가 "no running event loop"인 경우에만 새 루프를 생성하여 실행
+            error_msg = str(e).lower()
+            if "no running event loop" in error_msg or "no current event loop" in error_msg:
+                return asyncio.run(self.run_command(command))
+            # 다른 RuntimeError는 그대로 전파 (위에서 발생시킨 에러)
+            raise
 
 
 # Exception Classes

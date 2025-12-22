@@ -17,9 +17,12 @@
 #       2025.10.20 : PGDBManager.upsert_dataframe() 반환값 변경(None → 업데이트 된 행 수(int))
 #                    PGDBManager 클래스 변수를 인스턴스 변수로 변경
 #       2025.11.07 : PGDBManager.upsert_dataframe() 수정(불필요한 컬럼 제거)(롤백하면서 제거된 로직 복구)
+#       2025.11.22 : PGDBManager.initialize_engine() 수정(pool_size, max_overflow 추가)
+#       2025.11.30 : DBManager 추상 클래스 추가 및 상속
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 import urllib
+from DATABASE.db_manager import DBManager
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlalchemy import Table, text, UniqueConstraint, Column
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
@@ -83,7 +86,7 @@ class DataBaseMaker:
                 await self.conn.close()
 
 
-    async def _exists_database(self, make_db_if_not_exists: bool = True):
+    async def _exists_database(self, make_db_if_not_exists: bool = True) -> None:
         try:
             exists = await self.conn.fetchval(
                 "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
@@ -100,11 +103,18 @@ class DataBaseMaker:
             logger.warning(f'Failed to create database "{self.db_name}": {e}')
 
 
-class PGDBManager:
+class PGDBManager(DBManager):
     """Postgre 전용 (비동기)"""
-    # TODO : DBManager 만들어서 상속 받기
-
-    def __init__(self, base_model: Type[DeclarativeBase], db_name: str, user: str, password: str, host: str, port: int = 5432):
+    def __init__(
+        self, base_model: TableModel, 
+        db_name: str, 
+        user: str, 
+        password: str, 
+        host: str, 
+        port: int = 5432,
+        pool_size: int = 50,
+        max_overflow: int = 150
+        ):
         self.db_name: str = db_name
         self.user: str = user
         self.password: str = password
@@ -116,18 +126,19 @@ class PGDBManager:
         self.base_model: Optional[Type[DeclarativeBase]] = None
         self.client_encoding: str = ""
         
-        self.initialize_engine(self.db_name, self.user, self.password, self.host, self.port)
+        self.initialize_engine(self.db_name, self.user, self.password, self.host, self.port, pool_size=pool_size, max_overflow=max_overflow)
         self.base_model = base_model
         self.uniqueness: dict[str, list] = self.get_uniqueness(self.base_model)
         self.base_fields: dict = {key : val for key, val in vars(self.base_model).items() if isinstance(val, Column)}
 
 
-    async def __aenter__(self): # 변경후 검증 안됨
+    async def __aenter__(self) -> AsyncSession: # 변경후 검증 안됨
         self._session_cm = self.session_maker()  
         self.session = await self._session_cm.__aenter__()
         return self.session
 
-    async def __aexit__(self, exc_type, exc, tb): # 변경후 검증 안됨
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool: # 변경후 검증 안됨
         try:
             if self._session_cm is not None:
                 await self._session_cm.__aexit__(exc_type, exc, tb)
@@ -136,14 +147,24 @@ class PGDBManager:
             self._session_cm = None
 
 
-    def initialize_engine(self, dbname: str, user: str, password: str, host: str, port: int = 5432, client_encoding: str = "utf8"):
+    def initialize_engine(
+        self, 
+        dbname: str, 
+        user: str, 
+        password: str, 
+        host: str, 
+        port: int = 5432, 
+        client_encoding: str = "utf8",
+        pool_size: int = 50,
+        max_overflow: int = 150
+        ):
         if self.async_engine is None:
             logger.info(f"{user}:***@{host}:{str(port)}/{dbname}")
 
             pw: str = urllib.parse.quote_plus(password)
             uri: str = f"postgresql+asyncpg://{user}:{pw}@{host}:{str(port)}/{dbname}"
             self.client_encoding = client_encoding
-            self.async_engine = create_async_engine(uri, echo=False)
+            self.async_engine = create_async_engine(uri, echo=False, pool_size=pool_size, max_overflow=max_overflow)
             self.session_maker = sessionmaker(
                 bind=self.async_engine,
                 class_=AsyncSession,
@@ -166,6 +187,13 @@ class PGDBManager:
         logger.info("✅All tables are REMOVED.")
 
 
+    async def dispose_pool(self) -> None:
+        """연결 풀을 정리합니다."""
+        if self.async_engine:
+            await self.async_engine.dispose()
+            logger.info("✅Connection pool disposed.")
+
+
     async def execute_query(self, query: str | Executable, params: dict | list[dict] | None = None):
         """비동기 ORM 세션을 사용해서 쿼리 실행 (파라미터 바인딩 지원)"""
         async with self.session_maker() as session:
@@ -180,7 +208,7 @@ class PGDBManager:
             except Exception as e:
                 await session.rollback()
                 logger.exception(f"❌Query execution error: {str(e)}")
-                raise e
+                raise 
 
 
     async def truncate_table(self, table: DeclarativeBase, restart_identity: bool = True, cascade: bool = True) -> bool:
@@ -225,6 +253,7 @@ class PGDBManager:
 
         return cnt_upserted
 
+
     @staticmethod
     def normalize_datetime_columns(df: pd.DataFrame) -> pd.DataFrame:
         result = df.copy()
@@ -240,7 +269,8 @@ class PGDBManager:
                 result.loc[result[col].isna(), col] = None
         return result
 
-    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame) -> int:
+
+    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, try_normalize: bool = True) -> int:
         '''
         자동 Upserter.
         가용한 모든 df(DataFrame)컬럼 업데이트.
@@ -260,8 +290,9 @@ class PGDBManager:
         '''
         # 항상 그렇듯 극한 성능 필요하면 언어 변경 및 SQL 수기 작성 필요
         
-        # Datetime 컬럼을 모두 object로 변환하여 NaT를 None으로 변환 
-        df = self.normalize_datetime_columns(df)
+        if try_normalize:
+            # Datetime 컬럼을 모두 object로 변환하여 NaT를 None으로 변환 
+            df = self.normalize_datetime_columns(df)
 
         async with self.session_maker() as session:
             try:
@@ -271,6 +302,14 @@ class PGDBManager:
 
                 if not uniqs:
                     raise ValueError(f"Can't find PK/UK in {table_name}")
+
+                # 유니크 키 컬럼 검증: 모든 유니크 키 컬럼이 DataFrame에 있어야 함
+                missing_uniq_cols = [col for col in uniqs if col not in df.columns]
+                if missing_uniq_cols:
+                    raise ValueError(
+                        f"Missing required unique key columns in DataFrame for table '{table_name}': {missing_uniq_cols}. "
+                        f"Required columns: {uniqs}, Available columns: {list(df.columns)}"
+                    )
 
                 # 모델에 정의된 컬럼만 선택 (불필요한 컬럼 제거)
                 model_columns = [col.name for col in table.__table__.columns]
@@ -304,7 +343,7 @@ class PGDBManager:
                 raise
 
 
-    def get_uniqueness(self, base_model: Type[DeclarativeBase]) -> dict:
+    def get_uniqueness(self, base_model: Type[DeclarativeBase]) -> dict[str, list[str]]:
         """
         DB 내 모든 테이블을 순회하며,
         테이블명: list(유니크키 컬럼 리스트 또는 프라이머리키 컬럼 리스트) 반환
@@ -313,7 +352,7 @@ class PGDBManager:
         tables = base_model.metadata.tables
 
         for table_name, table in tables.items():
-            unique_cols: list = []
+            unique_cols: list[str] = []
             unique_cols = self._get_unique_columns(table, unique_cols)
             unique_cols = self._get_primary_columns(table, unique_cols)
             uniqueness.update({table_name: unique_cols})
@@ -321,7 +360,7 @@ class PGDBManager:
 
 
     @staticmethod
-    def _get_unique_columns(table: Table, unique_cols: list | None = None) -> list:
+    def _get_unique_columns(table: Table, unique_cols: list[str] | None = None) -> list[str]:
         if unique_cols:
             return unique_cols
 
@@ -329,11 +368,11 @@ class PGDBManager:
             if isinstance(constraint, UniqueConstraint):
                 unique_cols = [col.name for col in constraint.columns]
                 break
-        return unique_cols
+        return unique_cols or []
 
 
     @staticmethod
-    def _get_primary_columns(table: Table, unique_cols: list | None = None) -> list:
+    def _get_primary_columns(table: Table, unique_cols: list[str] | None = None) -> list[str]:
         if unique_cols:
             return unique_cols
 

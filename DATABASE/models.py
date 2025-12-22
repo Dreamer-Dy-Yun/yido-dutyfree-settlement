@@ -12,31 +12,31 @@
 #                file_hash를 Unique 컬럼으로 변경
 #                fullpath_source를 fullpath_current로 변경 등.
 #   2025.10.02 : 컬럼명 변경 및 관련부 변경(DB 설계 참조)
+#   2025.11.26 : id 컬럼을 BigInteger로 변경
 ############################################
 
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Integer, DateTime, Text, Boolean, ForeignKey, UniqueConstraint, Double, LargeBinary, Index
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import String, Integer, DateTime, Text, Boolean, ForeignKey, UniqueConstraint, Double, LargeBinary, Index, BigInteger, ARRAY
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.sql import func
-from alembic import op
+from typing import Self
 
 class BaseModel(DeclarativeBase):
     """모든 모델의 기본 클래스"""
     __abstract__ = True
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     db_created_at: Mapped[DateTime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     db_updated_at: Mapped[DateTime] = mapped_column(DateTime, default=func.now(), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{self.__class__.__name__}(id={self.id}, updated={self.db_updated_at})>"
 
     def to_dict(self) -> dict:
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
     @classmethod
-    def from_dict(cls, data: dict):
+    def from_dict(cls, data: dict) -> Self:
         return cls(**{k: v for k, v in data.items() if hasattr(cls, k)})
 
 
@@ -63,6 +63,7 @@ class Instrument(BaseModel):
     network_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     network_password: Mapped[str] = mapped_column(Text, nullable=True)  # 현재 사용예정 없으나, 사용시 암호화 정책/인터페이스 수립 할 것.
     accessible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    activated: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class ExternalDefect(BaseModel):
@@ -79,14 +80,14 @@ class ExternalDefect(BaseModel):
 class Model(BaseModel):
     __tablename__ = "model"
 
-    name: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
 
 
 class Spec(BaseModel):
     __tablename__ = "spec"
 
     instrument_name: Mapped[str | None] = mapped_column(String(50), ForeignKey("instrument.name", ondelete="SET NULL"), nullable=True)
-    model_name: Mapped[str] = mapped_column(String(20), ForeignKey("model.name", ondelete="CASCADE"), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(50), ForeignKey("model.name", ondelete="CASCADE"), nullable=False)
 
     measured_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
     adj_val_infinity: Mapped[float | None] = mapped_column(Double, nullable=True)
@@ -107,12 +108,13 @@ class Measured(BaseModel):
     __tablename__ = "measured"
 
     instrument_name: Mapped[str | None] = mapped_column(String(50), ForeignKey("instrument.name", ondelete="SET NULL"), nullable=True)
-    model_name: Mapped[str] = mapped_column(String(20), ForeignKey("model.name", ondelete="CASCADE"), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(50), ForeignKey("model.name", ondelete="CASCADE"), nullable=False)
     serial_no: Mapped[str] = mapped_column(String(50), nullable=False, index=True)      # 시리얼 넘버는 유니크하지 않음.
 
     path_sub_datafile: Mapped[str] = mapped_column(Text, nullable=False)
     hashed_datafile: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
 
+    measured_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
     list_measured: Mapped[list[float]] = mapped_column(ARRAY(Double), nullable=False)
     measured_at: Mapped[DateTime] = mapped_column(DateTime, nullable=False)
     passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
@@ -142,8 +144,8 @@ class Normalized(BaseModel):
 
 class Process(BaseModel):
     __tablename__ = "process"
-    instrument_name: Mapped[str | None] = mapped_column(String(50), ForeignKey("instrument.name", ondelete="SET NULL"), nullable=False)
-    model_name: Mapped[str | None] = mapped_column(String(20), ForeignKey("model.name", ondelete="SET NULL"), nullable=False)
+    instrument_name: Mapped[str] = mapped_column(String(50), ForeignKey("instrument.name", ondelete="SET NULL"), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(50), ForeignKey("model.name", ondelete="SET NULL"), nullable=False)
     path_full_source: Mapped[str] = mapped_column(Text, nullable=False)
     path_full_destination: Mapped[str] = mapped_column(Text, nullable=True)
     hashed: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=True)          #처음 리스트 확보할 때는 파일이 없기 때문에 해시 불가. 따라서 유니크 제약조건 제거
@@ -152,7 +154,9 @@ class Process(BaseModel):
     created_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
     retrieved_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")  # PENDING, RETRIEVED, PARSED, ARCHIVED, ERROR
+    number_of_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         UniqueConstraint("instrument_name", "model_name", "path_full_source", name="uq_process_instrument_model_path"),

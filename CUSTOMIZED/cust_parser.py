@@ -94,7 +94,8 @@ class Parser:
         if extract_numbers_only:
             str_date = Parser.extract_numbers(str_date)
 
-        return Parser._ignore_errors(ignore_error, "date", datetime.strptime, str_date, format_of_strdate).date()
+        result = Parser._ignore_errors(ignore_error, "date", datetime.strptime, str_date, format_of_strdate)
+        return result.date() if result is not None else None
 
     @staticmethod
     def to_time(str_time: str | None, format_of_strtime: str = "%H%M%S", extract_numbers_only: bool = True,
@@ -105,7 +106,8 @@ class Parser:
         if extract_numbers_only:
             str_time = Parser.extract_numbers(str_time)
 
-        return Parser._ignore_errors(ignore_error, "time", datetime.strptime, str_time, format_of_strtime).time()
+        result = Parser._ignore_errors(ignore_error, "time", datetime.strptime, str_time, format_of_strtime)
+        return result.time() if result is not None else None
 
     @staticmethod
     def to_float(str_float: str | None, ignore_error: bool = False, none_values: list[str] = ['None'], ignore_case: bool = True) -> float | None:

@@ -7,7 +7,7 @@
 # Updated at : 2025.09.16
 # Supported by : ChatGPT-4o
 # Note : SQLAlchemy ORM 모델 정의
-#   ※ 나중에 적당히 나눠야 함
+#   ※ TODO : 나중에 엔티티별로 적당히 나눌 것
 #   2025.09.16 : 최신 정보 조회 방법 변경 (is_latest -> order_by(xxxx.desc()))
 #                (is_latest 폐기 예정. 폐기 사유 : is_latest 사용시 데이터 입력시마다 불필요한 업데이트 필요.)
 #                is_latest 예정에 따른 쿼리 변경
@@ -16,15 +16,15 @@
 #   2025.10.17 : PGDBManager.execute_query() 일괄 적용
 #   2025.10.20 : get_measured_after_last_normalized() 추가
 #   2025.11.06 : 빌더 패턴 고려 중
+#   2025.11.27 : get_list_unretrieved(), unlock_list_retrieved() 추가
+#   2025.11.28 : get_unparsed_infos() 변경
 ############################################
 
 
-from ast import stmt
-from typing import Any
+from typing import Any, Literal
 
-from sqlalchemy.util import NoneType
-from DATABASE.pg_manager import PGDBManager
-from sqlalchemy import select, Select, tuple_, literal, cast, distinct, text
+from DATABASE.db_manager import DBManager
+from sqlalchemy import select, Select, tuple_, literal, cast, distinct, text, update, Integer, case
 from sqlalchemy.sql import func
 from DATABASE import models
 from datetime import date, timedelta, datetime
@@ -33,7 +33,7 @@ from sqlalchemy.sql.elements import BinaryExpression
 
 
 class CRUDer:
-    def __init__(self, db_manager: PGDBManager):
+    def __init__(self, db_manager: DBManager):
         self.db = db_manager
     
     async def get_measured_data(
@@ -41,6 +41,7 @@ class CRUDer:
         date_from:date, 
         date_to:date, 
         measured_by:str | None = None, 
+        measured_points: int | None = None,
         ) -> list[list[float]]:
 
         """
@@ -50,24 +51,20 @@ class CRUDer:
 
         md: type[models.Measured] = models.Measured
 
-        sub_stmt : Select = (
-            select(
-                md.serial_no,
-                func.max(md.measured_at).label('latest')
-            )
-            .where(
-                md.model_name == model_name,
-                md.measured_at >= date_from,
-                md.measured_at < date_to + timedelta(days=1)
-            )
-        )
+        sub_stmt = select(md.serial_no, func.max(md.measured_at).label('latest'))
+        sub_stmt = sub_stmt.where(md.model_name == model_name)
+        sub_stmt = sub_stmt.where(md.measured_at >= date_from)
+        sub_stmt = sub_stmt.where(md.measured_at < date_to + timedelta(days=1))
 
         if measured_by:
             sub_stmt = sub_stmt.where(md.instrument_name == measured_by)
-        
+        if measured_points:
+            sub_stmt = sub_stmt.where(md.measured_points == measured_points)
+            
         sub_stmt = sub_stmt.group_by(md.serial_no).subquery()
 
-        stmt = select(md.list_measured).select_from(
+        stmt = select(md.list_measured)
+        stmt = stmt.select_from(
             md.__table__.join(
                 sub_stmt,
                 (md.serial_no == sub_stmt.c.serial_no) & 
@@ -97,7 +94,7 @@ class CRUDer:
         return result.mappings().all()
 
 
-    async def get_measured_since_last_normalized(self, model_name: str | None = None,  latest_only: bool = True,) -> list[dict]:
+    async def get_measured_since_last_normalized(self, model_name: str | None = None,  latest_only: bool = True,) -> list[dict[str, Any]]:
         """
         Measured 테이블에서 마지막 정규화된 데이터 이후의 데이터 조회
         """
@@ -230,6 +227,7 @@ class CRUDer:
         stmt : Select = select(md.__table__.columns)
         if instrument_name:
             stmt = stmt.where(md.name == instrument_name)
+        stmt = stmt.where(md.activated == True)
         result = await self.db.execute_query(stmt)
         return result.mappings().all()
 
@@ -293,6 +291,82 @@ class CRUDer:
         return result.mappings().all()
 
 
+    async def get_daily_yield(
+        self, 
+        model_name: str | None = None, 
+        date_from: date | None = None, 
+        date_to: date | None = None, 
+        measured_by: str | None = None,
+        latest_only: bool = False
+        ) -> list[dict[str, Any]]:
+
+        md: type[models.Measured] = models.Measured
+        
+        # 최신 데이터만 필터링하는 경우 서브쿼리 생성
+        if latest_only:
+            sub_stmt = select(
+                md.serial_no,
+                func.max(md.measured_at).label('latest')
+            )
+            
+            # 필터 조건을 서브쿼리에 적용
+            if model_name:
+                sub_stmt = sub_stmt.where(md.model_name == model_name)
+            if date_from:
+                sub_stmt = sub_stmt.where(func.date(md.measured_at) >= date_from)
+            if date_to:
+                sub_stmt = sub_stmt.where(func.date(md.measured_at) <= date_to)
+            if measured_by:
+                sub_stmt = sub_stmt.where(md.instrument_name == measured_by)
+            
+            sub_stmt = sub_stmt.group_by(md.serial_no).subquery()
+        
+        # 날짜 추출 및 그룹화
+        stmt = select(
+            md.instrument_name.label('instrument_name'),
+            md.model_name.label('model_name'),
+            func.date(md.measured_at).label('date'),
+            func.sum(case((md.passed == True, 1), else_=0)).label('OK'),
+            func.sum(case((md.passed == False, 1), else_=0)).label('NG'),
+            func.count(md.id).label('TOTAL')
+        )
+        
+        # 최신 데이터만 필터링하는 경우 조인 추가
+        if latest_only:
+            stmt = stmt.select_from(
+                md.__table__.join(
+                    sub_stmt,
+                    (md.serial_no == sub_stmt.c.serial_no) & 
+                    (md.measured_at == sub_stmt.c.latest)
+                )
+            )
+        
+        stmt = stmt.group_by(
+            md.instrument_name,
+            md.model_name,
+            func.date(md.measured_at)
+        )
+        
+        # 필터 조건 추가 (latest_only가 False인 경우에만)
+        if not latest_only:
+            if model_name:
+                stmt = stmt.where(md.model_name == model_name)
+            if date_from:
+                stmt = stmt.where(func.date(md.measured_at) >= date_from)
+            if date_to:
+                stmt = stmt.where(func.date(md.measured_at) <= date_to)
+            if measured_by:
+                stmt = stmt.where(md.instrument_name == measured_by)
+        
+        stmt = stmt.order_by(
+            md.instrument_name,
+            md.model_name,
+            func.date(md.measured_at)
+        )
+        
+        result = await self.db.execute_query(stmt)
+        return result.mappings().all()
+
 ############################################
 # Google Service Account
 ############################################
@@ -347,6 +421,29 @@ class CRUDer:
         return await self.db.batch_upsert_dataframe(models.Process, df, allowed_param_size=20000)
 
 
+    async def reset_failed_processes_for_retry(self, max_attempts: int = 5) -> int:
+        """
+        실패(ERROR) 상태이면서 재시도 횟수가 max_attempts 미만인 행들만,
+        다른 트랜잭션이 잡고 있는 행은 SKIP LOCKED로 건너뛰면서
+        PENDING 상태로 되돌린다.
+        """
+        md: type[models.Process] = models.Process
+
+        # 1단계: 다른 트랜잭션이 잡지 않은(ERROR & retries < max_attempts) 행만 선별
+        cte = select(md.id)
+        cte = cte.where(md.status == "ERROR")
+        cte = cte.where(md.number_of_retries < max_attempts)
+        cte = cte.where(md.is_locked == False)
+        cte = cte.with_for_update(skip_locked=True)
+        cte = cte.cte("picked_error_rows")
+
+        # 2단계: 선별된 id만 대상으로 플래그/상태 리셋
+        stmt = update(md)
+        stmt = stmt.where(md.id.in_(select(cte.c.id)))
+        stmt = stmt.values(is_retrieved=False, is_parsed=False, status="PENDING")
+        return await self.db.execute_query(stmt)
+
+
     async def get_latest_created_time(self, instrument_name:str, model_name:str | None = None) -> datetime:
         """결과가 없으면 datetime.min(0001-01-01 00:00:00) 반환"""
         md: type[models.Process] = models.Process
@@ -364,7 +461,7 @@ class CRUDer:
     async def get_latest_created_times(self, instrument_name:str) -> list[dict[str, Any]]:
         md: type[models.Process] = models.Process
         
-        stmt = select(md.instrument_name, md.model_name, md.created_at)
+        stmt = select(md.instrument_name, md.model_name, md.path_full_source, md.created_at)
         stmt = stmt.where(md.instrument_name == instrument_name)
         stmt = stmt.order_by(md.model_name, md.created_at.desc())
         stmt = stmt.distinct(md.model_name)
@@ -373,17 +470,86 @@ class CRUDer:
         return result.mappings().all()
 
 
-    async def get_unparsed_infos(self, instrument_name:str|None = None, model_name:str | None = None) -> list[dict[str, Any]]:
+    async def get_latest_path_full_sources(self, instrument_name:str) -> list[dict[str, Any]]:
         md: type[models.Process] = models.Process
-        stmt: Select = select(md.instrument_name, md.model_name, md.path_full_source, md.path_full_destination, md.is_parsed)
+        
+        # 각 모델별 최신 created_at을 구하는 서브쿼리
+        sub_stmt = select(
+            md.model_name,
+            func.max(md.created_at).label("max_created_at")
+        )
+        sub_stmt = sub_stmt.where(md.instrument_name == instrument_name)
+        sub_stmt = sub_stmt.group_by(md.model_name)
+        sub_stmt = sub_stmt.subquery("latest_times")
+        
+        # 최신 시간에 해당하는 모든 레코드를 모델별로 그룹화하여 path_full_source를 배열로 집계
+        stmt = select(
+            md.instrument_name, 
+            md.model_name, 
+            func.array_agg(md.path_full_source).label("path_full_sources"),
+            func.max(md.created_at).label("created_at")
+        )
+        stmt = stmt.join(sub_stmt, 
+            (md.model_name == sub_stmt.c.model_name) & 
+            (md.created_at == sub_stmt.c.max_created_at)
+        )
+        stmt = stmt.where(md.instrument_name == instrument_name)
+        stmt = stmt.group_by(md.instrument_name, md.model_name)
+        stmt = stmt.order_by(md.model_name)
+        
+        result = await self.db.execute_query(stmt)
+        return result.mappings().all()
+
+
+    # async def get_unparsed_infos(self, instrument_name:str|None = None, model_name:str | None = None) -> list[dict[str, Any]]:
+    #     md: type[models.Process] = models.Process
+    #     stmt: Select = select(md.instrument_name, md.model_name, md.path_full_source, md.path_full_destination, md.is_parsed)
+    #     if instrument_name:
+    #         stmt = stmt.where(md.instrument_name == instrument_name)
+    #     if model_name:
+    #         stmt = stmt.where(md.model_name == model_name)
+    #     stmt = stmt.where(md.is_parsed == False)
+    #     stmt = stmt.where(md.status != "ERROR")
+    #     result = await self.db.execute_query(stmt)
+    #     return result.mappings().all()
+
+
+    async def get_unparsed_infos(self, instrument_name:str | None = None, model_name:str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+        md : type[models.Process] = models.Process
+
+        cte = select(md.id)
+        if instrument_name:
+            cte = cte.where(md.instrument_name == instrument_name)
+        if model_name:
+            cte = cte.where(md.model_name == model_name)
+        cte = cte.where(md.is_retrieved == True)
+        cte = cte.where(md.is_parsed == False)
+        cte = cte.where(md.is_locked == False)
+        cte = cte.where(md.status != "ERROR")
+        if limit:
+            cte = cte.limit(limit)
+        cte = cte.with_for_update(skip_locked=True)
+        cte = cte.cte("picked")
+
+        stmt = update(md)
+        stmt = stmt.where(md.id.in_(select(cte.c.id)))
+        stmt = stmt.values(is_locked=True)
+        stmt = stmt.returning(md.id, md.instrument_name, md.model_name, md.path_full_source, md.path_full_destination, md.is_parsed, md.number_of_retries)
+
+        result =await self.db.execute_query(stmt)
+        return result.mappings().all()
+
+
+    async def get_process_info_by_sourcepath(self, instrument_name: str, model_name: str, path_full_source: str) -> dict[str, Any] | None:
+        md: type[models.Process] = models.Process
+        stmt: Select = select(md.__table__.columns)
+        stmt = stmt.where(md.path_full_source == path_full_source)
         if instrument_name:
             stmt = stmt.where(md.instrument_name == instrument_name)
         if model_name:
             stmt = stmt.where(md.model_name == model_name)
-        stmt = stmt.where(md.is_parsed == False)
         result = await self.db.execute_query(stmt)
-        return result.mappings().all()
-
+        return result.mappings().first()
 
 ############################################
 # Vector
@@ -447,7 +613,7 @@ class CRUDer:
         top_k: int = 100, 
         date_from: date | None = None,
         date_to: date | None = None,
-        metric: str = "cosine", 
+        metric: Literal["cosine", "euclidean", "manhattan"] = "cosine", 
         except_itself: bool = True,
         return_vector: bool = True,
         return_measured_values: bool = True,
@@ -466,23 +632,10 @@ class CRUDer:
         if query_vector is None or len(query_vector) == 0:
             return {}
 
-        match metric:
-            case "cosine":
-                # 코사인 거리 (1- cosθ)
-                return await self._get_cosine_distance(instrument_name, model_name, serial_no, query_vector, top_k, date_from, date_to, except_itself, return_vector, return_measured_values, anchor_serial_no)
-            # case "Euclidean":
-            #     # 유클리드 거리
-            #     return
-            # case "Dot Product":
-            #     # 내적 유사도 : 
-            #     # Dot Product는 원래 유사할 수록 큰 값을 가지나, 
-            #     # PostgreSQL에서는 유사할수록 작은값을 가지도록 부호 반전함.
-            #     return
-            case _:
-                raise ValueError(f"Invalid metric: {metric}")
+        return await self._get_similarities_by_metric(instrument_name, model_name, serial_no, query_vector, top_k, date_from, date_to, metric, except_itself, return_vector, return_measured_values, anchor_serial_no)
 
 
-    async def _get_cosine_distance(
+    async def _get_similarities_by_metric(
         self, 
         instrument_name: str | None,
         model_name: str | None, 
@@ -491,15 +644,24 @@ class CRUDer:
         k: int = 100, 
         date_from: date | None = None, 
         date_to: date | None = None, 
+        metric: Literal["cosine", "euclidean", "manhattan"] = "cosine",
         except_itself: bool = True,
         return_vector: bool = True,
         return_measured_values: bool = True,
         anchor_serial_no: str | None = None
-        ) -> dict[str, dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         md_n: type[models.Normalized] = models.Normalized
         md_m: type[models.Measured] = models.Measured
 
-        dist : BinaryExpression[float] = md_n.vector_visual_normed.cosine_distance(query_vector)
+        match metric:
+            case "cosine":
+                dist : BinaryExpression[float] = md_n.vector_visual_normed.cosine_distance(query_vector)
+            case "euclidean":
+                dist : BinaryExpression[float] = md_n.vector_visual_normed.l2_distance(query_vector)
+            case "manhattan":
+                dist : BinaryExpression[float] = md_n.vector_visual_normed.l1_distance(query_vector)
+            case _:    
+                raise ValueError(f"Invalid metric: {metric}")
 
         stmt_sub = select(md_m.instrument_name, md_m.id, md_m.model_name, md_m.serial_no, md_m.measured_at,)
         if return_measured_values:
@@ -635,19 +797,48 @@ class CRUDer:
             stmt = stmt.distinct(md_m.model_name, md_e.serial_no)
         stmt = stmt.order_by(md_m.model_name, md_e.serial_no, md_e.occurred_at.desc())
         result = await self.db.execute_query(stmt)
-        return pd.DataFrame(result.mappings().all()) 
+        rows = result.mappings().all()
+        return pd.DataFrame(rows) 
 
 
-    async def get_unretrieved_files(self, instrument_name:str | None = None, model_name:str | None = None) -> list[dict[str, Any]]:
-        md: type[models.Process] = models.Process
-        stmt: Select = select(md.instrument_name, md.model_name, md.path_full_source, md.path_full_destination)
-        stmt = stmt.where(md.is_retrieved == False)
+    async def get_list_unretrieved(self, instrument_name:str | None = None, model_name:str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+        md : type[models.Process] = models.Process
+
+        cte = select(md.id)
         if instrument_name:
-            stmt = stmt.where(md.instrument_name == instrument_name)
+            cte = cte.where(md.instrument_name == instrument_name)
         if model_name:
-            stmt = stmt.where(md.model_name == model_name)
-        result = await self.db.execute_query(stmt)
+            cte = cte.where(md.model_name == model_name)
+        cte = cte.where(md.is_retrieved == False)
+        cte = cte.where(md.is_locked == False)
+        if limit:
+            cte = cte.limit(limit)
+        cte = cte.with_for_update(skip_locked=True)
+        cte = cte.cte("picked")
+
+        stmt = update(md)
+        stmt = stmt.where(md.id.in_(select(cte.c.id)))
+        stmt = stmt.values(is_locked=True)
+        stmt = stmt.returning(md.id, md.instrument_name, md.model_name, md.path_full_source, md.path_full_destination)
+
+        result =await self.db.execute_query(stmt)
         return result.mappings().all()
+
+
+    async def unlock_list_retrieved(self, df_with_id: pd.DataFrame) -> None:
+        md : type[models.Process] = models.Process
+        stmt = update(md)
+        stmt = stmt.where(md.id.in_(df_with_id["id"]))
+        stmt = stmt.values(is_locked=False, is_retrieved=True)
+        await self.db.execute_query(stmt)
+
+
+    async def reset_locks(self) -> None:
+        md : type[models.Process] = models.Process
+        stmt = update(md)
+        stmt = stmt.where(md.is_locked == True)
+        stmt = stmt.values(is_locked=False)
+        await self.db.execute_query(stmt)
 
 
     async def is_db_connected(self) -> bool:
@@ -701,30 +892,30 @@ class CRUDHandler:
 
 
 class Instrument(CRUDHandler):
-    def __init__(self, db_manager: PGDBManager):
+    def __init__(self, db_manager: DBManager):
         super().__init__(db_manager, models.Instrument)
 
 class ExternalDefect(CRUDHandler):
-    def __init__(self, db_manager: PGDBManager):
+    def __init__(self, db_manager: DBManager):
         super().__init__(db_manager, models.ExternalDefect)
 
 class Model(CRUDHandler):
-    def __init__(self, db_manager: PGDBManager):
+    def __init__(self, db_manager: DBManager):
         super().__init__(db_manager, models.Model)
 
 class Spec(CRUDHandler):
-    def __init__(self, db_manager: PGDBManager):
+    def __init__(self, db_manager: DBManager):
         super().__init__(db_manager, models.Spec)
 
 class Measured(CRUDHandler):
-    def __init__(self, db_manager: PGDBManager):
+    def __init__(self, db_manager: DBManager):
         super().__init__(db_manager, models.Measured)
 
 class Normalized(CRUDHandler):
-    def __init__(self, db_manager: PGDBManager):
+    def __init__(self, db_manager: DBManager):
         super().__init__(db_manager, models.Normalized)
 
 class Process(CRUDHandler):
-    def __init__(self, db_manager: PGDBManager):
+    def __init__(self, db_manager: DBManager):
         super().__init__(db_manager, models.BackUp)
 '''

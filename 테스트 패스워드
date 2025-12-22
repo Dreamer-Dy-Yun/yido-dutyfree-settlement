@@ -28,3 +28,11 @@ docker run -d`
 -e PGADMIN_DEFAULT_PASSWORD=123!@#qwe`
 -p 5050:80`
 dpage/pgadmin4
+
+
+docker run -d `
+  --name pgadmin4 `
+  -e PGADMIN_DEFAULT_EMAIL="novas.ez.repository@gmail.com" `
+  -e PGADMIN_DEFAULT_PASSWORD="123!@#qwe" `
+  -p 5050:80 `
+  dpage/pgadmin4

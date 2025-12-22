@@ -10,12 +10,12 @@
 
 import asyncio
 import functools
-from typing import Callable, Awaitable, Any
+from typing import Callable, Awaitable, Any, Optional
 from CUSTOMIZED.cust_logger import logger
 
 def async_retry(
     exceptions: tuple = (Exception,),
-    max_attempts: int = 5,
+    max_attempts: Optional[int] = 5,
     backoff_factor: float = 1.0
 ):
     def decorator(func: Callable[..., Awaitable[Any]] ):
@@ -30,7 +30,7 @@ def async_retry(
 
 def async_retry_with_recovery(
     exceptions: tuple = (Exception,),
-    max_attempts: int = 5,
+    max_attempts: Optional[int] = 5,
     backoff_factor: float = 1.0,
     on_retry: Callable[..., Awaitable[None]] = None
 ):
@@ -78,20 +78,23 @@ async def _run_with_retry(
     args: tuple,
     kwargs: dict,
     exceptions: tuple,
-    max_attempts: int,
+    max_attempts: Optional[int],
     backoff_factor: float,
     on_retry: Callable[..., Awaitable[None]] = None
 ):
-    for attempt in range(1, max_attempts + 1):
+    attempt = 1
+    while True:
         try:
             return await func(*args, **kwargs)
         except exceptions as e:
-            if attempt == max_attempts:
+            # max_attempts가 None이 아니고 최대 시도 횟수에 도달한 경우
+            if max_attempts is not None and attempt >= max_attempts:
                 logger.error(f"[FAIL] {func.__name__} failed after {attempt} attempts: {e}")
                 raise
 
             delay = backoff_factor * (2 ** (attempt - 1))
-            logger.warning(f"[RETRY] {func.__name__} attempt {attempt} failed: {e}. Retrying in {delay:.1f}s")
+            attempt_str = f"{attempt}" if max_attempts is None else f"{attempt}/{max_attempts}"
+            logger.warning(f"[RETRY] {func.__name__} attempt {attempt_str} failed: {e}. Retrying in {delay:.1f}s")
 
             if on_retry:
                 try:
@@ -105,6 +108,7 @@ async def _run_with_retry(
                     logger.exception(f"[RECOVERY ERROR] during recovery_callback: {rec_e}")
 
             await asyncio.sleep(delay)
+            attempt += 1
 
 
 

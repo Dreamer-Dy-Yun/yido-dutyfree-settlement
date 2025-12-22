@@ -6,6 +6,16 @@
 # Created at : 2025.07.31
 # Updated at : 2025.09.12
 # Supported by : Chat GPT-4o / Cursor AI
+# License :
+#       본 소스코드는 코드 작성자(Yun Dae-young)가 작성한 저작물입니다.
+#       본 저작권은 소스코드 및 그 구체적인 구현 표현에 한하여 적용됩니다.
+#
+#       본 소스코드는 다수의 측정 포인트를 포함하는 공정 데이터에 대하여,
+#       동적으로 변경되는 다중 스펙 환경에서 비교 가능성을 유지하기 위한
+#       공정 데이터 정규화 및 표현 방법의 하나의 구현 예를 제공합니다.
+#
+#       Novas-ez는 본 소스코드를 Novas-ez 프로젝트 및 그에 파생되는 내부 프로젝트에 한하여
+#       비독점적으로 사용할 수 있습니다.
 # Note : 
 #        2025.07.31 : 초기 버전 작성
 #        2025.08.22 : quantize, compute_pmf 성능 개선
@@ -20,6 +30,7 @@
 #        2025.09.16 : 트랜드 데이터용 serialized_trend_data 추가
 #        2025.09.17 : 동작에 맞게 클래스명 변경(AnalysisFileExporter -> AnalyzedFileExporter)
 #        2025.10.27 : 판정 데이터 로직 수정(역공차 판정 로직 추가). 그에 따른 변수명 변경
+#        2025.12.02 : _cpk_std 로직 수정
 ############################################
 
 import numpy as np
@@ -27,8 +38,10 @@ import pandas as pd
 import json
 from datetime import datetime, date
 import re
-from typing import Dict, Any, Literal
+from typing import Dict, Any, Literal, Self
 from pathlib import Path
+
+from sqlalchemy.sql.selectable import _SelectFromElements
 from CUSTOMIZED.cust_logger import timer, logger
 from numpy.typing import NDArray
 
@@ -92,6 +105,7 @@ class SpecAnalyzer:
         self.list_index: NDArray[np.int32] = None
         self.list_reverse_tolerance: NDArray[np.bool_] = None
         self.list_skip: NDArray[np.bool_] = None
+        self.list_median: NDArray[np.float64] = None
         self.resolution: int = resolution
 
         self.run(spec)
@@ -104,7 +118,8 @@ class SpecAnalyzer:
         timer.end(f"analyze_spec")
         return None
 
-    def analyze(self, data : list[list[float]]) -> "SpecAnalyzer":
+    def analyze(self, data : list[list[float]]) -> Self:
+
         if (len(self.spec) == len(data[0])):
             self.data_original = np.array(data) 
         else:
@@ -131,7 +146,7 @@ class SpecAnalyzer:
             col_name_index: str = "index",
             col_name_reverse_tolerance: str = "reverse_tolerance",
             col_name_skip: str = "skip"
-            ) -> None:
+            ) -> Self:
         self.list_ucv = np.array(spec[col_name_ucv])
         self.list_lcv = np.array(spec[col_name_lcv])
         self.list_usl = np.array(spec[col_name_usl])
@@ -205,7 +220,12 @@ class SpecAnalyzer:
         return None
 
 
-    def compute_cpk(self, data: NDArray[np.float64] | None = None) -> None:
+    def compute_median(self, data: NDArray[np.float64]) -> Self:
+        self.list_median = np.median(data, axis=0)  # 연산비용이 크므로 별도 연산
+        return self
+
+
+    def compute_cpk(self, data: NDArray[np.float64] | None = None) -> Self:
         
         # axis 0: 열 방향, 1: 행 방향
         self.list_mu = data.mean(axis=0)    # 각 측정 포인트에 대한 평균값
@@ -213,53 +233,54 @@ class SpecAnalyzer:
 
         self._cpk_std(mu = self.list_mu, sigma = self.list_sigma, lsl = self.list_lsl, usl = self.list_usl)
         self._cpk_rev(mu = self.list_mu, sigma = self.list_sigma, lsl = self.list_lsl, usl = self.list_usl)
+
         return self
 
 
-    def _cpk_std(self, mu : NDArray[np.float64], sigma : NDArray[np.float64], lsl : NDArray[np.float64], usl : NDArray[np.float64]) -> None:
+    def _cpk_std(self, mu: NDArray[np.float64], sigma: NDArray[np.float64], lsl: NDArray[np.float64], usl: NDArray[np.float64]) -> Self:
         """
         CPK 계산 (표준 공차 사용)
         Cpk_std = min((USL - μ) / 3σ, ( μ - LSL ) / 3σ )
         """
 
-        # 벡터화된 Cpl, Cpu 계산.
-        # cpl : -inf가 아니면 계산, -inf이면 CPK에 선택되지 않도록 +inf로 처리.
-        list_cpl: NDArray[np.float64] = np.empty_like(lsl, dtype=np.float64)
-        mask_valid : NDArray[np.bool_] = ~np.isinf(lsl)  & (sigma > 0)
-        list_cpl.fill(np.inf)
-        list_cpl[mask_valid] = (mu[mask_valid] - lsl[mask_valid]) / (3 * sigma[mask_valid])
-        # cpu : +inf가 아니면 계산, +inf이면 CPK에 선택되지 않도록 +inf로 처리.
-        list_cpu: NDArray[np.float64] = np.empty_like(usl, dtype=np.float64)
-        mask_valid : NDArray[np.bool_] = ~np.isinf(usl)  & (sigma > 0)
-        list_cpu.fill(np.inf)
-        list_cpu[mask_valid] = (usl[mask_valid] - mu[mask_valid]) / (3 * sigma[mask_valid])
+        # mu, sigma 자체가 계산 가능한 상태인지 판정
+        mask_stat_valid = np.isfinite(mu) & np.isfinite(sigma) & (sigma > 0)
 
-        # 타입 결정 (벡터화)
-        cpl_inf: NDArray[np.bool_] = np.isinf(lsl)    # 하한선이 없을 때 
-        cpu_inf: NDArray[np.bool_] = np.isinf(usl)    # 상한선이 없을 때 
-        
-        # 빈 벡터 생성
-        self.list_type_cpk = np.full_like(cpl_inf, "", dtype=object)
-        self.list_cpk = np.full_like(cpl_inf, np.inf, dtype=np.float64)
+        # 기본 벡터 초기화
+        list_cpl = np.full_like(lsl, np.nan, dtype=np.float64)
+        list_cpu = np.full_like(usl, np.nan, dtype=np.float64)
 
-        mask_cpk : NDArray[np.bool_] = ~cpl_inf & ~cpu_inf
-        mask_cpl : NDArray[np.bool_] = ~cpl_inf & cpu_inf
-        mask_cpu : NDArray[np.bool_] = cpl_inf & ~cpu_inf
+        # Cpl, Cpu 유효 계산 포인트 판정
+        mask_cpl_valid = ~np.isinf(lsl) & mask_stat_valid
+        mask_cpu_valid = ~np.isinf(usl) & mask_stat_valid
+
+        list_cpl[mask_cpl_valid] = (mu[mask_cpl_valid] - lsl[mask_cpl_valid]) / (3 * sigma[mask_cpl_valid])
+        list_cpu[mask_cpu_valid] = (usl[mask_cpu_valid] - mu[mask_cpu_valid]) / (3 * sigma[mask_cpu_valid])
+
+        # 타입 판정
+        cpl_inf = np.isinf(lsl)
+        cpu_inf = np.isinf(usl)
+
+        self.list_type_cpk = np.full(lsl.shape, "", dtype=object)
+        self.list_cpk = np.full(lsl.shape, np.nan, dtype=np.float64)
+
+        mask_cpk = ~cpl_inf & ~cpu_inf & mask_stat_valid
+        mask_cpl = ~cpl_inf & cpu_inf & mask_stat_valid
+        mask_cpu = cpl_inf & ~cpu_inf & mask_stat_valid
 
         self.list_type_cpk[mask_cpk] = "Cpk"
         self.list_type_cpk[mask_cpl] = "Cpl"
         self.list_type_cpk[mask_cpu] = "Cpu"
-        
-        # CPK 값 계산 (벡터화)
+
+        # Cpk 계산
         self.list_cpk[mask_cpk] = np.minimum(list_cpl[mask_cpk], list_cpu[mask_cpk])
-        self.list_cpk[mask_cpl] = list_cpu[mask_cpl]
-        self.list_cpk[mask_cpu] = list_cpl[mask_cpu]
-        # 데이터 왜곡 가능성으로 인하여 아래코드(np.nan_to_num)는 사용 안함. 그냥 에러 내도록 하고, 위에서 처리 할 것. 정 에러처리 필요하면 다른 영역에서 처리.
-        # self.list_cpk = np.nan_to_num(self.list_cpk, nan=0.0, posinf=0.0, neginf=0.0)  
+        self.list_cpk[mask_cpl] = list_cpl[mask_cpl]
+        self.list_cpk[mask_cpu] = list_cpu[mask_cpu]
+
         return self
 
 
-    def _cpk_rev(self, mu : NDArray[np.float64], sigma : NDArray[np.float64], lsl : NDArray[np.float64], usl : NDArray[np.float64]) -> None:
+    def _cpk_rev(self, mu : NDArray[np.float64], sigma : NDArray[np.float64], lsl : NDArray[np.float64], usl : NDArray[np.float64]) -> Self:
         """ 
         CPK_REV 계산 (역공차 사용) 
         Cpk_rev = max(( μ - USL) / 3σ​, ( LSL - μ ) / 3σ​​ )
@@ -300,8 +321,8 @@ class SpecAnalyzer:
 
     def count_inspection_outcomes(self, data: np.ndarray | None = None) -> None:
 
-        mask_upper_limit: np.ndarray = data > self.list_ucv          
-        mask_lower_limit: np.ndarray = data < self.list_lcv       
+        mask_upper_limit: np.ndarray = data > self.list_usl          
+        mask_lower_limit: np.ndarray = data < self.list_lsl       
         mask_ng: np.ndarray = mask_upper_limit | mask_lower_limit      
         mask_ok: np.ndarray = ~mask_ng
 

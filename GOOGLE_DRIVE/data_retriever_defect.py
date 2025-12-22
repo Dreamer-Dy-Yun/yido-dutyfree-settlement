@@ -1,5 +1,5 @@
 ###########################################
-# Module name : test_edit.py
+# Module name : data_retriever_defect.py
 # Module functions : -
 # Written by : Yun Dae-young 
 # Contact : Dreamer.Dy.Yun@Gmail.com
@@ -155,8 +155,8 @@ async def verify_n_upsert_serial_no(
     })
     
     # 모델에 필요한 컬럼만 선택 (불필요한 컬럼 제거)
-    # model_columns = [col.name for col in md.__table__.columns]
-    # df_to_upsert = df_to_upsert[[col for col in model_columns if col in df_to_upsert.columns]]
+    model_columns = [col.name for col in md.__table__.columns]
+    df_to_upsert = df_to_upsert[[col for col in model_columns if col in df_to_upsert.columns]]
 
     for column in md.__table__.columns:
         col_name = column.name
@@ -212,7 +212,9 @@ async def sync_external_defect_data(cruder: CRUDer, name:str | None = None) -> d
         sh : gspread.Spreadsheet = gc.open_by_key(spreadsheet_id)
         ws : gspread.Worksheet = sh.worksheet(worksheet_name)
         df_sheet : pd.DataFrame = get_data_form_sheet(ws)
-        logger.info(f"    - 구글 스프레드 시트에 [시스템] 필드 데이터 완료: {df_sheet.shape[0]}행")
+        logger.info(f"    - 구글 스프레드 시트에 [시스템] 필드 입력 완료: {df_sheet.shape[0]}행")
+        await cruder.truncate_external_defect()
+        logger.info(f"    - 불량 데이터 테이블 비우기 완료")
         cnt = await verify_n_upsert_serial_no(df_sheet, ws, cruder)
         logger.info(f"    - {name}의 {worksheet_name}의 데이터를 DB에 반영 완료")
         msg = f"📌 [{name}] 데이터 동기화 완료 : {cnt}행"

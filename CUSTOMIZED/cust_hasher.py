@@ -12,6 +12,7 @@
 
 import hashlib
 from pathlib import Path
+from typing import Self
 
 class Hasher:
     # TODO : 상황보고 멀티 프로세싱 고려
@@ -20,7 +21,7 @@ class Hasher:
         self._hashed_value: bytes = bytes()
         pass
 
-    def hash_file(self, path_file: Path, ignore_errors: bool = True):
+    def hash_file(self, path_file: Path, ignore_errors: bool = True) -> Self:
         try:
             if not path_file.exists():
                 raise FileNotFoundError(f"파일이 존재하지 않습니다: {path_file}")
