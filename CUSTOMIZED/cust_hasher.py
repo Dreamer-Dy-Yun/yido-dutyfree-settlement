@@ -29,8 +29,7 @@ class Hasher:
             if not path_file.is_file():
                 raise ValueError(f"파일이 아닙니다: {path_file}")
 
-            with open(path_file, 'rb') as f:
-                self._hashed_value = hashlib.sha256(f.read()).digest()
+            self._hashed_value = hashlib.sha256(path_file.read_bytes()).digest()
         except Exception as e:
             if ignore_errors:
                 return self

@@ -1,13 +1,28 @@
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from WEB_SERVER.routers import router_root, router_pmf, router_similarity
+from WEB_SERVER.routers.router_auth import router as router_auth
+from WEB_SERVER.routers.router_registration import router as router_registration
 from fastapi.middleware.cors import CORSMiddleware
-from DATABASE.config import db_manager, apply_postgres_vector_scale_index
+from DATABASE.config import db_manager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작 시 DB 테이블 및 인덱스 초기화"""
+    # Startup
+    await db_manager.create_tables()
+    yield
+    # Shutdown (필요시 추가)
+
 
 app = FastAPI(
     title="NOVAS EZ API",
     description="NOVAS EZ 프로젝트 FastAPI 예제",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # CORS 미들웨어 설정
@@ -24,13 +39,5 @@ app.add_middleware(
 app.state.sessions = {}
 
 # 라우터 등록
-app.include_router(router_root)
-app.include_router(router_pmf)
-app.include_router(router_similarity)
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """앱 시작 시 DB 테이블 및 인덱스 초기화"""
-    await db_manager.create_tables()
-    await apply_postgres_vector_scale_index(db_manager)
+app.include_router(router_auth)
+app.include_router(router_registration)

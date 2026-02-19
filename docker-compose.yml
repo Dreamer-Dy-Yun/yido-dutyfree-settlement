@@ -1,0 +1,33 @@
+# PostgreSQL + pgAdmin (DATABASE/config.py 기본값과 맞춤)
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: yido_postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: "123!@#qwe"
+      POSTGRES_DB: db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: yido_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: yido.repository@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: "123!@#qwe"
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

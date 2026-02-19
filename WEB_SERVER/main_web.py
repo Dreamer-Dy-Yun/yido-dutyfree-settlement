@@ -12,7 +12,8 @@ async def start_web_server() -> None:
         "WEB_SERVER.app:app",
         host=os.getenv("WEB_SERVER_HOST", "0.0.0.0"),
         port=int(os.getenv("WEB_SERVER_PORT", "8000")),
-        reload=os.getenv("WEB_SERVER_RELOAD", "True").lower() == "true",
+        reload=os.getenv("WEB_SERVER_RELOAD", "false").lower() == "true", # 한글 경로 때문에 사용
+        # reload=os.getenv("WEB_SERVER_RELOAD", "true").lower() == "true",
         log_level=os.getenv("WEB_SERVER_LOG_LEVEL", "info")
     )
     server = Server(config)
@@ -22,10 +23,7 @@ async def start_web_server() -> None:
 async def main() -> None:
     # 환경변수 로드
     load_dotenv()
-    
-    # DB 설정
-    base_dir = Path(os.getenv("DIR_BASE_FOR_PARQUET", "C:/Users/user/ict_parquets"))
-    set_dir_base(base_dir)
+
     await setup_db()
     
     try:

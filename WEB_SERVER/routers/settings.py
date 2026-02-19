@@ -4,15 +4,10 @@
 ############################################
 import os
 from functools import lru_cache
-from DATABASE.cruder import CRUDer
-from DATABASE.db_manager import DBManager
-from DATABASE.config import db_manager
-from fastapi import Depends
+from DATABASE.repositories.authorities import UserRepository, RoleRepository, PermissionRepository, TenantRepository
+from DATABASE.dbms import DBManager
+from DATABASE.config import db_manager, user_repository, role_repository, permission_repository, tenant_repository
 from pathlib import Path
-from WEB_SERVER.services import service as svc
-from WEB_SERVER.routers.responses import as_gzip_response
-from CUSTOMIZED.cust_deco_error import handle_http_error
-from CUSTOMIZED.cust_web_helper import Export
 
 DIR_BASE = Path(os.getenv("DIR_BASE_FOR_PARQUET", "C:/Users/user/ict_parquets"))
 
@@ -25,6 +20,17 @@ def get_db_manager() -> DBManager:
     return db_manager
 
 @lru_cache 
-def get_cruder(db_mgr: DBManager = Depends(get_db_manager)) -> CRUDer:
-    return CRUDer(db_mgr)
+def get_user_repository() -> UserRepository:
+    return user_repository
 
+@lru_cache 
+def get_role_repository() -> RoleRepository:
+    return role_repository
+
+@lru_cache 
+def get_permission_repository() -> PermissionRepository:
+    return permission_repository
+
+@lru_cache 
+def get_tenant_repository() -> TenantRepository:
+    return tenant_repository

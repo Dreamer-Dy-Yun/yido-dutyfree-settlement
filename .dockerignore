@@ -39,11 +39,6 @@ test_*.py
 *.md
 !README.md
 
-# 임시 파일
-*.tmp
-*.bak
-*.copy
-ttttt*.py
 
 # 데이터 파일 (필요시 주석 해제)
 # *.parquet

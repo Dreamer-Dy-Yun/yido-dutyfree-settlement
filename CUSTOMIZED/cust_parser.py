@@ -12,7 +12,7 @@
 #                     리턴 타입 명시(제작시 파이썬을 처음 접하여 리턴 명시 방법을 몰랐던 듯.)
 #        2025.10.16 : to_datetime() 함수에서 %Y%m%d(%H%M%S) 포맷 지원
 #                     ※ 날짜만 입력된 경우, %Y%m%d000000 포맷으로 변환 
-#        2025.10.17 : when.err.return_() 함수 추가
+#        2025.10.17 : When.Err.return_() 함수 추가
 #                     ※ 함수 실행 중 예외가 발생하면, return_value를 리턴
 #        2025.11.18 : none_value(str)를 none_values(list[str])로 변경 및 ignore_case 추가
 ############################################
@@ -25,13 +25,13 @@ DB_PARAMS = Union[Dict[str, Any], List[Dict[str, Any]], None]
 AIO_RESULT: TypeAlias = List[Union[Any, BaseException]]
 
 
-class when:
-    class err:
+class When:
+    class Err:
         @staticmethod
-        def fallback(result_N_return : dict[Any, Any], func: Callable, *args: Any, **kwargs: Any) -> Any | None:
+        def fallback(result_n_return : dict[Any, Any], func: Callable, *args: Any, **kwargs: Any) -> Any | None:
             result = func(*args, **kwargs)
-            if result in result_N_return:
-                return result_N_return[result]
+            if result in result_n_return:
+                return result_n_return[result]
             return result
 
 

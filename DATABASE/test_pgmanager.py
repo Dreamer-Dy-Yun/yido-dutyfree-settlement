@@ -1,6 +1,5 @@
-from CUSTOMIZED.cust_logger import logger
 from DATABASE.models import BaseModel
-import DATABASE.pg_manager as pg_manager
+from DATABASE.dbms.postgre.pg_manager import DataBaseMaker, PGDBManager
 import asyncio
 
 
@@ -11,10 +10,10 @@ DB_PASSWORD = '123!@#qwe'  # ← 이스케이프 제거
 DB_HOST = 'localhost'
 DB_PORT = '5432'
 
-dm = pg_manager.DataBaseMaker(DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT)
+dm = DataBaseMaker(DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT)
 dm.run()
 
-db = pg_manager.PGDBManager(BaseModel, DB_NAME,DB_USER,DB_PASSWORD,DB_HOST,DB_PORT)
+db = PGDBManager(BaseModel, DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT)
 
 
 async def main():
