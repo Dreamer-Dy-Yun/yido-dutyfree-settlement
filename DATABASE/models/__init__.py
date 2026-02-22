@@ -14,30 +14,28 @@
 # BaseModel
 from DATABASE.models.base_model import BaseModel
 
-# 인증 및 권한 관리 모델
-from DATABASE.models.authorities_model import (
+# Public 스키마 모델 (인증 및 권한 관리)
+from DATABASE.models.public_model import (
     Tenant,
-    User,
     Role,
     Permission,
-    UserRole,
     RolePermission,
 )
 
-# 비즈니스 모델
-from DATABASE.models.bussiness_model import OcrPassport, OcrReceipt, VerifiedPassport, VerifiedReceipt, Prompt, Image, EdiSilla, EdiLotte, Matched, LlmUsage
+# Tenant 스키마 모델
+from DATABASE.models.tenant_model import User, OcrPassport, OcrReceipt, VerifiedPassport, VerifiedReceipt, Prompt, Image, EdiSilla, EdiLotte, Matched, LlmUsage
 
 # 하위 호환성을 위해 __all__ 정의
 __all__ = [
     # Base
     "BaseModel",
-    # Auth
+    # Public
     "Tenant",
-    "User",
     "Role",
     "Permission",
-    "UserRole",
     "RolePermission",
+    # Tenant
+    "User",
     # Business
     "OcrPassport",
     "OcrReceipt",

@@ -19,6 +19,8 @@
 #       2025.11.07 : PGDBManager.upsert_dataframe() 수정(불필요한 컬럼 제거)(롤백하면서 제거된 로직 복구)
 #       2025.11.22 : PGDBManager.initialize_engine() 수정(pool_size, max_overflow 추가)
 #       2025.11.30 : DBManager 추상 클래스 추가 및 상속
+#       2026.02.19 : PGDBManager.set_schema() 등 스키마 관련 메서드 추가 (멀티 테넌트 대응)
+#       2026.02.20 : 컨텍스트 매니저 수정
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 import urllib
@@ -26,7 +28,7 @@ from DATABASE.dbms import DBManager
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlalchemy import Table, text, UniqueConstraint, Column
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from typing import Type, TypeVar, Optional, AsyncContextManager
+from typing import Type, TypeVar, Optional, AsyncContextManager, Self
 from pandas import DataFrame
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.sql.dml import Insert
@@ -130,12 +132,80 @@ class PGDBManager(DBManager):
         self.base_model = base_model
         self.uniqueness: dict[str, list] = self.get_uniqueness(self.base_model)
         self.base_fields: dict = {key : val for key, val in vars(self.base_model).items() if isinstance(val, Column)}
+        self.schemas: list[str] = ["public"]
 
 
-    async def __aenter__(self) -> AsyncSession: # 변경후 검증 안됨
+    async def set_schemas(self, schemas: list[str]) -> Self:
+        """
+        스키마 설정 (search_path 변경)
+        
+        Args:
+            schemas: 설정할 스키마 이름 리스트 (예: ["tenant_123", "public"])
+                    순서대로 검색 경로에 추가됨
+                    
+        Returns:
+            Self (메서드 체이닝)
+        """
+        # 스키마 존재 여부 확인 (get_all_schemas 사용)
+        # AI에게 맡겨놓으면 불필요한 최적화 + 부피 늘이는 코드 작성 시도하므로 유의.
+        await self.exist_schemas(schemas, raise_error=True)
+        self.schemas = schemas.copy()
+        return self
+        
+
+    async def exist_schemas(self, schemas: list[str], raise_error: bool = False) -> bool:
+        """
+        스키마 목록 존재 여부 확인
+        
+        Args:
+            schemas: 존재 여부를 확인할 스키마 이름 리스트
+        
+        Returns:
+            True: 모든 스키마가 존재하는 경우
+            False: 하나 이상의 스키마가 존재하지 않는 경우
+        """
+        if schemas:
+            all_schemas : set[str] = set(await self.get_all_schemas())
+            missing_schemas : set[str] = set(schemas) - all_schemas
+            if missing_schemas:
+                logger.error(f"Schemas do not exist: {', '.join(missing_schemas)}")
+                if raise_error:
+                    raise ValueError(f"Schemas do not exist: {', '.join(missing_schemas)}")
+                return False
+            return True
+        return False
+
+
+    async def exists_schema(self, schema: str) -> bool:
+        """단일 스키마 존재 여부 확인"""
+        result = await self.execute_query(text(f"SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = '{schema}')"))
+        return result.scalar() or False
+    
+
+    async def _set_session_schemas(self, session: AsyncSession) -> None:
+        """세션에 스키마 설정 (헬퍼 메서드)"""
+        if self.schemas:
+            schema_list = ", ".join([f'"{s}"' for s in self.schemas])
+            await session.execute(text(f"SET search_path TO {schema_list}"))
+
+    async def get_all_schemas(self) -> list[str]:
+        """DB에 등록된 모든 스키마 목록 조회"""
+        result = await self.execute_query(text("SELECT nspname FROM pg_namespace ORDER BY nspname"))
+        schemas = [row[0] for row in result.fetchall()]
+        return schemas
+ 
+
+    async def __aenter__(self) -> AsyncSession:
         self._session_cm = self.session_maker()  
         self.session = await self._session_cm.__aenter__()
-        return self.session
+        
+        try:
+            await self._set_session_schemas(self.session)
+            return self.session
+        except Exception:
+            # 스키마 설정 실패 시 세션 정리
+            await self._session_cm.__aexit__(None, None, None)
+            raise
 
 
     async def __aexit__(self, exc_type, exc, tb) -> bool: # 변경후 검증 안됨
@@ -188,16 +258,17 @@ class PGDBManager(DBManager):
 
 
     async def dispose_pool(self) -> None:
-        """연결 풀을 정리합니다."""
+        """연결 풀 해제."""
         if self.async_engine:
             await self.async_engine.dispose()
             logger.info("✅Connection pool disposed.")
 
 
     async def execute_query(self, query: str | Executable, params: dict | list[dict] | None = None):
-        """비동기 ORM 세션을 사용해서 쿼리 실행 (파라미터 바인딩 지원)"""
+        """비동기 ORM 세션 사용 쿼리 실행"""
         async with self.session_maker() as session:
             try:
+                await self._set_session_schemas(session)
                 if isinstance(query, str):
                     query = text(query)
                 # logger.info(f"⏩SQL : {str(query)} | params: {params}")
@@ -295,6 +366,7 @@ class PGDBManager(DBManager):
             df = self.normalize_datetime_columns(df)
 
         async with self.session_maker() as session:
+            await self._set_session_schemas(session)
             try:
                 # logger.info(f"🚀 START [upsert_dataframe]")
                 table_name: str = table.__tablename__
