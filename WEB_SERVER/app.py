@@ -2,7 +2,6 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from WEB_SERVER.routers.router_auth import router as router_auth
-from WEB_SERVER.routers.router_registration import router as router_registration
 from fastapi.middleware.cors import CORSMiddleware
 from DATABASE.config import db_manager
 
@@ -11,7 +10,8 @@ from DATABASE.config import db_manager
 async def lifespan(app: FastAPI):
     """앱 시작 시 DB 테이블 및 인덱스 초기화"""
     # Startup
-    await db_manager.create_tables()
+    # public 스키마 테이블 생성
+    await db_manager.create_tables(schema="public")
     yield
     # Shutdown (필요시 추가)
 
@@ -40,4 +40,14 @@ app.state.sessions = {}
 
 # 라우터 등록
 app.include_router(router_auth)
-app.include_router(router_registration)
+
+# 회사 검색/등록 라우터
+from WEB_SERVER.routers.router_company import router as router_company
+app.include_router(router_company)
+
+# 테넌트 관리 및 서비스 제공사 관리 라우터
+from WEB_SERVER.routers.router_tenant import router as router_tenant
+from WEB_SERVER.routers.router_admin import router as router_admin
+
+app.include_router(router_tenant)
+app.include_router(router_admin)

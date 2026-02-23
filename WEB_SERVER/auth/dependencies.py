@@ -14,16 +14,18 @@ from fastapi import Depends, HTTPException, status
 from WEB_SERVER.auth.config import oauth2_scheme, ACCESS_TOKEN_EXPIRE_MINUTES
 from WEB_SERVER.auth.jwt import decode_token
 from WEB_SERVER.auth.redis_session import session_manager
-from WEB_SERVER.routers.settings import get_user_repository
+from WEB_SERVER.routers.settings import get_db_manager
 from DATABASE import models
-from DATABASE.repositories.authorities import UserRepository
+from DATABASE.dbms import DBManager
+from DATABASE.models.tenant_model import UserRole
+from sqlalchemy import select
 
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    user_repository: UserRepository = Depends(get_user_repository)
+    db: DBManager = Depends(get_db_manager)
 ) -> models.User:
-    """현재 로그인한 사용자 조회 (Redis 세션 검증 포함)"""
+    """현재 로그인한 사용자 조회 (Redis 세션 검증 포함, 테넌트 스키마에서 조회)"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="인증 정보를 확인할 수 없습니다",
@@ -34,7 +36,10 @@ async def get_current_user(
         # JWT 토큰 디코딩
         payload = decode_token(token)
         email: str = payload.get("sub")
-        if email is None:
+        tenant_schema: str = payload.get("tenant_schema")
+        user_id: int = payload.get("user_id")
+        
+        if email is None or tenant_schema is None or user_id is None:
             raise credentials_exception
         
         # Redis에서 세션 확인 (세션이 없으면 로그아웃된 토큰)
@@ -48,8 +53,13 @@ async def get_current_user(
     except (JWTError, ValueError):
         raise credentials_exception
     
-    # Repository를 통해 사용자 조회 (ORM 객체 반환)
-    user = await user_repository.get_by_email(email)
+    # 테넌트 스키마로 전환
+    await db.set_schemas([tenant_schema, "public"])
+    
+    # 테넌트 스키마에서 사용자 조회
+    stmt = select(models.User).where(models.User.id == user_id)
+    result = await db.execute_query(stmt)
+    user = result.scalar_one_or_none()
     
     if user is None:
         raise credentials_exception
@@ -85,42 +95,40 @@ async def get_current_active_user(
 
 
 async def get_current_superuser(
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager)
 ) -> models.User:
-    """슈퍼유저 권한 확인"""
-    if not current_user.is_superuser:
+    """서비스 제공사 관리자 권한 확인 (public 스키마의 ServiceEmail에서 확인)"""
+    from DATABASE.models.public_model import ServiceEmail
+    
+    # public 스키마로 전환
+    await db.set_schemas(["public"])
+    
+    # ServiceEmail에서 확인 (이메일로 조회)
+    stmt = select(ServiceEmail).where(
+        ServiceEmail.e_mail == current_user.e_mail,
+        ServiceEmail.is_active == True
+    )
+    result = await db.execute_query(stmt)
+    service_email = result.scalar_one_or_none()
+    
+    if not service_email or service_email.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="권한이 부족합니다"
+            detail="서비스 제공사 관리자 권한이 필요합니다"
         )
+    
     return current_user
 
 
-def check_permission(user: models.User, resource: str, action: str) -> bool:
-    """사용자가 특정 리소스에 대한 특정 액션 권한을 가지고 있는지 확인"""
-    # 슈퍼유저는 모든 권한 보유
-    if user.is_superuser:
-        return True
-    
-    # 사용자의 모든 역할에서 권한 확인
-    for role in user.roles:
-        if not role.is_active:
-            continue
-        for permission in role.permissions:
-            if permission.resource == resource and permission.action == action:
-                return True
-    
-    return False
-
-
-async def require_permission(resource: str, action: str):
-    """권한 체크 의존성 함수"""
-    async def permission_checker(current_user: models.User = Depends(get_current_user)) -> models.User:
-        if not check_permission(current_user, resource, action):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"{resource}에 대한 {action} 권한이 없습니다"
-            )
-        return current_user
-    
-    return permission_checker
+async def get_current_tenant_admin(
+    current_user: models.User = Depends(get_current_user)
+) -> models.User:
+    """테넌트 관리자 권한 확인 (tenant 스키마의 User)"""
+    # tenant 스키마의 User 모델을 사용하므로 role 필드 확인
+    if not hasattr(current_user, 'role') or current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="테넌트 관리자 권한이 필요합니다"
+        )
+    return current_user

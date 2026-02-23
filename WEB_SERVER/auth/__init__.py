@@ -35,8 +35,7 @@ from WEB_SERVER.auth.dependencies import (
     get_current_user,
     get_current_active_user,
     get_current_superuser,
-    check_permission,
-    require_permission
+    get_current_tenant_admin,
 )
 
 # Google OAuth
@@ -64,8 +63,7 @@ __all__ = [
     "get_current_user",
     "get_current_active_user",
     "get_current_superuser",
-    "check_permission",
-    "require_permission",
+    "get_current_tenant_admin",
     # Google OAuth
     "get_google_authorization_url",
     "generate_state_token",

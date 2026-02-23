@@ -4,9 +4,9 @@
 ############################################
 import os
 from functools import lru_cache
-from DATABASE.repositories.authorities import UserRepository, RoleRepository, PermissionRepository, TenantRepository
+from DATABASE.repositories.authorities import UserRepository, TenantRepository
 from DATABASE.dbms import DBManager
-from DATABASE.config import db_manager, user_repository, role_repository, permission_repository, tenant_repository
+from DATABASE.config import db_manager, user_repository, tenant_repository
 from pathlib import Path
 
 DIR_BASE = Path(os.getenv("DIR_BASE_FOR_PARQUET", "C:/Users/user/ict_parquets"))
@@ -22,14 +22,6 @@ def get_db_manager() -> DBManager:
 @lru_cache 
 def get_user_repository() -> UserRepository:
     return user_repository
-
-@lru_cache 
-def get_role_repository() -> RoleRepository:
-    return role_repository
-
-@lru_cache 
-def get_permission_repository() -> PermissionRepository:
-    return permission_repository
 
 @lru_cache 
 def get_tenant_repository() -> TenantRepository:

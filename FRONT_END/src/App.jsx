@@ -1,12 +1,14 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { isAuthenticated } from './services/auth';
-import LoginPage from './pages/LogIn/LoginPage';
-import RegisterPage from './pages/RegisterPage';
+import CompanySelectionPage from './pages/CompanySelectionPage';
+import LoginPage from './pages/LoginPage';
+import CompanyRegisterPage from './pages/CompanyRegisterPage';
+import TenantAdminPage from './pages/TenantAdminPage';
 import './App.css';
 
 // 보호된 라우트 컴포넌트
 const ProtectedRoute = ({ children }) => {
-  return isAuthenticated() ? children : <Navigate to="/login" replace />;
+  return isAuthenticated() ? children : <Navigate to="/" replace />;
 };
 
 // 공개 라우트 컴포넌트 (이미 로그인한 경우 리다이렉트)
@@ -19,6 +21,14 @@ function App() {
     <Router>
       <Routes>
         <Route
+          path="/"
+          element={
+            <PublicRoute>
+              <CompanySelectionPage />
+            </PublicRoute>
+          }
+        />
+        <Route
           path="/login"
           element={
             <PublicRoute>
@@ -27,10 +37,10 @@ function App() {
           }
         />
         <Route
-          path="/register"
+          path="/company/register"
           element={
             <PublicRoute>
-              <RegisterPage />
+              <CompanyRegisterPage />
             </PublicRoute>
           }
         />
@@ -38,15 +48,11 @@ function App() {
           path="/dashboard"
           element={
             <ProtectedRoute>
-              <div className="dashboard">
-                <h1>구매대행B2C 대시보드</h1>
-                <p>로그인에 성공했습니다!</p>
-              </div>
+              <TenantAdminPage />
             </ProtectedRoute>
           }
         />
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );

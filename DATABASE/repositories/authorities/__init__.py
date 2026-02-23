@@ -10,14 +10,10 @@
 ############################################
 
 from DATABASE.repositories.authorities.user_repository import UserRepository
-from DATABASE.repositories.authorities.role_repository import RoleRepository
-from DATABASE.repositories.authorities.permission_repository import PermissionRepository
 from DATABASE.repositories.authorities.tenant_repository import TenantRepository
 
 __all__ = [
     "UserRepository",
-    "RoleRepository",
-    "PermissionRepository",
     "TenantRepository",
 ]
 

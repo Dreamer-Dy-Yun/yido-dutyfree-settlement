@@ -4,7 +4,7 @@
 # Written by : Yun Dae-young 
 # Contact : Dreamer.Dy.Yun@Gmail.com
 # Created at : 2025.07.11
-# Updated at : 2025.07.11
+# Updated at : 2026.02.23
 # Supported by : ChatGPT-4o
 # Note : SQLAlchemy ORM 모델 정의
 #       2025.09.23 : PGDBManager.upsert_dataframe()에 주석 추가
@@ -21,13 +21,18 @@
 #       2025.11.30 : DBManager 추상 클래스 추가 및 상속
 #       2026.02.19 : PGDBManager.set_schema() 등 스키마 관련 메서드 추가 (멀티 테넌트 대응)
 #       2026.02.20 : 컨텍스트 매니저 수정
+#       2026.02.23 : PGDBManager.create_tables() 수정(스키마 명시적 지정 가능)
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 import urllib
+
+from numpy._core.strings import str_len
 from DATABASE.dbms import DBManager
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlalchemy import Table, text, UniqueConstraint, Column
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.sql import quoted_name
+from sqlalchemy.orm import sessionmaker, DeclarativeBase, strategies
+from sqlalchemy.schema import AddConstraint
 from typing import Type, TypeVar, Optional, AsyncContextManager, Self
 from pandas import DataFrame
 from sqlalchemy.dialects.postgresql import insert
@@ -108,7 +113,8 @@ class DataBaseMaker:
 class PGDBManager(DBManager):
     """Postgre 전용 (비동기)"""
     def __init__(
-        self, base_model: TableModel, 
+        self, 
+        base_model: TableModel, 
         db_name: str, 
         user: str, 
         password: str, 
@@ -125,22 +131,22 @@ class PGDBManager(DBManager):
 
         self.async_engine: Optional[AsyncEngine] = None
         self.session_maker: Optional[sessionmaker] = None
-        self.base_model: Optional[Type[DeclarativeBase]] = None
+        self.base_model: Optional[Type[DeclarativeBase]] = base_model
         self.client_encoding: str = ""
         
         self.initialize_engine(self.db_name, self.user, self.password, self.host, self.port, pool_size=pool_size, max_overflow=max_overflow)
-        self.base_model = base_model
         self.uniqueness: dict[str, list] = self.get_uniqueness(self.base_model)
         self.base_fields: dict = {key : val for key, val in vars(self.base_model).items() if isinstance(val, Column)}
-        self.schemas: list[str] = ["public"]
+        self.schemas: list[str] | None = None
 
 
-    async def set_schemas(self, schemas: list[str]) -> Self:
+    async def set_schemas(self, schemas: list[str] | None = None) -> Self:
         """
         스키마 설정 (search_path 변경)
         
         Args:
             schemas: 설정할 스키마 이름 리스트 (예: ["tenant_123", "public"])
+                    기본값은 None (public 스키마만 사용)
                     순서대로 검색 경로에 추가됨
                     
         Returns:
@@ -148,8 +154,9 @@ class PGDBManager(DBManager):
         """
         # 스키마 존재 여부 확인 (get_all_schemas 사용)
         # AI에게 맡겨놓으면 불필요한 최적화 + 부피 늘이는 코드 작성 시도하므로 유의.
-        await self.exist_schemas(schemas, raise_error=True)
-        self.schemas = schemas.copy()
+        if schemas:
+            await self.exist_schemas(schemas, raise_error=True)
+            self.schemas = schemas.copy()
         return self
         
 
@@ -178,15 +185,36 @@ class PGDBManager(DBManager):
 
     async def exists_schema(self, schema: str) -> bool:
         """단일 스키마 존재 여부 확인"""
-        result = await self.execute_query(text(f"SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = '{schema}')"))
-        return result.scalar() or False
+        result = await self.execute_query(
+            text("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = :schema)"),
+            {"schema": schema}
+        )
+        return bool(result.scalar())
     
+
+    async def create_schema(self, schema: str) -> bool:
+        """스키마 생성"""
+        # quoted_name을 사용하여 식별자 안전하게 처리
+        schema_quoted = quoted_name(schema, quote=True)
+        await self.execute_query(text(f'CREATE SCHEMA IF NOT EXISTS {schema_quoted}'))
+        return True
+    
+
+    async def drop_schema(self, schema: str) -> bool:
+        """스키마 삭제"""
+        # quoted_name을 사용하여 식별자 안전하게 처리
+        schema_quoted = quoted_name(schema, quote=True)
+        await self.execute_query(text(f'DROP SCHEMA IF EXISTS {schema_quoted}'))
+        return True
+
 
     async def _set_session_schemas(self, session: AsyncSession) -> None:
         """세션에 스키마 설정 (헬퍼 메서드)"""
         if self.schemas:
-            schema_list = ", ".join([f'"{s}"' for s in self.schemas])
+            # quoted_name을 사용하여 식별자 안전하게 처리
+            schema_list = ", ".join([str(quoted_name(s, quote=True)) for s in self.schemas])
             await session.execute(text(f"SET search_path TO {schema_list}"))
+
 
     async def get_all_schemas(self) -> list[str]:
         """DB에 등록된 모든 스키마 목록 조회"""
@@ -242,19 +270,79 @@ class PGDBManager(DBManager):
             )
 
 
-    async def create_tables(self):
+    async def create_tables(self, schema: str | None = None) -> int:
+        """
+        테이블 생성
+        
+        Args:
+            schema: 특정 스키마의 테이블만 생성 (None이면 모든 테이블 생성)
+                    예: "public" → public 스키마 테이블만 생성
+        """
         async with self.async_engine.begin() as conn:
             await conn.execute(text(f"SET client_encoding TO '{self.client_encoding}'"))
-            await conn.run_sync(self.base_model.metadata.create_all)
-        logger.info("✅All tables are CREATED.")
-    
+            
+            if not schema:
+                await conn.run_sync(self.base_model.metadata.create_all)
+                logger.info("✅All tables are CREATED.")
+                return 0
 
-    async def drop_tables(self):
+            filtered_tables = self._filter_tables_by_schema(schema)
+            
+            if not filtered_tables:
+                logger.warning(f"⚠️No tables found for schema '{schema}'.")
+                return 0
+
+            for table in filtered_tables:
+                await conn.run_sync(lambda sync_conn, t=table: t.create(sync_conn, checkfirst=True))
+            logger.info(f"✅Tables in schema '{schema}' are CREATED.")
+            return len(filtered_tables)
+
+    
+    def _filter_tables_by_schema(self, schema: str) -> list[Table]:
+        """특정 스키마의 테이블만 필터링"""
+        return [
+            table for table in self.base_model.metadata.tables.values()
+            if table.schema == schema
+        ]
+        
+        
+    async def drop_tables(self, schema: str | None = None) -> int:
+        """
+        테이블 삭제
+        
+        Args:
+            schema: 특정 스키마의 테이블만 삭제 (None이면 모든 테이블 삭제)
+                    예: "public" → public 스키마 테이블만 삭제
+                    
+        Returns:
+            삭제된 테이블 개수
+        """
         async with self.async_engine.begin() as conn:
-            # 테이블별로 CASCADE 옵션으로 삭제
-            for table_name in reversed(self.base_model.metadata.tables.keys()):
-                await conn.execute(text(f"DROP TABLE IF EXISTS {table_name} CASCADE;"))
-        logger.info("✅All tables are REMOVED.")
+            if not schema:
+                # 모든 테이블 삭제 (기존 동작)
+                tables_to_drop = list(self.base_model.metadata.tables.values())
+            else:
+                # 특정 스키마의 테이블만 필터링
+                tables_to_drop = self._filter_tables_by_schema(schema)
+            
+            if not tables_to_drop:
+                logger.warning(f"⚠️No tables found for schema '{schema}' to drop." if schema else "⚠️No tables to drop.")
+                return 0
+            
+            # 의존성 순서를 고려하여 역순으로 삭제
+            for table in reversed(tables_to_drop):
+                # 스키마가 있으면 스키마.테이블명 형식으로 삭제
+                if table.schema:
+                    schema_quoted = str(quoted_name(table.schema, quote=True))
+                    name_quoted = str(quoted_name(table.name, quote=True))
+                    table_ref = f"{schema_quoted}.{name_quoted}"
+                else:
+                    table_ref = str(quoted_name(table.name, quote=True))
+                await conn.execute(text(f"DROP TABLE IF EXISTS {table_ref} CASCADE;"))
+            
+            schema_msg = f" in schema '{schema}'" if schema else ""
+            logger.info(f"✅{len(tables_to_drop)} tables{schema_msg} are REMOVED.")
+            return len(tables_to_drop)
 
 
     async def dispose_pool(self) -> None:
@@ -288,7 +376,9 @@ class PGDBManager(DBManager):
         에러 없이, 성패 (True : 성공 / False : 에러) 만 반환.
         """
         try : 
-            query: str = f"TRUNCATE TABLE {table.__tablename__}"
+            # quoted_name을 사용하여 식별자 안전하게 처리
+            table_name_quoted = str(quoted_name(table.__tablename__, quote=True))
+            query: str = f"TRUNCATE TABLE {table_name_quoted}"
 
             if restart_identity:
                 query += " RESTART IDENTITY"
@@ -449,4 +539,55 @@ class PGDBManager(DBManager):
             return unique_cols
 
         return [col.name for col in table.primary_key.columns]
-        
+
+
+    async def copy_tables_of_schema(self, schema_to_make: str, schemas_for_fk: list[str] | None = None) -> int:
+        """
+        schema가 지정되지 않은 테이블을 대상으로 DB에 새로운 스키마를 생성하고, 테이블을 복사.
+
+        정책:
+        - schema_to_make 존재하면 raise
+        - tenant 대상은 schema=None 모델만
+        """
+
+        # tenant 대상: schema=None
+        tenant_tables: list[Table] = [
+            t for t in self.base_model.metadata.tables.values()
+            if t.schema is None
+        ]
+
+        if not tenant_tables:
+            raise RuntimeError("No tenant tables (schema=None).")
+
+        async with self.async_engine.begin() as conn:
+            # 1) schema 존재하면 실패
+            if await self.exists_schema(schema_to_make):
+                raise RuntimeError(f"Schema '{schema_to_make}' already exists.")
+
+            # 2) schema 생성 + search_path 
+            to_schema : str = str(quoted_name(schema_to_make, quote=True))
+            await conn.execute(text(f"CREATE SCHEMA {to_schema}"))
+
+            sql : str = f"SET search_path TO {to_schema}"
+            if schemas_for_fk:
+                sql += ", " + ", ".join([str(quoted_name(s, quote=True)) for s in schemas_for_fk])
+            await conn.execute(text(sql))
+
+            # 3) 1-pass: FK 없이 테이블 생성
+            for t in tenant_tables:
+                await conn.run_sync(
+                    lambda sync_conn, table=t: table.create(
+                        bind=sync_conn,
+                        checkfirst=False,
+                        include_foreign_key_constraints=[],
+                    )
+                )
+
+            # 4) 2-pass: FK 추가 (순환 포함 안전)
+            for t in tenant_tables:
+                for fk in t.foreign_key_constraints:
+                    await conn.run_sync(
+                        lambda sync_conn, c=fk: sync_conn.execute(AddConstraint(c))
+                    )
+
+        return len(tenant_tables)

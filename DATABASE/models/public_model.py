@@ -54,41 +54,4 @@ class Tenant(BaseModelPublic):
         return f"<Tenant(name={self.name}, business_no={self.business_no}, is_active={self.is_active})>"
 
 
-class Role(BaseModelPublic):
-    __tablename__ = "role"
-    
-    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    
-    # 관계
-    permissions: Mapped[list["Permission"]] = relationship("Permission", secondary="public.role_permission", back_populates="roles", lazy="selectin")
-    
-    def __repr__(self) -> str:
-        return f"<Role(name={self.name}, is_active={self.is_active})>"
 
-
-class Permission(BaseModelPublic):
-    __tablename__ = "permission"
-    
-    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
-    resource: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # 예: "user", "role", "data"
-    action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 예: "create", "read", "update", "delete"
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
-    # 관계
-    roles: Mapped[list["Role"]] = relationship("Role", secondary="public.role_permission", back_populates="permissions", lazy="selectin")
-    
-    __table_args__ = (
-        UniqueConstraint("resource", "action", name="uq_permission_resource_action"),
-    )
-    
-    def __repr__(self) -> str:
-        return f"<Permission(name={self.name}, resource={self.resource}, action={self.action})>"
-
-
-class RolePermission(BaseModelPublic):
-    __tablename__ = "role_permission"
-    
-    role_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("role.id", ondelete="CASCADE"), primary_key=True)
-    permission_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("permission.id", ondelete="CASCADE"), primary_key=True)

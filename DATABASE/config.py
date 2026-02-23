@@ -2,8 +2,6 @@ import os
 from DATABASE import pg_manager, models
 from DATABASE.repositories.authorities import (
     UserRepository,
-    RoleRepository,
-    PermissionRepository,
     TenantRepository,
 )
 
@@ -20,7 +18,5 @@ db_manager = pg_manager.PGDBManager(
 
 # Repository 인스턴스 생성
 user_repository = UserRepository(db_manager)
-role_repository = RoleRepository(db_manager)
-permission_repository = PermissionRepository(db_manager)
 tenant_repository = TenantRepository(db_manager)
 

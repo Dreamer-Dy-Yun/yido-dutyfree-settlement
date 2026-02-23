@@ -14,9 +14,14 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, Boolean, Date, DateTime, Numeric, ForeignKey, UniqueConstraint, BigInteger, JSON
+from sqlalchemy import String, Text, Boolean, Date, DateTime, Numeric, ForeignKey, UniqueConstraint, BigInteger, Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from DATABASE.models.base_model import BaseModel
+from enum import Enum
 
+class UserRole(Enum):
+    USER = "user"
+    ADMIN = "admin"
 
 # ---------------------------------------------------------------------------
 # USER: 사용자 정보 관리 (Tenant 스키마)
@@ -31,6 +36,7 @@ class User(BaseModel):
     alias: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 별칭 (랜덤 생성)
     e_mail: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)  # 이메일 (Unique)
     password: Mapped[str] = mapped_column(String(64), nullable=False)  # 해싱값(SHA-256)
+    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole), default=UserRole.USER, nullable=False)
     department: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 소속 부서
     contact: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)  # 연락처 (Unique, 국가번호 포함)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=True)  # 계정 활성화 여부
@@ -58,7 +64,7 @@ class OcrPassport(BaseModel):
     date_of_issue: Mapped[date | None] = mapped_column(Date, nullable=True)  # 발행일
     authority: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발급기관
     date_of_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)  # 만료일
-    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSON, nullable=False, index=True)  # 이미지 좌표 (COMPOSITE)
+    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=False, index=True)  # 이미지 좌표 (COMPOSITE)
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (SHA-256, COMPOSITE)
 
     __table_args__ = (
@@ -82,7 +88,7 @@ class OcrReceipt(BaseModel):
     country_code: Mapped[str | None] = mapped_column(String(3), nullable=True)  # 국가코드
     passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 구매자 여권 번호
     purchaser: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 구매자 이름
-    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSON, nullable=False, index=True)  # 이미지 좌표 (COMPOSITE)
+    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=False, index=True)  # 이미지 좌표 (COMPOSITE)
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (COMPOSITE)
 
     __table_args__ = (

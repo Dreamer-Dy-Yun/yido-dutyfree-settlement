@@ -12,15 +12,11 @@
 from DATABASE.repositories.base import BaseRepository
 from DATABASE.repositories.authorities import (
     UserRepository,
-    RoleRepository,
-    PermissionRepository,
     TenantRepository,
 )
 
 __all__ = [
     "BaseRepository",
     "UserRepository",
-    "RoleRepository",
-    "PermissionRepository",
     "TenantRepository",
 ]
