@@ -13,6 +13,10 @@ build/
 .DS_Store
 .idea/
 
+# Local POC test scripts (do not commit real API keys)
+POC/test.py
+POC/test copy.py
+
 # Nginx 설정 파일 (프로젝트별로 다름)
 nginx/nginx.env
 nginx/nginx.conf.generated

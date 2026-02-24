@@ -4,7 +4,7 @@ import asyncio
 
 
 # 접속 정보 설정
-DB_NAME = 'novas_ez'
+DB_NAME = 'dev'
 DB_USER = 'admin'
 DB_PASSWORD = '123!@#qwe'  # ← 이스케이프 제거
 DB_HOST = 'localhost'

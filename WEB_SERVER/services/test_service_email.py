@@ -5,7 +5,7 @@ email_service = EmailService(
     port=587,
     user="yido.repository@gmail.com",
     password="uioi odyf rzgv zvil",
-    sender="yido.NoReply@gmail.com"
+    sender="yido.repository@gmail.com"
 )
 
 email_service.set_verification_email(

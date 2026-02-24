@@ -22,6 +22,8 @@
 #       2026.02.19 : PGDBManager.set_schema() 등 스키마 관련 메서드 추가 (멀티 테넌트 대응)
 #       2026.02.20 : 컨텍스트 매니저 수정
 #       2026.02.23 : PGDBManager.create_tables() 수정(스키마 명시적 지정 가능)
+#                    PGDBManager.copy_tables_of_schema() 추가 (스키마 복사 기능 추가. supported by ChatGPT-5.3)
+#       2026.02.24 : PGDBManager._get_most_suitable_unique_keys() 추가 및 피영향 메서드 수정
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 import urllib
@@ -29,7 +31,7 @@ import urllib
 from numpy._core.strings import str_len
 from DATABASE.dbms import DBManager
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
-from sqlalchemy import Table, text, UniqueConstraint, Column
+from sqlalchemy import Table, text, UniqueConstraint, Column, PrimaryKeyConstraint, ForeignKeyConstraint
 from sqlalchemy.sql import quoted_name
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, strategies
 from sqlalchemy.schema import AddConstraint
@@ -121,8 +123,10 @@ class PGDBManager(DBManager):
         host: str, 
         port: int = 5432,
         pool_size: int = 50,
-        max_overflow: int = 150
+        max_overflow: int = 150,
+        test_mode: bool = False
         ):
+        self.test_mode: bool = test_mode
         self.db_name: str = db_name
         self.user: str = user
         self.password: str = password
@@ -134,8 +138,14 @@ class PGDBManager(DBManager):
         self.base_model: Optional[Type[DeclarativeBase]] = base_model
         self.client_encoding: str = ""
         
-        self.initialize_engine(self.db_name, self.user, self.password, self.host, self.port, pool_size=pool_size, max_overflow=max_overflow)
-        self.uniqueness: dict[str, list] = self.get_uniqueness(self.base_model)
+        if self.test_mode:
+            self.initialize_engine(self.db_name, self.user, self.password, self.host, self.port, pool_size=pool_size, max_overflow=max_overflow)
+        self.unique_constraints: dict[str, list[list[str]]] = {}
+        self.primary_constraints: dict[str, list[list[str]]] = {}
+        self.foreign_key_constraints: dict[str, list[list[str]]] = {}
+        self.unique_keys: dict[str, list[str]] = {}
+        self.primary_keys: dict[str, list[str]] = {}
+        self._get_uniqueness(self.base_model)
         self.base_fields: dict = {key : val for key, val in vars(self.base_model).items() if isinstance(val, Column)}
         self.schemas: list[str] | None = None
 
@@ -431,16 +441,79 @@ class PGDBManager(DBManager):
         return result
 
 
-    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, try_normalize: bool = True) -> int:
+    def _is_valid_conflict_cols(self, conflict_cols: list[str], table: DeclarativeBase) -> bool:
+        table_name = table.__table__.name
+
+        unique_constraints = self.unique_constraints.get(table_name, [])
+        primary_constraints = self.primary_constraints.get(table_name, [])
+        unique_keys = self.unique_keys.get(table_name, [])
+        primary_keys = self.primary_keys.get(table_name, [])
+
+        candidates: list[list[str]] = []
+        candidates.extend(unique_constraints)
+        candidates.extend(primary_constraints)
+        candidates.extend([[c] for c in unique_keys])
+        candidates.extend([[c] for c in primary_keys])
+
+        target = set(conflict_cols)
+
+        return any(set(candidate) == target for candidate in candidates)
+
+
+    def _get_most_suitable_unique_keys(self, table: DeclarativeBase, df: pd.DataFrame) -> list[str]:
+        table_name = table.__table__.name 
+        cols_df: set[str] = set(df.columns)
+
+        ucs = self.unique_constraints.get(table_name, [])
+        pcs = self.primary_constraints.get(table_name, [])
+        uks = self.unique_keys.get(table_name, [])
+        pks = self.primary_keys.get(table_name, [])
+
+        if not (ucs or pcs or uks or pks):
+            raise ValueError(f"Can't find suitable PK/UK in {table_name}")
+
+        for uniqs in ucs:
+            if all(col in cols_df for col in uniqs):
+                return uniqs
+
+        for uniqs in pcs:
+            if all(col in cols_df for col in uniqs):
+                return uniqs
+
+        for uniq in uks:
+            if uniq in cols_df:
+                return [uniq]
+
+        for uniq in pks:
+            if uniq in cols_df:
+                return [uniq]
+
+        # === 에러 메시지 ===
+        raise ValueError(
+            f"Missing required PK/UK/Constraint columns in DataFrame for table '{table_name}'. "
+            f"Required columns (candidates): "
+            f"unique_constraints={ucs}, "
+            f"primary_constraints={pcs}, "
+            f"unique_keys={uks}, "
+            f"primary_keys={pks}. "
+            f"Available columns: {list(df.columns)}"
+        )
+
+
+    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, conflict_cols: list[str] | None = None, try_normalize: bool = True) -> int:
         '''
         자동 Upserter.
         가용한 모든 df(DataFrame)컬럼 업데이트.
-            - df(DataFrame)에는 table의 모든 Unique / Primary Key 컬럼이 존재하여야 함.
-            - Unique / Primary Key를 제외한 모든 컬럼이 양쪽에 존재할 필요는 없음 
+            - df(DataFrame)에는 table 의 아래 중 하나를 만족하는 컬럼이 존재하여야 함 (유니크 제약이 우선임에 유의)
+              - UniqueConstraint 
+              - PrimaryKeyConstraint
+              - UniqueKey
+              - PrimaryKey
+            - Key나 Constraint 를 제외한 모든 컬럼이 양쪽에 존재할 필요는 없음 
                 - df에 존재하지 않는 컬럼은 table에 업데이트 되지 않음(에러 발생 X)
                 - table에 존재하지 않는 df컬럼은 무시됨(에러 발생 X)
                 - df 값이 None 인 경우 Null 값으로 업데이트 됨
-
+            -conflict_cols: 업데이트 기준 키 명시적 설정 가능. (None 이면 자동 설정)
         Table 타입은 DeclarativeBase
         >> sqlalchemy.orm.DeclarativeBase
 
@@ -459,19 +532,11 @@ class PGDBManager(DBManager):
             await self._set_session_schemas(session)
             try:
                 # logger.info(f"🚀 START [upsert_dataframe]")
-                table_name: str = table.__tablename__
-                uniqs: list = self.uniqueness[table_name]
 
-                if not uniqs:
-                    raise ValueError(f"Can't find PK/UK in {table_name}")
-
-                # 유니크 키 컬럼 검증: 모든 유니크 키 컬럼이 DataFrame에 있어야 함
-                missing_uniq_cols = [col for col in uniqs if col not in df.columns]
-                if missing_uniq_cols:
-                    raise ValueError(
-                        f"Missing required unique key columns in DataFrame for table '{table_name}': {missing_uniq_cols}. "
-                        f"Required columns: {uniqs}, Available columns: {list(df.columns)}"
-                    )
+                if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
+                    raise ValueError(f"Invalid conflict columns: {conflict_cols}")
+                
+                uniqs: list[str] = conflict_cols or self._get_most_suitable_unique_keys(table, df)
 
                 # 모델에 정의된 컬럼만 선택 (불필요한 컬럼 제거)
                 model_columns = [col.name for col in table.__table__.columns]
@@ -505,40 +570,47 @@ class PGDBManager(DBManager):
                 raise
 
 
-    def get_uniqueness(self, base_model: Type[DeclarativeBase]) -> dict[str, list[str]]:
+    def _get_uniqueness(self, base_model: Type[DeclarativeBase]) -> None:
         """
         DB 내 모든 테이블을 순회하며,
         테이블명: list(유니크키 컬럼 리스트 또는 프라이머리키 컬럼 리스트) 반환
         """
-        uniqueness = {}
-        tables = base_model.metadata.tables
-
-        for table_name, table in tables.items():
-            unique_cols: list[str] = []
-            unique_cols = self._get_unique_columns(table, unique_cols)
-            unique_cols = self._get_primary_columns(table, unique_cols)
-            uniqueness.update({table_name: unique_cols})
-        return uniqueness
+        for _, table in base_model.metadata.tables.items():
+            self._get_constraints(table)
+            self._get_keys(table)
 
 
-    @staticmethod
-    def _get_unique_columns(table: Table, unique_cols: list[str] | None = None) -> list[str]:
-        if unique_cols:
-            return unique_cols
+    def _get_constraints(self, table: Table) -> None:
+
+        unique_constraints: list[list[str]] = []
+        primary_constraints: list[list[str]] = []
+        foreign_key_constraints: list[list[str]] = []
 
         for constraint in table.constraints:
             if isinstance(constraint, UniqueConstraint):
-                unique_cols = [col.name for col in constraint.columns]
-                break
-        return unique_cols or []
+                unique_constraints.append([col.name for col in constraint.columns])
+            elif isinstance(constraint, PrimaryKeyConstraint):
+                primary_constraints.append([col.name for col in constraint.columns])
+            elif isinstance(constraint, ForeignKeyConstraint):
+                foreign_key_constraints.append([col.name for col in constraint.columns])
 
+        unique_constraints.sort(key=len, reverse=True)
+        primary_constraints.sort(key=len, reverse=True)
+        foreign_key_constraints.sort(key=len, reverse=True)
+        self.unique_constraints[table.name] = unique_constraints
+        self.primary_constraints[table.name] = primary_constraints
+        self.foreign_key_constraints[table.name] = foreign_key_constraints
 
-    @staticmethod
-    def _get_primary_columns(table: Table, unique_cols: list[str] | None = None) -> list[str]:
-        if unique_cols:
-            return unique_cols
-
-        return [col.name for col in table.primary_key.columns]
+    def _get_keys(self, table: Table) -> None:
+        unique_keys: list[str] = []
+        primary_keys: list[str] = []
+        for col in table.columns:
+            if col.unique:
+                unique_keys.append(col.name)
+            if col.primary_key:
+                primary_keys.append(col.name)
+        self.unique_keys[table.name] = unique_keys
+        self.primary_keys[table.name] = primary_keys
 
 
     async def copy_tables_of_schema(self, schema_to_make: str, schemas_for_fk: list[str] | None = None) -> int:
@@ -568,10 +640,10 @@ class PGDBManager(DBManager):
             to_schema : str = str(quoted_name(schema_to_make, quote=True))
             await conn.execute(text(f"CREATE SCHEMA {to_schema}"))
 
-            sql : str = f"SET search_path TO {to_schema}"
+            query : str = f"SET search_path TO {to_schema}"
             if schemas_for_fk:
-                sql += ", " + ", ".join([str(quoted_name(s, quote=True)) for s in schemas_for_fk])
-            await conn.execute(text(sql))
+                query += ", " + ", ".join([str(quoted_name(s, quote=True)) for s in schemas_for_fk])
+            await conn.execute(text(query))
 
             # 3) 1-pass: FK 없이 테이블 생성
             for t in tenant_tables:

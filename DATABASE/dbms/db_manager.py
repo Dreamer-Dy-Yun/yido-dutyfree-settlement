@@ -7,6 +7,10 @@
 # Updated at : 2025.11.30
 # Supported by : ChatGPT-4o
 # Note : 
+#       2026.02.24 : 이하의 추상 매서드 삭제(보다 깊어진 DB 제약조건 이해로 인한 변경)
+#                    _get_unique_columns
+#                    _get_primary_columns
+#                    get_uniqueness
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 from abc import ABC, abstractmethod
@@ -106,46 +110,4 @@ class DBManager(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_uniqueness(self, base_model: Type[DeclarativeBase]) -> dict[str, list[str]]:
-        """
-        모든 테이블의 유니크 키 및 프라이머리 키 정보를 추출합니다.
-        
-        Args:
-            base_model: SQLAlchemy DeclarativeBase 모델 클래스
-        
-        Returns:
-            테이블명을 키로, 유니크/프라이머리 키 컬럼 리스트를 값으로 하는 딕셔너리
-            예: {"table_name": ["col1", "col2"]}
-        """
-        pass
 
-    @staticmethod
-    @abstractmethod
-    def _get_unique_columns(table: Table, unique_cols: list[str] | None = None) -> list[str]:
-        """
-        테이블의 유니크 제약 조건 컬럼을 추출합니다.
-        
-        Args:
-            table: SQLAlchemy Table 객체
-            unique_cols: 이미 찾은 유니크 컬럼 리스트 (있으면 그대로 반환)
-        
-        Returns:
-            유니크 컬럼 이름 리스트
-        """
-        pass
-
-    @staticmethod
-    @abstractmethod
-    def _get_primary_columns(table: Table, unique_cols: list[str] | None = None) -> list[str]:
-        """
-        테이블의 프라이머리 키 컬럼을 추출합니다.
-        
-        Args:
-            table: SQLAlchemy Table 객체
-            unique_cols: 이미 찾은 컬럼 리스트 (있으면 그대로 반환)
-        
-        Returns:
-            프라이머리 키 컬럼 이름 리스트
-        """
-        pass
