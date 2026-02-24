@@ -38,7 +38,7 @@ def ensure_test_database():
 def pg_manager(ensure_test_database):
     """
     테스트용 PGDBManager 인스턴스 생성.
-    - test_mode=True 로 엔진/세션 풀을 바로 초기화.
+    - 애플리케이션과 동일하게 생성 시점에 엔진/세션 풀을 초기화.
     """
 
     print("[setup] PGDBManager 생성 (엔진/세션 풀 초기화)")
@@ -49,7 +49,6 @@ def pg_manager(ensure_test_database):
         password=DB_PASSWORD,
         host=DB_HOST,
         port=DB_PORT,
-        test_mode=True,
     )
     return mgr
 
@@ -209,7 +208,6 @@ async def test_dispose_pool():
         password=DB_PASSWORD,
         host=DB_HOST,
         port=DB_PORT,
-        test_mode=True,
     )
 
     await mgr.dispose_pool()

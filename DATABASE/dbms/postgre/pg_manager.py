@@ -124,9 +124,7 @@ class PGDBManager(DBManager):
         port: int = 5432,
         pool_size: int = 50,
         max_overflow: int = 150,
-        test_mode: bool = False
         ):
-        self.test_mode: bool = test_mode
         self.db_name: str = db_name
         self.user: str = user
         self.password: str = password
@@ -138,8 +136,7 @@ class PGDBManager(DBManager):
         self.base_model: Optional[Type[DeclarativeBase]] = base_model
         self.client_encoding: str = ""
         
-        if self.test_mode:
-            self.initialize_engine(self.db_name, self.user, self.password, self.host, self.port, pool_size=pool_size, max_overflow=max_overflow)
+        self.initialize_engine(self.db_name, self.user, self.password, self.host, self.port, pool_size=pool_size, max_overflow=max_overflow)
         self.unique_constraints: dict[str, list[list[str]]] = {}
         self.primary_constraints: dict[str, list[list[str]]] = {}
         self.foreign_key_constraints: dict[str, list[list[str]]] = {}
