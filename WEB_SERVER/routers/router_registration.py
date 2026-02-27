@@ -14,9 +14,10 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, EmailStr
 from DATABASE.repositories import UserRepository, TenantRepository
-from WEB_SERVER.routers.settings import get_user_repository, get_tenant_repository
+from DATABASE.dbms import DBManager
+from WEB_SERVER.routers.settings import get_user_repository, get_tenant_repository, get_db_manager
 from WEB_SERVER.auth import get_password_hash
-from WEB_SERVER.services.service_email import email_service
+from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_service
 from WEB_SERVER.services.verification_token import verification_token_service
 from CUSTOMIZED.cust_deco_error import handle_http_error
 import pandas as pd
@@ -40,6 +41,7 @@ async def register(
     user_data: UserCreate,
     user_repo: UserRepository = Depends(get_user_repository),
     tenant_repo: TenantRepository = Depends(get_tenant_repository),
+    db: DBManager = Depends(get_db_manager),
 ):
     # 이메일 중복 확인
     existing_email = await user_repo.get_by_email(user_data.email)
@@ -86,15 +88,22 @@ async def register(
         verification_token,
         created_user.id  # ORM 객체이므로 .id로 접근
     )
-    
+
     # 인증 이메일 발송
-    app_url = os.getenv("APP_URL", "http://localhost:3001")
-    email_service.set_verification_email(
+    app_url = os.getenv("APP_URL", "http://localhost:5173")
+
+    # 1) DB에서 SMTP 송신 계정 찾기 → 2) 실패 시 환경변수 기반 email_service 사용
+    smtp_service = await get_db_smtp_email_service(db) or email_service
+
+    smtp_service.set_verification_email(
         receiver_email=user_data.email,
         receiver_name=user_data.username,
         verification_token=verification_token,
-        service_url=app_url
-    ).send(log=f"인증 이메일 발송 완료: {user_data.email}")
+        service_url=app_url,
+    ).send(
+        log_success=f"인증 이메일 발송 완료: {user_data.email}",
+        log_error=f"인증 이메일 발송 실패: {user_data.email}",
+    )
     
     return {
         "message": "회원가입이 완료되었습니다. 이메일을 확인하여 인증을 완료해주세요.",
@@ -111,6 +120,7 @@ async def verify_email(
     token: str = Query(..., description="인증 토큰"),
     email: str = Query(..., description="이메일 주소"),
     user_repo: UserRepository = Depends(get_user_repository),
+    db: DBManager = Depends(get_db_manager),
 ):
     """이메일 인증 처리"""
     # 토큰 검증
@@ -153,10 +163,15 @@ async def verify_email(
     verification_token_service.delete_token(token)
     
     # 환영 이메일 발송
-    email_service.set_welcome_email(
+    smtp_service = await get_db_smtp_email_service(db) or email_service
+
+    smtp_service.set_welcome_email(
         receiver_email=email,
-        receiver_name=user.username
-    ).send(log=f"환영 이메일 발송 완료: {email}")
+        receiver_name=user.username,
+    ).send(
+        log_success=f"환영 이메일 발송 완료: {email}",
+        log_error=f"환영 이메일 발송 실패: {email}",
+    )
     
     return {
         "message": "이메일 인증이 완료되었습니다",

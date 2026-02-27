@@ -12,10 +12,20 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, UniqueConstraint, BigInteger, Numeric
+from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, UniqueConstraint, BigInteger, Numeric, Enum as SQLEnum
 from DATABASE.models.base_model import BaseModel
 
+
+class ServiceAccountRole(Enum):
+    """서비스 계정 역할"""
+    SMTP_SENDER = "smtp_sender"  # 이메일 송신용
+    SMTP_RECEIVER = "smtp_receiver"  # 이메일 수신용
+    MONITOR = "monitor"  # 모니터링용
+    BACKUP = "backup"  # 백업용
+    API = "api"  # API 키용
+    NOTIFICATION = "notification"  # 알림 발송용
 
 
 class BaseModelPublic(BaseModel):
@@ -23,17 +33,36 @@ class BaseModelPublic(BaseModel):
     __table_args__ = {"schema": "public"}
 
 
-class ServiceEmail(BaseModelPublic):
-    __tablename__ = "service_email"
+class SystemAdmin(BaseModelPublic):
+    """시스템 어드민 (서비스 제공사 관리자) - 패스워드 해시 저장"""
+    __tablename__ = "system_admin"
     
-    alias: Mapped[str] = mapped_column(String(50), nullable=True, unique=False, index=True)
-    e_mail: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
-    password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role : Mapped[str] = mapped_column(String(50), nullable=False, unique=False, index=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)  # 관리자 이름
+    alias: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 별칭
+    e_mail: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)  # 이메일 (Unique)
+    password: Mapped[str] = mapped_column(String(64), nullable=False)  # 해싱된 패스워드 (SHA-256 hex 문자열, 64자)
+    department: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 소속 부서
+    contact: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 연락처
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 계정 활성화 여부
+    
+    def __repr__(self) -> str:
+        return f"<SystemAdmin(name={self.name}, e_mail={self.e_mail}, is_active={self.is_active})>"
+
+
+class ServiceAccount(BaseModelPublic):
+    """서비스 계정 (SMTP 등) - 실제 패스워드 저장 (암호화 권장)"""
+    __tablename__ = "service_account"
+    
+    alias: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=False, index=True)  # 계정 별칭
+    e_mail: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)  # 이메일 (Unique)
+    password: Mapped[str] = mapped_column(String(255), nullable=False)  # 실제 패스워드 (평문)
+    role: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # ServiceAccountRole enum value를 문자열로 저장
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)  # 용도 설명
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 계정 활성화 여부
 
     def __repr__(self) -> str:
-        return f"<ServiceEmail(alias={self.alias}, e_mail={self.e_mail}, role={self.role}, is_active={self.is_active})>"
+        role_value = self.role.value if hasattr(self.role, 'value') else str(self.role)
+        return f"<ServiceAccount(alias={self.alias}, e_mail={self.e_mail}, role={role_value}, is_active={self.is_active})>"
 
 
 class Tenant(BaseModelPublic):
@@ -48,10 +77,9 @@ class Tenant(BaseModelPublic):
     address: Mapped[str | None] = mapped_column(Text, nullable=True)  # 소재지
     path_root: Mapped[str] = mapped_column(Text, nullable=False)  # 루트 경로 (회사 데이터 저장 폴더)
     schema_name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)  # 스키마 이름
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=True)  # 활성화 여부
+    is_db_built: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 스키마/테이블 생성 여부
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 활성화 여부
     
     def __repr__(self) -> str:
         return f"<Tenant(name={self.name}, business_no={self.business_no}, is_active={self.is_active})>"
-
-
 

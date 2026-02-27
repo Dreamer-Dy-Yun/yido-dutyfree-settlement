@@ -9,7 +9,7 @@
 
 from datetime import datetime, timedelta
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, func, and_, update as sql_update
 from sqlalchemy.sql import Select
@@ -17,7 +17,9 @@ from sqlalchemy.sql import Select
 from WEB_SERVER.auth.dependencies import get_current_tenant_admin
 from WEB_SERVER.routers.settings import get_db_manager, get_tenant_repository
 from WEB_SERVER.auth import get_password_hash
-from WEB_SERVER.services.service_email import email_service
+from WEB_SERVER.auth.config import oauth2_scheme
+from WEB_SERVER.auth.jwt import decode_token
+from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_service
 from WEB_SERVER.services.verification_token import verification_token_service
 from WEB_SERVER.routers.settings import get_user_repository
 from CUSTOMIZED.cust_deco_error import handle_http_error
@@ -28,6 +30,8 @@ from DATABASE.repositories.authorities import UserRepository, TenantRepository
 from DATABASE.dbms import DBManager
 import pandas as pd
 import os
+import secrets
+import string
 
 router = APIRouter(prefix="/api/tenant", tags=["테넌트 관리"])
 
@@ -49,6 +53,10 @@ class UserUpdateRequest(BaseModel):
     department: str | None = None
     contact: str | None = None
     is_active: bool | None = None
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
 
 
 class UserResponse(BaseModel):
@@ -84,15 +92,23 @@ async def get_users(
     is_active: bool | None = Query(None),
     current_user: models.User = Depends(get_current_tenant_admin),
     db: DBManager = Depends(get_db_manager),
+    token: str = Depends(oauth2_scheme),
 ):
     """유저 목록 조회"""
-    # TODO: 스키마 전환 로직 추가 필요
-    # await db.set_schemas([current_user의 테넌트 스키마])
+    # JWT 토큰에서 tenant_schema 가져와서 스키마 설정
+    try:
+        payload = decode_token(token)
+        tenant_schema: str = payload.get("tenant_schema")
+        if tenant_schema:
+            await db.set_schemas([tenant_schema, "public"])
+    except Exception:
+        # 토큰 디코딩 실패 시 get_current_tenant_admin에서 이미 스키마가 설정되어 있을 수 있음
+        pass
     
     stmt: Select = select(models.User)
     if is_active is not None:
         stmt = stmt.where(models.User.is_active == is_active)
-    stmt = stmt.offset(skip).limit(limit).order_by(models.User.created_at.desc())
+    stmt = stmt.offset(skip).limit(limit).order_by(models.User.db_created_at.desc())
     
     result = await db.execute_query(stmt)
     users = result.scalars().all()
@@ -111,6 +127,64 @@ async def get_users(
         }
         for user in users
     ]
+
+
+# ============================================================================
+# 데이터 매핑 / EDI 업로드
+# ============================================================================
+
+@router.post(
+    "/data-mapping/edi-upload",
+    summary="EDI 데이터 업로드",
+    description="업로드된 EDI/엑셀 파일을 받아 데이터 매핑용으로 처리합니다. (실제 처리 로직은 추후 구현)",
+)
+@handle_http_error
+async def upload_edi_data(
+    file: UploadFile = File(..., description="EDI/엑셀 파일"),
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    """
+    EDI/엑셀 파일 업로드 엔드포인트.
+
+    실제 파싱/검증/저장 로직은 추후 구현 예정입니다.
+
+    구현 아이디어 (예시):
+    - 파일 확장자에 따라 pandas.read_excel / read_csv 등으로 DataFrame 생성
+    - 컬럼 매핑 및 유효성 검증
+    - 임시 테이블 또는 버퍼 테이블에 저장 후, 별도의 확정/커밋 단계에서 본 테이블로 반영
+    """
+
+    filename = file.filename or ""
+
+    # 기본적인 파일 형식 체크 (엑셀/CSV만 허용)
+    if not filename.lower().endswith((".xlsx", ".xls", ".csv")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="지원하지 않는 파일 형식입니다. 엑셀(.xlsx, .xls) 또는 CSV 파일을 업로드해주세요.",
+        )
+
+    # TODO: 여기서부터 실제 비즈니스 로직 구현
+    # 예시 코드 (참고용, 주석 처리):
+    # contents = await file.read()
+    # try:
+    #     if filename.lower().endswith(".csv"):
+    #         df = pd.read_csv(BytesIO(contents))
+    #     else:
+    #         df = pd.read_excel(BytesIO(contents))
+    # except Exception as e:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail=f"파일을 읽는 중 오류가 발생했습니다: {e}",
+    #     )
+    #
+    # # df를 이용해 매핑/검증/저장 로직 구현
+    # # ...
+
+    return {
+        "message": "파일이 성공적으로 업로드되었습니다. (실제 처리 로직은 추후 구현 예정입니다.)",
+        "filename": filename,
+    }
 
 
 @router.post("/users", summary="유저 추가", description="새로운 유저를 추가합니다.")
@@ -169,7 +243,7 @@ async def create_user(
     )
     
     # 인증 이메일 발송
-    app_url = os.getenv("APP_URL", "http://localhost:3001")
+    app_url = os.getenv("APP_URL", "http://localhost:5173")
     email_service.set_verification_email(
         receiver_email=user_data.e_mail,
         receiver_name=user_data.name,
@@ -304,7 +378,6 @@ async def delete_user(
 @handle_http_error
 async def reset_password(
     user_id: int,
-    new_password: str,
     current_user: models.User = Depends(get_current_tenant_admin),
     db: DBManager = Depends(get_db_manager),
 ):
@@ -320,15 +393,36 @@ async def reset_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="유저를 찾을 수 없습니다"
         )
-    
+
+    # 임시 비밀번호 생성 (영문 대/소문자 + 숫자 조합, 12자리)
+    alphabet = string.ascii_letters + string.digits
+    temp_password = "".join(secrets.choice(alphabet) for _ in range(12))
+
     # 비밀번호 해싱
-    hashed_password = get_password_hash(new_password)
+    hashed_password = get_password_hash(temp_password)
     
     # 비밀번호 업데이트
     stmt = sql_update(models.User).where(models.User.id == user_id).values(password=hashed_password)
     await db.execute_query(stmt)
+
+    # 임시 비밀번호를 이메일로 발송
+    # 우선 DB 기반 SMTP 계정 사용, 없으면 기본 email_service 사용
+    smtp_service = await get_db_smtp_email_service(db) or email_service
+    app_url = os.getenv("APP_URL", "http://localhost:5173")
+    login_url = f"{app_url}/login"
+
+    receiver_name = getattr(user, "name", None) or user.e_mail
+    smtp_service.set_user_temp_password_email(
+        receiver_email=user.e_mail,
+        receiver_name=receiver_name,
+        temp_password=temp_password,
+        login_url=login_url,
+    ).send(
+        log_success=f"임시 비밀번호 이메일 발송 완료: {user.e_mail}",
+        log_error=f"임시 비밀번호 이메일 발송 실패: {user.e_mail}",
+    )
     
-    return {"message": "비밀번호가 재설정되었습니다", "user_id": user_id}
+    return {"message": "임시 비밀번호가 등록된 이메일로 발송되었습니다", "user_id": user_id}
 
 
 # 사용량 조회 API

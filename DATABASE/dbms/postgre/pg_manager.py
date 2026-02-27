@@ -1,6 +1,6 @@
 ###########################################
-# Module name : models
-# Module class : SQLAlchemy ORM Models
+# Module name : pg_manager.py
+# Module class : PGDBManager, DataBaseMaker
 # Written by : Yun Dae-young 
 # Contact : Dreamer.Dy.Yun@Gmail.com
 # Created at : 2025.07.11
@@ -16,7 +16,10 @@
 #       2025.10.17 : PGDBManager.execute_query() 확장
 #       2025.10.20 : PGDBManager.upsert_dataframe() 반환값 변경(None → 업데이트 된 행 수(int))
 #                    PGDBManager 클래스 변수를 인스턴스 변수로 변경
-#       2025.11.07 : PGDBManager.upsert_dataframe() 수정(불필요한 컬럼 제거)(롤백하면서 제거된 로직 복구)
+#       2025.11.07 : PGDBManager.upsert_dataframe() 수정(불필요한 컬럼 제거)
+#                       - 롤백하면서 제거된 로직 복구. 
+#                       - 롤백 원인 : AI의 잘못된 대규모 코드 수정 
+#                                   (다른 파일의 로직을 수정요청 하였으나, 이 파일을 수정. 심지어 잘못된 방향으로.)
 #       2025.11.22 : PGDBManager.initialize_engine() 수정(pool_size, max_overflow 추가)
 #       2025.11.30 : DBManager 추상 클래스 추가 및 상속
 #       2026.02.19 : PGDBManager.set_schema() 등 스키마 관련 메서드 추가 (멀티 테넌트 대응)
@@ -28,12 +31,11 @@
 ############################################
 import urllib
 
-from numpy._core.strings import str_len
 from DATABASE.dbms import DBManager
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlalchemy import Table, text, UniqueConstraint, Column, PrimaryKeyConstraint, ForeignKeyConstraint
 from sqlalchemy.sql import quoted_name
-from sqlalchemy.orm import sessionmaker, DeclarativeBase, strategies
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from sqlalchemy.schema import AddConstraint
 from typing import Type, TypeVar, Optional, AsyncContextManager, Self
 from pandas import DataFrame
@@ -59,7 +61,7 @@ asyncpg 사용시 유니코드 문제로 비동기로 pg 접속이 안될 수 �
 '''
 
 class DataBaseMaker:
-
+    """테스트용 DB 생성 클래스"""
     def __init__(self, db_name: str, user: str, password: str, host: str, port: int = 5432):
         self.db_name: str = db_name
         self.user: str = user
@@ -243,7 +245,7 @@ class PGDBManager(DBManager):
             raise
 
 
-    async def __aexit__(self, exc_type, exc, tb) -> bool: # 변경후 검증 안됨
+    async def __aexit__(self, exc_type, exc, tb) -> None : # 변경후 검증 안됨
         try:
             if self._session_cm is not None:
                 await self._session_cm.__aexit__(exc_type, exc, tb)
@@ -285,6 +287,12 @@ class PGDBManager(DBManager):
             schema: 특정 스키마의 테이블만 생성 (None이면 모든 테이블 생성)
                     예: "public" → public 스키마 테이블만 생성
         """
+        # 스키마가 지정된 경우, 스키마 존재 여부 확인 및 생성
+        if schema:
+            if not await self.exists_schema(schema):
+                await self.create_schema(schema)
+                logger.info(f"✅Schema '{schema}' is CREATED.")
+        
         async with self.async_engine.begin() as conn:
             await conn.execute(text(f"SET client_encoding TO '{self.client_encoding}'"))
             

@@ -51,6 +51,10 @@ function CompanySelectionPage() {
     navigate('/company/register');
   };
 
+  const handleSystemAdminLogin = () => {
+    navigate('/admin/login');
+  };
+
   return (
     <div className="company-selection-page">
       <div className="company-selection-container">
@@ -107,6 +111,12 @@ function CompanySelectionPage() {
         <div className="register-section">
           <button onClick={handleRegisterNew} className="register-button">
             신규 회사 등록
+          </button>
+        </div>
+
+        <div className="admin-section">
+          <button onClick={handleSystemAdminLogin} className="admin-login-button">
+            시스템 관리자 로그인
           </button>
         </div>
       </div>

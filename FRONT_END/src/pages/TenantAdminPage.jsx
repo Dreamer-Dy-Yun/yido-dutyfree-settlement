@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { logout, getCurrentUser } from '../services/auth';
 import {
   getTenantUsers,
@@ -10,12 +10,22 @@ import {
   getUsage,
   getUserTokenUsage,
 } from '../services/tenant';
+import Sidebar from '../components/Sidebar';
+import TenantHeader from '../components/TenantHeader';
 import './TenantAdminPage.css';
 
 function TenantAdminPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('users'); // 'users' or 'usage'
+  
+  // URL 파라미터에서 탭 정보 가져오기
+  const searchParams = new URLSearchParams(location.search);
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(tabFromUrl || 'users'); // 'users' or 'usage'
+  
+  // 관리자 권한 확인
+  const isAdmin = currentUser?.role === 'admin';
   const [users, setUsers] = useState([]);
   const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -26,6 +36,7 @@ function TenantAdminPage() {
     name: '',
     e_mail: '',
     password: '',
+    passwordConfirm: '',
     role: 'user',
     department: '',
     contact: '',
@@ -33,6 +44,16 @@ function TenantAdminPage() {
 
   useEffect(() => {
     loadCurrentUser();
+  }, []);
+
+  useEffect(() => {
+    // URL 파라미터 변경 시 탭 업데이트
+    const searchParams = new URLSearchParams(location.search);
+    const tabFromUrl = searchParams.get('tab') || 'users';
+    setActiveTab(tabFromUrl);
+  }, [location.search]);
+
+  useEffect(() => {
     if (activeTab === 'users') {
       loadUsers();
     } else if (activeTab === 'usage') {
@@ -85,6 +106,7 @@ function TenantAdminPage() {
       name: '',
       e_mail: '',
       password: '',
+      passwordConfirm: '',
       role: 'user',
       department: '',
       contact: '',
@@ -98,6 +120,7 @@ function TenantAdminPage() {
       name: user.name || '',
       e_mail: user.e_mail || '',
       password: '',
+      passwordConfirm: '',
       role: user.role || 'user',
       department: user.department || '',
       contact: user.contact || '',
@@ -107,11 +130,27 @@ function TenantAdminPage() {
 
   const handleSaveUser = async () => {
     setError(null);
+    
+    // 유저 추가 시 비밀번호 확인
+    if (!editingUser) {
+      if (!userFormData.password || !userFormData.passwordConfirm) {
+        setError('비밀번호와 비밀번호 확인을 모두 입력해주세요');
+        return;
+      }
+      if (userFormData.password !== userFormData.passwordConfirm) {
+        setError('비밀번호가 일치하지 않습니다');
+        return;
+      }
+    }
+    
     try {
+      // passwordConfirm은 서버로 전송하지 않음
+      const { passwordConfirm, ...dataToSend } = userFormData;
+      
       if (editingUser) {
-        await updateTenantUser(editingUser.id, userFormData);
+        await updateTenantUser(editingUser.id, dataToSend);
       } else {
-        await createTenantUser(userFormData);
+        await createTenantUser(dataToSend);
       }
       setShowUserModal(false);
       loadUsers();
@@ -133,12 +172,13 @@ function TenantAdminPage() {
   };
 
   const handleResetPassword = async (userId) => {
-    const newPassword = prompt('새 비밀번호를 입력하세요:');
-    if (!newPassword) return;
-    
+    if (!window.confirm('해당 유저의 비밀번호를 임시 비밀번호로 재설정하고,\n등록된 이메일로 발송하시겠습니까?')) {
+      return;
+    }
+
     try {
-      await resetUserPassword(userId, newPassword);
-      alert('비밀번호가 재설정되었습니다');
+      await resetUserPassword(userId);
+      alert('임시 비밀번호가 등록된 이메일로 발송되었습니다');
     } catch (err) {
       setError(err.response?.data?.detail || '비밀번호 재설정에 실패했습니다');
     }
@@ -146,30 +186,29 @@ function TenantAdminPage() {
 
   return (
     <div className="tenant-admin-page">
-      <div className="admin-header">
-        <h1>테넌트 관리</h1>
-        <div className="header-actions">
-          {currentUser && (
-            <span className="current-user">
-              {currentUser.name} ({currentUser.e_mail})
-            </span>
-          )}
-          <button onClick={handleLogout} className="logout-button">
-            로그아웃
-          </button>
-        </div>
-      </div>
+      <Sidebar isAdmin={isAdmin} />
+      <TenantHeader
+        title="테넌트 관리"
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      />
 
       <div className="admin-tabs">
         <button
           className={activeTab === 'users' ? 'active' : ''}
-          onClick={() => setActiveTab('users')}
+          onClick={() => {
+            setActiveTab('users');
+            navigate('/dashboard');
+          }}
         >
           유저 관리
         </button>
         <button
           className={activeTab === 'usage' ? 'active' : ''}
-          onClick={() => setActiveTab('usage')}
+          onClick={() => {
+            setActiveTab('usage');
+            navigate('/dashboard?tab=usage');
+          }}
         >
           사용량 조회
         </button>
@@ -304,17 +343,43 @@ function TenantAdminPage() {
                 />
               </div>
               {!editingUser && (
-                <div className="form-group">
-                  <label>비밀번호 *</label>
-                  <input
-                    type="password"
-                    value={userFormData.password}
-                    onChange={(e) =>
-                      setUserFormData({ ...userFormData, password: e.target.value })
-                    }
-                    required
-                  />
-                </div>
+                <>
+                  <div className="form-group">
+                    <label>비밀번호 *</label>
+                    <input
+                      type="password"
+                      value={userFormData.password}
+                      onChange={(e) =>
+                        setUserFormData({ ...userFormData, password: e.target.value })
+                      }
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>비밀번호 확인 *</label>
+                    <input
+                      type="password"
+                      value={userFormData.passwordConfirm}
+                      onChange={(e) =>
+                        setUserFormData({ ...userFormData, passwordConfirm: e.target.value })
+                      }
+                      required
+                    />
+                    {userFormData.passwordConfirm && (
+                      <div
+                        className={`password-match-message ${
+                          userFormData.password === userFormData.passwordConfirm
+                            ? 'match'
+                            : 'no-match'
+                        }`}
+                      >
+                        {userFormData.password === userFormData.passwordConfirm
+                          ? '✓ 비밀번호가 일치합니다'
+                          : '✗ 비밀번호가 일치하지 않습니다'}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
               <div className="form-group">
                 <label>역할</label>

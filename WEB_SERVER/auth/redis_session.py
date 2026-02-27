@@ -207,6 +207,28 @@ class RedisSessionManager:
         """
         return self.get_session(token) is not None
     
+    def get_session_ttl(self, token: str) -> Optional[int]:
+        """
+        현재 세션의 TTL(남은 수명, 초 단위)을 조회
+        
+        Args:
+            token: JWT 토큰
+        
+        Returns:
+            Optional[int]: 남은 수명(초). 세션이 없거나 TTL 미지원 시 None
+        """
+        try:
+            session_key = f"{REDIS_SESSION_PREFIX}{token}"
+            ttl = self.redis_client.ttl(session_key)
+            # Redis TTL 반환값:
+            #  -2: key 없음, -1: 만료 시간 없음, 0 이상: 남은 TTL(초)
+            if ttl is None or ttl < 0:
+                return None
+            return int(ttl)
+        except Exception as e:
+            print(f"세션 TTL 조회 실패: {e}")
+            return None
+    
     def get_user_token_expire_minutes(self, user_id: int, default: int = 30) -> int:
         """
         사용자별 토큰 유효기간 조회 (분 단위)

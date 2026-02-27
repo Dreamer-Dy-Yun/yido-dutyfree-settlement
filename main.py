@@ -6,6 +6,9 @@ from WEB_SERVER.main_web import start_web_server
 from DATABASE.config import db_manager
 from CUSTOMIZED.cust_deco_retry import async_retry
 
+#개발 중
+# uvicorn WEB_SERVER.app:app --reload
+# cd FRONT_END ;; npm run dev
 
 
 # @async_retry(exceptions=(Exception,), backoff_factor=10)

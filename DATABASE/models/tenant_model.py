@@ -36,7 +36,7 @@ class User(BaseModel):
     alias: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 별칭 (랜덤 생성)
     e_mail: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)  # 이메일 (Unique)
     password: Mapped[str] = mapped_column(String(64), nullable=False)  # 해싱값(SHA-256)
-    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole), default=UserRole.USER, nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default=UserRole.USER.value, nullable=False)  # UserRole enum value를 문자열로 저장
     department: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 소속 부서
     contact: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)  # 연락처 (Unique, 국가번호 포함)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=True)  # 계정 활성화 여부

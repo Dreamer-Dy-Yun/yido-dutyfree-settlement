@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { registerCompany } from '../services/auth';
 import './CompanyRegisterPage.css';
@@ -13,12 +13,12 @@ function CompanyRegisterPage() {
     contact: '',
     email: '',
     address: '',
-    admin_email: '',
-    admin_name: '',
   });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false);
+  const [countdown, setCountdown] = useState(10);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -28,27 +28,70 @@ function CompanyRegisterPage() {
     }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const submitCompany = async (useExistingIfPending = false) => {
     setError(null);
     setLoading(true);
 
     try {
-      await registerCompany(formData);
+      // 백엔드 스키마(CompanyRegisterRequest)에 맞게 값 정리
+      const payload = {
+        ...formData,
+        // 선택 입력인데 타입이 int/EmailStr인 필드는 빈 문자열을 null로 변환
+        country_code: formData.country_code === '' ? null : Number(formData.country_code),
+        email: formData.email.trim() === '' ? null : formData.email.trim(),
+        use_existing_if_pending: useExistingIfPending,
+      };
+
+      await registerCompany(payload);
+      setShowDuplicateConfirm(false);
       setSuccess(true);
-      setTimeout(() => {
-        navigate('/');
-      }, 2000);
+      setCountdown(10);
     } catch (err) {
-      setError(err.response?.data?.detail || '회사 등록에 실패했습니다');
+      const detail = err.response?.data?.detail;
+
+      // 이미 등록된 사업자번호인 경우 → 확인 팝업 노출 (HTTP 상태코드는 사용자에게 직접 노출하지 않음)
+      if (typeof detail === 'string' && detail.includes('이미 등록된 사업자번호')) {
+        // 첫 시도에서만 팝업을 띄우고, 확인 후에는 다시 호출 시 useExistingIfPending=true 로 진행
+        if (!useExistingIfPending) {
+          setShowDuplicateConfirm(true);
+          return;
+        }
+      }
+
+      setError(detail || '회사 등록에 실패했습니다');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    await submitCompany(false);
+  };
+
+  const handleConfirmDuplicate = async () => {
+    await submitCompany(true);
+  };
+
+  const handleCancelDuplicate = () => {
+    setShowDuplicateConfirm(false);
+  };
+
   const handleBack = () => {
     navigate('/');
   };
+
+  // 카운트다운 및 자동 이동
+  useEffect(() => {
+    if (success && countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (success && countdown === 0) {
+      navigate('/');
+    }
+  }, [success, countdown, navigate]);
 
   if (success) {
     return (
@@ -57,7 +100,16 @@ function CompanyRegisterPage() {
           <div className="success-message">
             <h2>회사 등록이 완료되었습니다</h2>
             <p>관리자 승인 후 활성화됩니다.</p>
-            <p>회사 선택 화면으로 이동합니다...</p>
+            <p className="countdown-text">
+              {countdown}초 후 회사 선택 화면으로 이동합니다...
+            </p>
+            <button 
+              type="button" 
+              className="back-button success-back-button"
+              onClick={handleBack}
+            >
+              바로 돌아가기
+            </button>
           </div>
         </div>
       </div>
@@ -135,7 +187,12 @@ function CompanyRegisterPage() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="email">대표 이메일</label>
+              <label htmlFor="email">
+                대표 이메일
+                <span className="email-alert">
+                  {' '}이 메일로 승인 결과 및 초기 로그인 계정이 발송됩니다.
+                </span>
+              </label>
               <input
                 type="email"
                 id="email"
@@ -159,37 +216,32 @@ function CompanyRegisterPage() {
             </div>
           </div>
 
-          <div className="form-section">
-            <h2>관리자 정보</h2>
-            
-            <div className="form-group">
-              <label htmlFor="admin_name">관리자 이름 <span className="required">*</span></label>
-              <input
-                type="text"
-                id="admin_name"
-                name="admin_name"
-                value={formData.admin_name}
-                onChange={handleChange}
-                required
-                placeholder="관리자 이름을 입력하세요"
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="admin_email">관리자 이메일 <span className="required">*</span></label>
-              <input
-                type="email"
-                id="admin_email"
-                name="admin_email"
-                value={formData.admin_email}
-                onChange={handleChange}
-                required
-                placeholder="관리자 이메일을 입력하세요"
-              />
-            </div>
-          </div>
-
           {error && <div className="error-message">{error}</div>}
+
+          {showDuplicateConfirm && (
+            <div className="modal-backdrop" onClick={handleCancelDuplicate}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <h3>이미 등록된 사업자번호입니다</h3>
+                <p>이미 등록된 사업자 번호입니다. 계속 진행할까요?</p>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="modal-button cancel"
+                    onClick={handleCancelDuplicate}
+                  >
+                    아니오
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-button confirm"
+                    onClick={handleConfirmDuplicate}
+                  >
+                    예, 계속 진행
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="form-actions">
             <button type="button" onClick={handleBack} className="back-button">

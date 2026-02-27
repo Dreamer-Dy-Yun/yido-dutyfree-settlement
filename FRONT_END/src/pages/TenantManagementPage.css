@@ -1,0 +1,32 @@
+.tenant-management-page {
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding: 20px;
+  padding-left: 270px; /* 사이드바 너비 + 여백 */
+  transition: padding-left 0.3s ease;
+}
+
+.tenant-management-page:has(.sidebar.collapsed) {
+  padding-left: 80px; /* 접힌 사이드바 너비 + 여백 */
+}
+
+.page-header {
+  background: white;
+  padding: 20px 30px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.page-header h1 {
+  margin: 0;
+  color: #333;
+  font-size: 24px;
+}
+
+.page-content {
+  background: white;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}

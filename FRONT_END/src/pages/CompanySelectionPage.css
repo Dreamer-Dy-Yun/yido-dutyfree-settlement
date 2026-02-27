@@ -181,3 +181,26 @@
   background: #667eea;
   color: white;
 }
+
+.admin-section {
+  text-align: center;
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.admin-login-button {
+  padding: 12px 24px;
+  background: transparent;
+  color: #764ba2;
+  border: 2px solid #764ba2;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.admin-login-button:hover {
+  background: #764ba2;
+  color: white;
+}

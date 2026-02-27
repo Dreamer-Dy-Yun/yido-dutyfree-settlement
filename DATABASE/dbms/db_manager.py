@@ -11,12 +11,13 @@
 #                    _get_unique_columns
 #                    _get_primary_columns
 #                    get_uniqueness
+#       2026.02.26 : PGDBManager 와 시그니처 통일
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 from abc import ABC, abstractmethod
-from sqlalchemy import Table
 from sqlalchemy.orm import DeclarativeBase
-from typing import TypeVar, Type, Any
+from sqlalchemy.sql.elements import Executable
+from typing import TypeVar, Any
 import pandas as pd
 
 TableModel = TypeVar('TableModel', bound=DeclarativeBase)
@@ -32,19 +33,22 @@ class DBManager(ABC):
     Attributes:
         None (추상 클래스이므로 인스턴스 변수는 구현체에서 정의)
     
-    Methods:
-        upsert_dataframe: DataFrame을 데이터베이스에 업데이트합니다.
+    Methods (구현체에서 공통 제공해야 하는 인터페이스):
+        batch_upsert_dataframe: DataFrame을 배치 업서트합니다.
+        upsert_dataframe: DataFrame을 업서트합니다.
         execute_query: SQL 쿼리 실행
-        create_tables: 테이블 생성
-        drop_tables: 테이블 삭제
-        get_uniqueness: 테이블의 유니크 키/프라이머리 키 정보 추출
-        _get_unique_columns: 테이블의 유니크 컬럼 추출 (내부 메서드)
-        _get_primary_columns: 테이블의 프라이머리 키 컬럼 추출 (내부 메서드)
+        create_tables: 테이블 생성 (옵션: 특정 스키마만)
+        drop_tables: 테이블 삭제 (옵션: 특정 스키마만)
     """
 
 
     @abstractmethod
-    async def batch_upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, allowed_param_size: int = 10000) -> int:
+    async def batch_upsert_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: pd.DataFrame,
+        allowed_param_size: int = 10000,
+    ) -> int:
         """
         DataFrame을 데이터베이스에 업데이트합니다.
         
@@ -59,7 +63,13 @@ class DBManager(ABC):
         pass
 
     @abstractmethod
-    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, try_normalize: bool = True) -> int:
+    async def upsert_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: pd.DataFrame,
+        conflict_cols: list[str] | None = None,
+        try_normalize: bool = True,
+    ) -> int:
         """
         DataFrame을 데이터베이스에 업데이트합니다.
         
@@ -74,7 +84,11 @@ class DBManager(ABC):
         pass
 
     @abstractmethod
-    async def execute_query(self, query: str | Any, params: dict | list[dict] | None = None) -> Any:
+    async def execute_query(
+        self,
+        query: str | Executable,
+        params: dict | list[dict] | None = None,
+    ) -> Any:
         """
         SQL 쿼리를 실행합니다.
         
@@ -91,22 +105,28 @@ class DBManager(ABC):
         pass
 
     @abstractmethod
-    async def create_tables(self) -> None:
+    async def create_tables(self, schema: str | None = None) -> int:
         """
-        데이터베이스에 모든 테이블을 생성합니다.
-        
-        Raises:
-            DB별 예외
+        데이터베이스에 테이블을 생성합니다.
+
+        Args:
+            schema: 특정 스키마의 테이블만 생성 (None이면 모든 테이블 대상)
+
+        Returns:
+            생성된(또는 대상이 된) 테이블 개수
         """
         pass
 
     @abstractmethod
-    async def drop_tables(self) -> None:
+    async def drop_tables(self, schema: str | None = None) -> int:
         """
-        데이터베이스의 모든 테이블을 삭제합니다.
-        
-        Raises:
-            DB별 예외
+        데이터베이스의 테이블을 삭제합니다.
+
+        Args:
+            schema: 특정 스키마의 테이블만 삭제 (None이면 모든 테이블 대상)
+
+        Returns:
+            삭제된 테이블 개수
         """
         pass
 

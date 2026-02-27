@@ -16,7 +16,9 @@ from DATABASE.models.base_model import BaseModel
 
 # Public 스키마 모델 (인증 및 권한 관리)
 from DATABASE.models.public_model import (
-    ServiceEmail,
+    SystemAdmin,
+    ServiceAccount,
+    ServiceAccountRole,
     Tenant,
 )
 
@@ -28,7 +30,9 @@ __all__ = [
     # Base
     "BaseModel",
     # Public
-    "ServiceEmail",
+    "SystemAdmin",
+    "ServiceAccount",
+    "ServiceAccountRole",
     "Tenant",
     # Tenant
     "User",

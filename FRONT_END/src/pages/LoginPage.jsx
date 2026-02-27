@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login } from '../services/auth';
+import { login, searchCompany } from '../services/auth';
 import './LoginPage.css';
 
 function LoginPage() {
@@ -9,20 +9,62 @@ function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [selectedTenantName, setSelectedTenantName] = useState('');
+
+  const [companyQuery, setCompanyQuery] = useState('');
+  const [companyResults, setCompanyResults] = useState([]);
+  const [companyLoading, setCompanyLoading] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState(null);
 
   useEffect(() => {
-    // 선택한 회사 정보 확인
+    // 이전에 선택해 둔 회사가 있으면 기본 선택으로 사용
     const tenantId = localStorage.getItem('selected_tenant_id');
     const tenantName = localStorage.getItem('selected_tenant_name');
-    
-    if (!tenantId) {
-      // 회사 선택을 하지 않았으면 회사 선택 페이지로 이동
-      navigate('/');
-    } else {
-      setSelectedTenantName(tenantName || '');
+    if (tenantId && tenantName) {
+      setSelectedCompany({
+        id: parseInt(tenantId, 10),
+        name: tenantName,
+        alias: null,
+      });
+      setCompanyQuery(tenantName);
     }
-  }, [navigate]);
+  }, []);
+
+  const handleCompanySearchChange = async (e) => {
+    const value = e.target.value;
+    setCompanyQuery(value);
+    setSelectedCompany(null);
+    setError(null);
+
+    if (!value.trim()) {
+      setCompanyResults([]);
+      return;
+    }
+
+    try {
+      setCompanyLoading(true);
+      const results = await searchCompany(value, null);
+      setCompanyResults(results);
+    } catch (err) {
+      // 400: 회사명 또는 사업자번호 미입력 등은 조용히 처리
+      if (err.response?.status !== 400) {
+        setError(err.response?.data?.detail || '회사 검색에 실패했습니다');
+      }
+      setCompanyResults([]);
+    } finally {
+      setCompanyLoading(false);
+    }
+  };
+
+  const handleSelectCompany = (company) => {
+    const displayName = company.alias || company.name;
+    setSelectedCompany(company);
+    setCompanyQuery(displayName);
+    setCompanyResults([]);
+
+    // 기존 흐름과의 호환을 위해 로컬 스토리지에도 저장
+    localStorage.setItem('selected_tenant_id', company.id);
+    localStorage.setItem('selected_tenant_name', displayName);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -30,10 +72,31 @@ function LoginPage() {
     setLoading(true);
 
     try {
-      const tenantId = parseInt(localStorage.getItem('selected_tenant_id'));
-      await login(email, password, tenantId);
+      if (!selectedCompany) {
+        setError('회사를 선택해주세요');
+        setLoading(false);
+        return;
+      }
+
+      await login(email, password, selectedCompany.id);
       
-      // 로그인 성공 시 대시보드로 이동
+      // 로그인 성공 시 권한에 따라 리다이렉트
+      // JWT 토큰에서 권한 확인
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          // 시스템 어드민인 경우 /admin으로 이동
+          if (payload.is_superuser === true || payload.role === 'system_admin') {
+            navigate('/admin');
+            return;
+          }
+        } catch (e) {
+          // 토큰 파싱 실패 시 기본 동작
+        }
+      }
+      
+      // 일반 사용자는 대시보드로 이동
       navigate('/dashboard');
     } catch (err) {
       setError(err.response?.data?.detail || '로그인에 실패했습니다');
@@ -42,23 +105,65 @@ function LoginPage() {
     }
   };
 
-  const handleBack = () => {
-    localStorage.removeItem('selected_tenant_id');
-    localStorage.removeItem('selected_tenant_name');
-    navigate('/');
-  };
-
   return (
     <div className="login-page">
+      {/* 시스템 어드민용 숨겨진 진입 버튼 (우측 상단 더블클릭) */}
+      <div
+        className="hidden-admin-trigger"
+        onDoubleClick={() => navigate('/admin/login')}
+      />
       <div className="login-container">
         <h1>로그인</h1>
-        {selectedTenantName && (
-          <div className="selected-company">
-            선택한 회사: <strong>{selectedTenantName}</strong>
-          </div>
-        )}
         
         <form onSubmit={handleSubmit} className="login-form">
+          <div className="form-group">
+            <label htmlFor="company">회사</label>
+            <input
+              type="text"
+              id="company"
+              value={companyQuery}
+              onChange={handleCompanySearchChange}
+              placeholder="회사명을 입력하세요 (자동완성)"
+              autoComplete="off"
+            />
+            {companyLoading && (
+              <div className="company-hint">회사 목록을 불러오는 중...</div>
+            )}
+            {!companyLoading && companyQuery.trim() && companyResults.length === 0 && (
+              <div className="company-hint">등록된 회사가 없습니다.</div>
+            )}
+            {companyResults.length > 0 && (
+              <div className="company-suggestions">
+                {companyResults.map((company) => (
+                  <div
+                    key={company.id}
+                    className="company-suggestion-item"
+                    onClick={() => handleSelectCompany(company)}
+                  >
+                    <div className="company-suggestion-name">
+                      {company.name}
+                      {company.alias && company.alias !== company.name && (
+                        <span className="company-alias"> ({company.alias})</span>
+                      )}
+                    </div>
+                    <div className="company-suggestion-meta">
+                      {company.business_no && (
+                        <span className="company-business-no">
+                          사업자번호: {company.business_no}
+                        </span>
+                      )}
+                      <span
+                        className={`company-status ${company.is_active ? 'active' : 'inactive'}`}
+                      >
+                        {company.is_active ? '활성' : '승인 대기'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="form-group">
             <label htmlFor="email">이메일</label>
             <input
@@ -90,9 +195,15 @@ function LoginPage() {
           </button>
         </form>
 
-        <button onClick={handleBack} className="back-button">
-          회사 선택으로 돌아가기
-        </button>
+        <div className="register-section">
+          <button
+            type="button"
+            className="register-button"
+            onClick={() => navigate('/company/register')}
+          >
+            신규 회사 등록
+          </button>
+        </div>
       </div>
     </div>
   );

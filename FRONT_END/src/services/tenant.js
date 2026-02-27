@@ -45,11 +45,10 @@ export const deleteTenantUser = async (userId) => {
 
 /**
  * 테넌트 유저 비밀번호 재설정
+ * - 서버에서 임시 비밀번호를 생성하여 이메일로 발송
  */
-export const resetUserPassword = async (userId, newPassword) => {
-  const response = await api.post(`/api/tenant/users/${userId}/reset-password`, {
-    new_password: newPassword,
-  });
+export const resetUserPassword = async (userId) => {
+  const response = await api.post(`/api/tenant/users/${userId}/reset-password`);
   return response.data;
 };
 
@@ -74,5 +73,21 @@ export const getUserTokenUsage = async (userId, startDate = null, endDate = null
   if (endDate) params.end_date = endDate.toISOString();
   
   const response = await api.get(`/api/tenant/usage/users/${userId}/tokens`, { params });
+  return response.data;
+};
+
+/**
+ * EDI 엑셀/CSV 업로드
+ */
+export const uploadEdiFile = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await api.post('/api/tenant/data-mapping/edi-upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
   return response.data;
 };

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { updateSessionTTLFromResponse } from './sessionTTL';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -23,9 +24,13 @@ api.interceptors.request.use(
   }
 );
 
-// 응답 인터셉터 - 에러 처리
+// 응답 인터셉터 - 세션 TTL 갱신 및 에러 처리
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // 백엔드에서 내려준 세션 남은 시간 헤더를 전역 스토어에 반영
+    updateSessionTTLFromResponse(response);
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       // 토큰 만료 시 로그아웃 처리

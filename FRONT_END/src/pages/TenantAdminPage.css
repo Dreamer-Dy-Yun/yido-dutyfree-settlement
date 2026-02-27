@@ -2,6 +2,12 @@
   min-height: 100vh;
   background: #f5f7fa;
   padding: 20px;
+  padding-left: 270px; /* 사이드바 너비 + 여백 */
+  transition: padding-left 0.3s ease;
+}
+
+.tenant-admin-page:has(.sidebar.collapsed) {
+  padding-left: 80px; /* 접힌 사이드바 너비 + 여백 */
 }
 
 .admin-header {
@@ -326,4 +332,18 @@
 
 .save-button:hover {
   background: #5568d3;
+}
+
+.password-match-message {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.password-match-message.match {
+  color: #28a745;
+}
+
+.password-match-message.no-match {
+  color: #dc3545;
 }

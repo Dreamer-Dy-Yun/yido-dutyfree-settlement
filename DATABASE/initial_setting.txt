@@ -1,0 +1,46 @@
+-- SystemAdmin 계정 추가
+-- 이메일: dreamer.dy.yun@gmail.com
+-- 패스워드: 123!@#qwe (해시 필요)
+
+-- 주의: 아래 해시값은 예시입니다. 실제 해시값으로 교체하세요.
+-- 해시 생성 방법:
+-- python -c "from WEB_SERVER.auth.password import get_password_hash; print(get_password_hash('123!@#qwe'))"
+
+INSERT INTO public.system_admin (
+    name,
+    e_mail,
+    password,
+    is_active,
+    db_created_at,
+    db_updated_at
+) VALUES (
+    '',
+    'dreamer.dy.yun@gmail.com',
+    '224368383e614c372def11fe7959e9b0d6fbd4361967f379df9bf688b8f6d7a1', 
+    true,
+    NOW(),
+    NOW()
+);
+
+
+
+-- ServiceAccount 테이블에 SMTP 송신 계정 추가
+INSERT INTO public.service_account (
+    alias,
+    e_mail,
+    password,
+    role,
+    description,
+    is_active,
+    db_created_at,
+    db_updated_at
+) VALUES (
+    'Gmail SMTP 송신 계정',
+    'yido.repository@gmail.com',
+    'uioi odyf rzgv zvil',
+    'smtp_sender',
+    '이메일 인증 및 알림 발송용 Gmail SMTP 계정',
+    true,
+    NOW(),
+    NOW()
+);

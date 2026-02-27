@@ -1,4 +1,4 @@
-# PostgreSQL + pgAdmin (DATABASE/config.py 기본값과 맞춤)
+﻿# PostgreSQL + pgAdmin + Redis (DATABASE/config.py 湲곕낯媛믨낵 留욎땄)
 services:
   postgres:
     image: postgres:16-alpine
@@ -29,5 +29,20 @@ services:
       postgres:
         condition: service_healthy
 
+  redis:
+    image: redis:7-alpine
+    container_name: yido_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
+  redis_data:

@@ -26,7 +26,7 @@ app = FastAPI(
 )
 
 # CORS 미들웨어 설정
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3001,http://192.168.0.19:3001,http://172.23.112.1:3001").split(",")
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3001,http://192.168.0.19:5173,http://192.168.0.19:3001,http://172.23.112.1:5173,http://172.23.112.1:3001").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in cors_origins],
@@ -34,6 +34,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Session-Expires-In"],  # 커스텀 세션 TTL 헤더를 프론트에서 읽을 수 있도록 허용
 )
 
 app.state.sessions = {}
@@ -47,7 +48,7 @@ app.include_router(router_company)
 
 # 테넌트 관리 및 서비스 제공사 관리 라우터
 from WEB_SERVER.routers.router_tenant import router as router_tenant
-from WEB_SERVER.routers.router_admin import router as router_admin
+from WEB_SERVER.routers.router_system_admin import router as router_system_admin
 
 app.include_router(router_tenant)
-app.include_router(router_admin)
+app.include_router(router_system_admin)

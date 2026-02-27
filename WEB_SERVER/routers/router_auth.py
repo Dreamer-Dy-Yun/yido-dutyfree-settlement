@@ -26,6 +26,7 @@ from WEB_SERVER.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     oauth2_scheme
 )
+from WEB_SERVER.auth.dependencies import get_current_superuser
 from WEB_SERVER.auth.redis_session import session_manager
 from WEB_SERVER.auth.jwt import decode_token
 from DATABASE import models
@@ -40,6 +41,11 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
     tenant_id: int  # 회사 선택 ID
+
+
+class SystemAdminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 
 class UserResponse(BaseModel):
@@ -135,6 +141,73 @@ async def login(
         token=access_token,
         user_id=user.id,
         email=user.e_mail,
+        expires_in=expires_in_seconds
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+# 시스템 어드민 로그인
+@router.post("/system-admin/login", summary="시스템 어드민 로그인", description="서비스 제공사 관리자 로그인 (SystemAdmin 인증)", response_model=Token)
+@handle_http_error
+async def system_admin_login(
+    login_data: SystemAdminLoginRequest,
+    db: DBManager = Depends(get_db_manager),
+):
+    """시스템 어드민 로그인 (SystemAdmin 인증)"""
+    from DATABASE.models.public_model import SystemAdmin
+    
+    # public 스키마로 전환
+    await db.set_schemas(["public"])
+    
+    # SystemAdmin에서 사용자 조회
+    stmt = select(SystemAdmin).where(SystemAdmin.e_mail == login_data.email)
+    result = await db.execute_query(stmt)
+    system_admin = result.scalar_one_or_none()
+    
+    if not system_admin:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="이메일 또는 비밀번호가 올바르지 않습니다",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # 비밀번호 확인 (해시된 패스워드 검증)
+    if not verify_password(login_data.password, system_admin.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="이메일 또는 비밀번호가 올바르지 않습니다",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # 활성화 여부 확인
+    if not system_admin.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="비활성화된 계정입니다"
+        )
+    
+    # 액세스 토큰 생성 (시스템 어드민 정보 포함)
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={
+            "sub": system_admin.e_mail,
+            "is_superuser": True,
+            "role": "system_admin",
+            "user_id": system_admin.id,
+            # 시스템 어드민은 tenant_id가 없음
+            "tenant_id": None,
+            "tenant_schema": None,
+        },
+        expires_delta=access_token_expires
+    )
+    
+    # Redis에 세션 저장
+    expires_in_seconds = ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    session_manager.create_session(
+        token=access_token,
+        user_id=system_admin.id,
+        email=system_admin.e_mail,
         expires_in=expires_in_seconds
     )
     
@@ -249,6 +322,38 @@ async def logout(
     token: str = Depends(oauth2_scheme),
 ):
     """로그아웃 - Redis에서 세션 제거"""
+    # Redis에서 세션 삭제
+    session_manager.delete_session(token)
+    
+    return {"message": "로그아웃되었습니다"}
+
+
+# 시스템 어드민 현재 사용자 정보 조회
+@router.get("/system-admin/me", summary="시스템 어드민 현재 사용자 정보", description="현재 로그인한 시스템 관리자의 정보를 조회합니다.")
+@handle_http_error
+async def read_system_admin_me(
+    current_superuser = Depends(get_current_superuser),
+):
+    """시스템 어드민 현재 사용자 정보 조회"""
+    return {
+        "id": current_superuser.id,
+        "name": current_superuser.name,
+        "alias": current_superuser.alias,
+        "e_mail": current_superuser.e_mail,
+        "department": current_superuser.department,
+        "contact": current_superuser.contact,
+        "is_active": current_superuser.is_active,
+    }
+
+
+# 시스템 어드민 로그아웃
+@router.post("/system-admin/logout", summary="시스템 어드민 로그아웃", description="시스템 관리자를 로그아웃합니다.")
+@handle_http_error
+async def system_admin_logout(
+    token: str = Depends(oauth2_scheme),
+    current_superuser = Depends(get_current_superuser),
+):
+    """시스템 어드민 로그아웃 - Redis에서 세션 제거"""
     # Redis에서 세션 삭제
     session_manager.delete_session(token)
     
