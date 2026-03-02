@@ -3,7 +3,7 @@ from DATA_PROCESSOR.edi_processor import EdiProcessor
 
 class EdiLotte(EdiProcessor):
     HEADER_LEVELS : list[int] = [0, 1]
-    
+
     # 한글 컬럼명 -> (영문명, dtype). DB/upsert 시 타입 맞춤용.
     def column_spec(self) -> dict[str, tuple[str, str]]:
         return {
@@ -50,9 +50,9 @@ class EdiLotte(EdiProcessor):
 
 
 
-#----------------------------------
-# 테스트 코드
-#----------------------------------
+# ---------------------------------------------------------------------------
+# TEST CODE
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import io
     from patch import fix_invalid_datetime_in_xlsx_bytes
