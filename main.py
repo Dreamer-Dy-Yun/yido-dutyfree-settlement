@@ -7,6 +7,11 @@ from DATABASE.config import db_manager
 from CUSTOMIZED.cust_deco_retry import async_retry
 
 #개발 중
+# 패키지 설치
+# py -m venv venv
+# Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+# venv\Scripts\activate
+# pip install -r requirements.txt  
 # uvicorn WEB_SERVER.app:app --reload
 # cd FRONT_END ;; npm run dev
 

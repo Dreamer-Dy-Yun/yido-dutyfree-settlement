@@ -6,10 +6,17 @@ import Sidebar from '../components/Sidebar';
 import TenantHeader from '../components/TenantHeader';
 import './DataMappingPage.css';
 
+/** 면세점(EDI 출처) 목록 – 프론트 상수. 추후 API/DB로 전환 가능 */
+const EDI_SOURCES = [
+  { value: 'lotte', label: '롯데' },
+  { value: 'silla', label: '신라' },
+];
+
 function DataMappingPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [currentUser, setCurrentUser] = useState(null);
+  const [ediSource, setEdiSource] = useState('lotte');
   const [ediFile, setEdiFile] = useState(null);
   const [ediUploading, setEdiUploading] = useState(false);
   const [ediUploadMessage, setEdiUploadMessage] = useState('');
@@ -90,7 +97,7 @@ function DataMappingPage() {
 
   const handleEdiUpload = async () => {
     if (!ediFile) {
-      setEdiUploadError('업로드할 엑셀/CSV 파일을 선택해주세요.');
+      setEdiUploadError('업로드할 엑셀 파일을 선택해주세요.');
       return;
     }
 
@@ -99,8 +106,10 @@ function DataMappingPage() {
     setEdiUploadMessage('');
 
     try {
-      const result = await uploadEdiFile(ediFile);
-      setEdiUploadMessage(result.message || '파일 업로드가 완료되었습니다.');
+      const result = await uploadEdiFile(ediFile, ediSource);
+      const msg = result.message || '파일 업로드가 완료되었습니다.';
+      const rows = result.rows_upserted != null ? ` (${result.rows_upserted}건 반영)` : '';
+      setEdiUploadMessage(msg + rows);
     } catch (err) {
       setEdiUploadError(err.response?.data?.detail || '파일 업로드에 실패했습니다.');
     } finally {
@@ -113,10 +122,25 @@ function DataMappingPage() {
       case 'edi-upload':
         return (
           <div className="tab-content edi-upload-section">
-            <h2>EDI 엑셀/CSV 업로드</h2>
+            <h2>EDI 엑셀 업로드</h2>
             <p className="upload-hint">
-              엑셀(.xlsx, .xls) 또는 CSV 파일을 선택해서 업로드할 수 있습니다.
+              면세점을 선택한 뒤, 해당 형식의 엑셀(.xlsx, .xls) 파일을 업로드하세요.
             </p>
+            <div className="edi-source-row">
+              <label htmlFor="edi-source">면세점</label>
+              <select
+                id="edi-source"
+                value={ediSource}
+                onChange={(e) => setEdiSource(e.target.value)}
+                className="edi-source-select"
+              >
+                {EDI_SOURCES.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div
               className={`edi-dropzone ${isDragging ? 'dragging' : ''}`}
               onDragOver={handleEdiDragOver}
@@ -128,13 +152,13 @@ function DataMappingPage() {
                 type="file"
                 ref={fileInputRef}
                 className="file-input-hidden"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.xls"
                 onChange={handleEdiFileChange}
               />
               <p className="dropzone-text">
                 이 영역을 클릭하거나 파일을 드래그 앤 드롭하여 업로드할 파일을 선택하세요.
               </p>
-              <p className="dropzone-subtext">지원 형식: .xlsx, .xls, .csv</p>
+              <p className="dropzone-subtext">지원 형식: .xlsx, .xls</p>
             </div>
             {ediFile && (
               <div className="selected-file">
@@ -182,6 +206,7 @@ function DataMappingPage() {
         onLogout={async () => {
           await logout();
         }}
+        onProfileUpdated={loadCurrentUser}
       />
 
       <div className="admin-tabs">

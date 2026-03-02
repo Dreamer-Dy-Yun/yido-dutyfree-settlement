@@ -213,7 +213,7 @@ class Matched(BaseModel):
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 카테고리
     brand: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 브랜드명
     sku: Mapped[str | None] = mapped_column(String(50), nullable=True)  # SKU
-    product_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 제품명
+    product_name: Mapped[str | None] = mapped_column(String, nullable=True)  # 제품명
     ref_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 참조번호
     quantity: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 판매 수량
     gross_sales_amount_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 총매출액($)
@@ -258,12 +258,12 @@ class EdiSilla(BaseModel):
     product_location: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 상품위치
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 카테고리
     brand_name: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 브랜드명
-    product_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 상품명
+    product_name: Mapped[str | None] = mapped_column(String, nullable=True)  # 상품명
     product_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 상품코드 (COMPOSITE)
     ref_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # REF NO
-    aging_days: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # Aging
+    aging: Mapped[float] = mapped_column(Numeric(precision=19, scale=4), nullable=False)  # Aging
     sales_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 판매형태
-    sales_quantity: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 판매수량
+    sales_quantity: Mapped[float] = mapped_column(Numeric(precision=19, scale=4), nullable=False)  # 판매수량
     unit_price_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 판매가($)
     gross_sales_amount_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 총매출액($)
     gross_sales_amount_krw: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 총매출액(원)
@@ -273,7 +273,7 @@ class EdiSilla(BaseModel):
     discount_amount_krw: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 할인액(원)
 
     __table_args__ = (
-        UniqueConstraint("bill_no", "product_code", name="uq_edi_silla_bill_product"),
+        UniqueConstraint("bill_no", "product_code", "sales_quantity", "aging", name="uq_edi_silla_bill_product_quantity_aging"),
     )
 
 
@@ -304,7 +304,7 @@ class EdiLotte(BaseModel):
     voucher_no: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 교환권번호 (COMPOSITE)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 카테고리
     brand_name: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 브랜드
-    product_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 상품명
+    product_name: Mapped[str | None] = mapped_column(String, nullable=True)  # 상품명
     product_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 상품구분
     product_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 상품코드 (COMPOSITE)
     ref_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # Ref.No

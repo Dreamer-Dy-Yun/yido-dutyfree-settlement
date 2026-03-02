@@ -74,6 +74,34 @@
   color: #666;
 }
 
+.edi-source-row {
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.edi-source-row label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  min-width: 60px;
+}
+
+.edi-source-select {
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  min-width: 140px;
+}
+
+.edi-source-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
 .file-input-row {
   margin-bottom: 12px;
 }

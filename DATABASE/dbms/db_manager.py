@@ -48,6 +48,7 @@ class DBManager(ABC):
         table: DeclarativeBase,
         df: pd.DataFrame,
         allowed_param_size: int = 10000,
+        try_convert: bool = True,
     ) -> int:
         """
         DataFrame을 데이터베이스에 업데이트합니다.
@@ -130,4 +131,19 @@ class DBManager(ABC):
         """
         pass
 
+    @staticmethod
+    @abstractmethod
+    def convert_datetime_for_db(df: pd.DataFrame) -> pd.DataFrame:
+        """datetime 컬럼만 NaT → None 변환 (DB insert 직전용)."""
+        ...
+
+    @staticmethod
+    @abstractmethod
+    def convert_numeric_for_db(
+        df: pd.DataFrame,
+        set_none_as: float | int | None = 0,
+        allow_infinity: bool = True,
+    ) -> pd.DataFrame:
+        """numeric 컬럼만 NaN/None 처리 (DB insert 직전용)."""
+        ...
 

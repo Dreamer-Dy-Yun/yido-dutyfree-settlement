@@ -54,9 +54,24 @@ class UserResponse(BaseModel):
     e_mail: str
     role: str
     is_active: bool
+    department: str | None = None
+    contact: str | None = None
 
     class Config:
         from_attributes = True
+
+
+class VerifyPasswordRequest(BaseModel):
+    """비밀번호 확인 (정보 수정 전용, 테넌트 사용자)"""
+    password: str
+
+
+class UserProfileUpdateRequest(BaseModel):
+    """테넌트 사용자 본인 정보 수정 (비밀번호 확인 필요)"""
+    current_password: str
+    name: str | None = None
+    department: str | None = None
+    contact: str | None = None
 
 
 class Token(BaseModel):
@@ -226,7 +241,73 @@ async def read_users_me(
         "e_mail": current_user.e_mail,
         "role": current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role),
         "is_active": current_user.is_active,
+        "department": getattr(current_user, "department", None),
+        "contact": getattr(current_user, "contact", None),
     }
+
+
+# 비밀번호 확인 (테넌트·시스템 어드민 공용, 토큰으로 구분)
+@router.post("/verify-password", summary="비밀번호 확인", description="정보 수정 전 비밀번호를 확인합니다. (테넌트/시스템 어드민 공용)")
+@handle_http_error
+async def verify_password_me(
+    body: VerifyPasswordRequest,
+    token: str = Depends(oauth2_scheme),
+    db: DBManager = Depends(get_db_manager),
+):
+    if not session_manager.is_session_valid(token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="토큰이 만료되었습니다. 다시 로그인 해 주세요.")
+    payload = decode_token(token)
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
+    if payload.get("is_superuser"):
+        from DATABASE.models.public_model import SystemAdmin
+        await db.set_schemas(["public"])
+        stmt = select(SystemAdmin).where(SystemAdmin.id == user_id)
+        row = await db.execute_query(stmt)
+        user = row.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비밀번호가 일치하지 않습니다.")
+    else:
+        tenant_schema = payload.get("tenant_schema")
+        if not tenant_schema:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
+        await db.set_schemas([tenant_schema, "public"])
+        stmt = select(models.User).where(models.User.id == user_id)
+        row = await db.execute_query(stmt)
+        user = row.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비밀번호가 일치하지 않습니다.")
+    if not verify_password(body.password, user.password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비밀번호가 일치하지 않습니다.")
+    return {"message": "확인되었습니다."}
+
+
+# 테넌트 사용자 본인 정보 수정 (비밀번호 확인 필요)
+@router.put("/me", summary="본인 정보 수정", description="비밀번호 확인 후 이름/부서/연락처를 수정합니다.")
+@handle_http_error
+async def update_user_me(
+    body: UserProfileUpdateRequest,
+    current_user: models.User = Depends(get_current_active_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    if not verify_password(body.current_password, current_user.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="비밀번호가 일치하지 않습니다.",
+        )
+    update_data = {}
+    if body.name is not None:
+        update_data["name"] = body.name
+    if body.department is not None:
+        update_data["department"] = body.department
+    if body.contact is not None:
+        update_data["contact"] = body.contact
+    if not update_data:
+        return {"message": "변경할 항목이 없습니다."}
+    stmt = update(models.User).where(models.User.id == current_user.id).values(**update_data)
+    await db.execute_query(stmt)
+    return {"message": "정보가 수정되었습니다."}
 
 
 # 토큰 갱신
@@ -282,35 +363,57 @@ async def refresh_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-# 사용자 비밀번호 변경
-@router.post("/change-password", summary="비밀번호 변경", description="현재 사용자의 비밀번호를 변경합니다.")
+# 비밀번호 변경 (테넌트·시스템 어드민 공용, 토큰으로 구분)
+@router.post("/change-password", summary="비밀번호 변경", description="현재 사용자의 비밀번호를 변경합니다. (테넌트/시스템 어드민 공용)")
 @handle_http_error
 async def change_password(
     old_password: str = Body(None, description="현재 비밀번호 (임시 패스워드 변경 시 생략 가능)"),
     new_password: str = Body(...),
     is_temp_password: bool = Body(False, description="임시 패스워드 변경 여부"),
-    current_user: models.User = Depends(get_current_active_user),
+    token: str = Depends(oauth2_scheme),
     db: DBManager = Depends(get_db_manager),
 ):
-    """비밀번호 변경 (임시 패스워드 변경 포함)"""
-    # 임시 패스워드 변경이 아닌 경우 현재 비밀번호 확인
-    if not is_temp_password:
-        if not old_password:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="현재 비밀번호를 입력해주세요"
-            )
-        if not verify_password(old_password, current_user.password):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="현재 비밀번호가 올바르지 않습니다"
-            )
-    
-    # 새 비밀번호 해싱 및 업데이트
-    hashed_password = get_password_hash(new_password)
-    stmt = update(models.User).where(models.User.id == current_user.id).values(password=hashed_password)
-    await db.execute_query(stmt)
-    
+    """비밀번호 변경 (임시 패스워드 변경 포함). 토큰이 시스템 어드민이면 SystemAdmin, 아니면 테넌트 User 대상."""
+    if not session_manager.is_session_valid(token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="토큰이 만료되었습니다. 다시 로그인 해 주세요.")
+    payload = decode_token(token)
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
+    if payload.get("is_superuser"):
+        from DATABASE.models.public_model import SystemAdmin
+        await db.set_schemas(["public"])
+        stmt = select(SystemAdmin).where(SystemAdmin.id == user_id)
+        row = await db.execute_query(stmt)
+        current_user = row.scalar_one_or_none()
+        if not current_user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
+        if not is_temp_password:
+            if not old_password:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 비밀번호를 입력해주세요")
+            if not verify_password(old_password, current_user.password):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 비밀번호가 올바르지 않습니다")
+        hashed_password = get_password_hash(new_password)
+        stmt = update(SystemAdmin).where(SystemAdmin.id == current_user.id).values(password=hashed_password)
+        await db.execute_query(stmt)
+    else:
+        tenant_schema = payload.get("tenant_schema")
+        if not tenant_schema:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
+        await db.set_schemas([tenant_schema, "public"])
+        stmt = select(models.User).where(models.User.id == user_id)
+        row = await db.execute_query(stmt)
+        current_user = row.scalar_one_or_none()
+        if not current_user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
+        if not is_temp_password:
+            if not old_password:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 비밀번호를 입력해주세요")
+            if not verify_password(old_password, current_user.password):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 비밀번호가 올바르지 않습니다")
+        hashed_password = get_password_hash(new_password)
+        stmt = update(models.User).where(models.User.id == current_user.id).values(password=hashed_password)
+        await db.execute_query(stmt)
     return {"message": "비밀번호가 변경되었습니다"}
 
 
@@ -344,6 +447,52 @@ async def read_system_admin_me(
         "contact": current_superuser.contact,
         "is_active": current_superuser.is_active,
     }
+
+
+class SystemAdminProfileUpdate(BaseModel):
+    """시스템 어드민 정보 수정 요청 (비밀번호 확인 후 수정 가능)"""
+    current_password: str
+    name: str | None = None
+    alias: str | None = None
+    department: str | None = None
+    contact: str | None = None
+
+
+# 시스템 어드민 정보 수정 (비밀번호 확인 필요)
+@router.put("/system-admin/me", summary="시스템 어드민 정보 수정", description="비밀번호 확인 후 이름/별칭/부서/연락처를 수정합니다.")
+@handle_http_error
+async def update_system_admin_me(
+    body: SystemAdminProfileUpdate,
+    current_superuser=Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    """시스템 어드민 정보 수정 (현재 비밀번호 검증 후 수정)"""
+    from DATABASE.models.public_model import SystemAdmin
+
+    if not verify_password(body.current_password, current_superuser.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="비밀번호가 일치하지 않습니다.",
+        )
+
+    update_data = {}
+    if body.name is not None:
+        update_data["name"] = body.name
+    if body.alias is not None:
+        update_data["alias"] = body.alias
+    if body.department is not None:
+        update_data["department"] = body.department
+    if body.contact is not None:
+        update_data["contact"] = body.contact
+
+    if not update_data:
+        return {"message": "변경할 항목이 없습니다."}
+
+    await db.set_schemas(["public"])
+    stmt = update(SystemAdmin).where(SystemAdmin.id == current_superuser.id).values(**update_data)
+    await db.execute_query(stmt)
+
+    return {"message": "정보가 수정되었습니다."}
 
 
 # 시스템 어드민 로그아웃

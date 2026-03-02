@@ -50,3 +50,30 @@
   background: #c0392b;
 }
 
+/* 사용자 아이콘 (내 정보 모달) */
+.tenant-header-user-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #374151;
+  transition: all 0.2s;
+}
+
+.tenant-header-user-icon:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  color: #111827;
+}
+
+.tenant-header-user-icon svg {
+  display: block;
+}
+

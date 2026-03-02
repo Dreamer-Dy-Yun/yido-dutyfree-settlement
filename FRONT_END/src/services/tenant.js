@@ -77,11 +77,14 @@ export const getUserTokenUsage = async (userId, startDate = null, endDate = null
 };
 
 /**
- * EDI 엑셀/CSV 업로드
+ * EDI 엑셀 업로드 (면세점 구분 필수)
+ * @param {File} file - 업로드할 엑셀 파일
+ * @param {string} ediSource - 면세점 구분: 'lotte' | 'silla'
  */
-export const uploadEdiFile = async (file) => {
+export const uploadEdiFile = async (file, ediSource = 'lotte') => {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('edi_source', ediSource);
 
   const response = await api.post('/api/tenant/data-mapping/edi-upload', formData, {
     headers: {

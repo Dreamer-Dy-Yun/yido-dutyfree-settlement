@@ -9,7 +9,8 @@
 
 from datetime import datetime, timedelta
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+import io
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, func, and_, update as sql_update
 from sqlalchemy.sql import Select
@@ -23,6 +24,9 @@ from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_s
 from WEB_SERVER.services.verification_token import verification_token_service
 from WEB_SERVER.routers.settings import get_user_repository
 from CUSTOMIZED.cust_deco_error import handle_http_error
+from DATA_PROCESSOR.edi_lotte import EdiLotte
+from DATA_PROCESSOR.edi_silla import EdiSilla
+from DATA_PROCESSOR.patch import fix_invalid_datetime_in_xlsx_bytes
 
 from DATABASE import models
 from DATABASE.models.tenant_model import UserRole
@@ -136,54 +140,84 @@ async def get_users(
 @router.post(
     "/data-mapping/edi-upload",
     summary="EDI 데이터 업로드",
-    description="업로드된 EDI/엑셀 파일을 받아 데이터 매핑용으로 처리합니다. (실제 처리 로직은 추후 구현)",
+    description="면세점(롯데/신라) 구분과 엑셀 파일을 받아 파서로 파싱 후 해당 테이블에 업서트합니다.",
 )
 @handle_http_error
 async def upload_edi_data(
     file: UploadFile = File(..., description="EDI/엑셀 파일"),
+    edi_source: str = Form(..., description="면세점 구분: lotte | silla"),
     current_user: models.User = Depends(get_current_tenant_admin),
     db: DBManager = Depends(get_db_manager),
+    token: str = Depends(oauth2_scheme),
 ):
     """
-    EDI/엑셀 파일 업로드 엔드포인트.
-
-    실제 파싱/검증/저장 로직은 추후 구현 예정입니다.
-
-    구현 아이디어 (예시):
-    - 파일 확장자에 따라 pandas.read_excel / read_csv 등으로 DataFrame 생성
-    - 컬럼 매핑 및 유효성 검증
-    - 임시 테이블 또는 버퍼 테이블에 저장 후, 별도의 확정/커밋 단계에서 본 테이블로 반영
+    EDI/엑셀 파일 업로드 → DATA_PROCESSOR 파서로 파싱 → 테넌트 스키마 EDI 테이블에 업서트.
     """
-
     filename = file.filename or ""
-
-    # 기본적인 파일 형식 체크 (엑셀/CSV만 허용)
-    if not filename.lower().endswith((".xlsx", ".xls", ".csv")):
+    edi_source_lower = edi_source.strip().lower()
+    if edi_source_lower not in ("lotte", "silla"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="지원하지 않는 파일 형식입니다. 엑셀(.xlsx, .xls) 또는 CSV 파일을 업로드해주세요.",
+            detail="edi_source는 lotte 또는 silla만 가능합니다.",
+        )
+    if not filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="EDI 업로드는 엑셀(.xlsx, .xls)만 지원합니다.",
         )
 
-    # TODO: 여기서부터 실제 비즈니스 로직 구현
-    # 예시 코드 (참고용, 주석 처리):
-    # contents = await file.read()
-    # try:
-    #     if filename.lower().endswith(".csv"):
-    #         df = pd.read_csv(BytesIO(contents))
-    #     else:
-    #         df = pd.read_excel(BytesIO(contents))
-    # except Exception as e:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_400_BAD_REQUEST,
-    #         detail=f"파일을 읽는 중 오류가 발생했습니다: {e}",
-    #     )
-    #
-    # # df를 이용해 매핑/검증/저장 로직 구현
-    # # ...
+    # 테넌트 스키마 설정
+    try:
+        payload = decode_token(token)
+        tenant_schema: str = payload.get("tenant_schema")
+        if not tenant_schema:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="테넌트 정보를 확인할 수 없습니다.")
+        await db.set_schemas([tenant_schema, "public"])
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="토큰을 확인할 수 없습니다.")
+
+    contents = await file.read()
+    if edi_source_lower == "silla":
+        contents = fix_invalid_datetime_in_xlsx_bytes(contents)
+
+    # EDI 파서가 엑셀 로딩/플랫헤더/타입 변환을 모두 담당하도록 위임
+    try:
+        buffer = io.BytesIO(contents)
+        if edi_source_lower == "lotte":
+            parser = EdiLotte()
+            table = models.EdiLotte
+        elif edi_source_lower == "silla":
+            parser = EdiSilla()
+            table = models.EdiSilla
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="지원하지 않는 데이터 소스입니다.")
+
+        df_parsed = parser.set_data(buffer).parse()
+    except HTTPException:
+        # 위에서 명시적으로 만든 HTTPException은 그대로 전달
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="엑셀을 읽는 중 오류가 발생했습니다.",
+        )
+
+    if df_parsed.empty:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="파싱 결과가 비어 있습니다.")
+
+    try:
+        rows_upserted = await db.batch_upsert_dataframe(table, df_parsed)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="저장에 실패했습니다.",
+        )
 
     return {
-        "message": "파일이 성공적으로 업로드되었습니다. (실제 처리 로직은 추후 구현 예정입니다.)",
+        "message": "파일이 업로드되어 반영되었습니다.",
         "filename": filename,
+        "edi_source": edi_source_lower,
+        "rows_upserted": rows_upserted,
     }
 
 

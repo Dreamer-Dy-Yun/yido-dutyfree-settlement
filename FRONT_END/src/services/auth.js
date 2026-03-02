@@ -86,10 +86,45 @@ export const getCurrentSystemAdmin = async () => {
 };
 
 /**
+ * 시스템 어드민 정보 수정 (비밀번호 확인 필요)
+ */
+export const updateSystemAdminProfile = async (currentPassword, profile) => {
+  const response = await api.put('/api/auth/system-admin/me', {
+    current_password: currentPassword,
+    name: profile.name,
+    alias: profile.alias,
+    department: profile.department,
+    contact: profile.contact,
+  });
+  return response.data;
+};
+
+/**
  * 현재 사용자 정보 조회
  */
 export const getCurrentUser = async () => {
   const response = await api.get('/api/auth/me');
+  return response.data;
+};
+
+/**
+ * 테넌트 사용자 비밀번호 확인 (정보 수정 전용)
+ */
+export const verifyPassword = async (password) => {
+  const response = await api.post('/api/auth/verify-password', { password });
+  return response.data;
+};
+
+/**
+ * 테넌트 사용자 본인 정보 수정 (비밀번호 확인 필요)
+ */
+export const updateMyProfile = async (currentPassword, profile) => {
+  const response = await api.put('/api/auth/me', {
+    current_password: currentPassword,
+    name: profile.name,
+    department: profile.department,
+    contact: profile.contact,
+  });
   return response.data;
 };
 

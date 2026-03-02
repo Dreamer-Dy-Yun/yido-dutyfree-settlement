@@ -27,6 +27,8 @@
 #       2026.02.23 : PGDBManager.create_tables() 수정(스키마 명시적 지정 가능)
 #                    PGDBManager.copy_tables_of_schema() 추가 (스키마 복사 기능 추가. supported by ChatGPT-5.3)
 #       2026.02.24 : PGDBManager._get_most_suitable_unique_keys() 추가 및 피영향 메서드 수정
+#       2026.03.02 : PGDBManager.normalize_datetime_columns() -> PGDBManager.convert_datetime_for_db()로 수정
+#                    PGDBManager.convert_numeric_for_db()로 추가
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 import urllib
@@ -409,7 +411,7 @@ class PGDBManager(DBManager):
             return False
 
 
-    async def batch_upsert_dataframe(self, table: DeclarativeBase, df: DataFrame, allowed_param_size: int = 10000) -> int:
+    async def batch_upsert_dataframe(self, table: DeclarativeBase, df: DataFrame, allowed_param_size: int = 10000, try_convert: bool = True) -> int:
         # TODO : Copy / executemany 등을 이용한 최적화 시도 (필요시)
         # TODO : 배치 크기 최적화 시도 (바인딩 개수 계산 방법 확인 필요)
         
@@ -419,30 +421,74 @@ class PGDBManager(DBManager):
         if cnt_rows == 0:
             return 0
 
+        if try_convert:
+            df = df.copy()
+            df = self.convert_datetime_for_db(df, deep_copy=False)
+            df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
+
         number_of_rows_for_one_request: int = allowed_param_size // cnt_cols
 
         cnt_upserted: int = 0
 
         for i in range(0, cnt_rows, number_of_rows_for_one_request):
             df_batch: DataFrame = df.iloc[i:i+number_of_rows_for_one_request]
-            cnt_upserted += await self.upsert_dataframe(table, df_batch)
+            cnt_upserted += await self.upsert_dataframe(table, df_batch, try_convert=False)
 
         return cnt_upserted
 
 
     @staticmethod
-    def normalize_datetime_columns(df: pd.DataFrame) -> pd.DataFrame:
-        result = df.copy()
-        for col in result.columns:
-            if np.issubdtype(result[col].dtype, np.datetime64):
-                # 일단 datetime으로 강제 파싱
-                result[col] = pd.to_datetime(result[col], errors="coerce")
+    def convert_datetime_for_db(df: pd.DataFrame, deep_copy: bool = True) -> pd.DataFrame:
+        """datetime 컬럼만 대상으로 NaT → None 변환(DB insert 직전용)."""
+        # 이하는 이미 사용하지 않는 로직이나, 메모차 남겨놓음.
+        #   numpy/pandas datetime 모두 동일하게 정규화 (NaT → None 등)
+        #   if np.issubdtype(result[col].dtype, np.datetime64)    ----ⓐ
+        #   if pd.api.types.is_datetime64_any_dtype(result[col])  ----ⓑ
+        #   일 때, 
+        #   ⓑ ⊃ ⓐ
+        
+        # 이하릐 로직 함부러 고쳐달라고 하면 개판 낼 수 있으니 주의
 
-                # datetime → object로 변경
-                result[col] = result[col].astype("object")
+        result = df.copy() if deep_copy else df
+        # datetime64[ns], datetime64[ns, tz] 컬럼만 선택 (numpy/pandas 포함)
+        datetime_cols = result.select_dtypes(include=["datetime", "datetimetz"]).columns
 
-                # NaT → None
-                result.loc[result[col].isna(), col] = None
+        for col in datetime_cols:
+            single_column : pd.Series = pd.to_datetime(result[col], errors="coerce")
+
+            # 타입 변환 : Timestamp -> datetime.datetime
+            py = single_column.dt.to_pydatetime()
+            out = pd.Series(py, index=single_column.index, dtype="object")
+
+            # 결측치 처리 : NaT -> None (DB 에는 NaT 허용되지 않음)
+            out.loc[single_column.isna()] = None
+
+            result[col] = out
+
+        return result
+
+
+    @staticmethod
+    def convert_numeric_for_db(df: pd.DataFrame, set_none_as: float | int | None = 0, allow_infinity: bool = True, deep_copy: bool = True) -> pd.DataFrame:
+        """numeric 컬럼만: NaN 처리 + (옵션) inf 처리."""
+        result = df.copy() if deep_copy else df
+        numeric_cols = result.select_dtypes(include=["integer", "floating"]).columns
+
+        for col in numeric_cols:
+            s = pd.to_numeric(result[col], errors="coerce")
+
+            # 유효값 mask
+            if allow_infinity:
+                mask = s.notna()
+            else:
+                mask = s.notna() & np.isfinite(s)
+
+            # None 유지 or 지정값 치환
+            if set_none_as is None:
+                result[col] = s.astype("object").where(mask, None)
+            else:
+                result[col] = s.where(mask, set_none_as)
+
         return result
 
 
@@ -505,7 +551,7 @@ class PGDBManager(DBManager):
         )
 
 
-    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, conflict_cols: list[str] | None = None, try_normalize: bool = True) -> int:
+    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, conflict_cols: list[str] | None = None, try_convert: bool = True) -> int:
         '''
         자동 Upserter.
         가용한 모든 df(DataFrame)컬럼 업데이트.
@@ -528,10 +574,11 @@ class PGDBManager(DBManager):
         여기서 처리 할 수 있으나, 이 이상 범용화하면 성능저하가 우려되므로 필요한 경우에만 먼저 처리하여 입력 할 것.   
         '''
         # 항상 그렇듯 극한 성능 필요하면 언어 변경 및 SQL 수기 작성 필요
-        
-        if try_normalize:
-            # Datetime 컬럼을 모두 object로 변환하여 NaT를 None으로 변환 
-            df = self.normalize_datetime_columns(df)
+
+        if try_convert:
+            df = df.copy()
+            df = self.convert_datetime_for_db(df, deep_copy=False)
+            df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
 
         async with self.session_maker() as session:
             await self._set_session_schemas(session)

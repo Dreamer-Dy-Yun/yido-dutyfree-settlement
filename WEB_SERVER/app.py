@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from WEB_SERVER.routers.router_auth import router as router_auth
@@ -17,8 +21,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NOVAS EZ API",
-    description="NOVAS EZ 프로젝트 FastAPI 예제",
+    title="구매대행 B2C",
+    description="구매대행 B2C Document",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",

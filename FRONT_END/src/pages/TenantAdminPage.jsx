@@ -191,6 +191,7 @@ function TenantAdminPage() {
         title="테넌트 관리"
         currentUser={currentUser}
         onLogout={handleLogout}
+        onProfileUpdated={loadCurrentUser}
       />
 
       <div className="admin-tabs">

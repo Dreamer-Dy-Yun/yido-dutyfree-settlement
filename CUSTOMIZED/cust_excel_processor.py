@@ -12,10 +12,11 @@ import pandas as pd
 from pathlib import Path
 from typing import Self
 from io import BytesIO
+from pandas._typing import DtypeArg
 
 class ExcelProcessor:
-    def __init__(self, path_excel: Path | BytesIO, header: list[int] = [0, 1]):
-        self._df : pd.DataFrame | None = pd.read_excel(path_excel, header=header)
+    def __init__(self, path_excel: Path | BytesIO, header: list[int] = [0, 1], dtype: DtypeArg | None = str):
+        self._df: pd.DataFrame | None = pd.read_excel(path_excel, header=header, dtype=dtype)
         self._path_excel = path_excel
         self._header = header
 

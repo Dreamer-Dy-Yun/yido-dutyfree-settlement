@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { systemAdminLogout, getCurrentSystemAdmin } from '../../services/auth';
+import {
+  systemAdminLogout,
+  getCurrentSystemAdmin,
+  verifyPassword,
+  updateSystemAdminProfile,
+  changePassword,
+} from '../../services/auth';
 import useSessionTTL from '../../hooks/useSessionTTL';
+import ProfileModal from '../../components/ProfileModal';
 import './AdminLayout.css';
 
 const pageTitles = {
@@ -15,6 +22,7 @@ function AdminLayout({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
   const { ttl, minutes, seconds } = useSessionTTL();
 
   useEffect(() => {
@@ -95,6 +103,18 @@ function AdminLayout({ children }) {
         <div className="header-right">
           {currentUser && (
             <div className="user-info">
+              <button
+                type="button"
+                className="btn-user-icon"
+                onClick={() => setProfileModalOpen(true)}
+                title="내 정보"
+                aria-label="내 정보"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M5 20c0-3.5 3.5-6 7-6s7 2.5 7 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
               <div className="user-details">
                 <span className="user-name">{getDisplayName()}</span>
                 {currentUser.department && (
@@ -118,6 +138,17 @@ function AdminLayout({ children }) {
         </div>
       </header>
       <main className="admin-content">{children}</main>
+
+      <ProfileModal
+        open={profileModalOpen}
+        onClose={() => setProfileModalOpen(false)}
+        user={currentUser}
+        variant="system_admin"
+        onVerifyPassword={verifyPassword}
+        onUpdateProfile={updateSystemAdminProfile}
+        onChangePassword={changePassword}
+        onSaved={loadCurrentUser}
+      />
     </div>
   );
 }
