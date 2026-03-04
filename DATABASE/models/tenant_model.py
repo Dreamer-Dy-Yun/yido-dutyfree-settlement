@@ -180,18 +180,18 @@ class Prompt(BaseModel):
 # Version: 0.3.0, 작성자: 윤대영
 # ---------------------------------------------------------------------------
 class Image(BaseModel):
-    """이미지 파일 관리. SHA-256 해시로 동일성 확인, 회사별 유니크."""
+    """이미지 파일 관리. SHA-256 해시로 동일성 확인."""
     __tablename__ = "image"
 
     hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)  # 이미지 해싱값 (SHA-256)
     path: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # 경로
     exists: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 파일 존재 여부
-
+    is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 이미지 작업 완료 여부
 
 
 
 # ---------------------------------------------------------------------------
-# MATCHED: EDI 정보 (여권-영수증 매칭과 그 이후의 매칭으로 테이블 분리 고려중)
+# MATCHED: EDI 정보 (여권-영수증 매칭과 그 이후의 매칭으로 테이블 분리 고려중) 
 # 테이블 목적: EDI 정보(여권-영수증 매칭과 그 이후의 매칭으로 테이블 분리 고려중)
 # Version: 2.0.0, 작성자: 윤대영
 # ※ 여권 정보는 JOIN으로 받을 것

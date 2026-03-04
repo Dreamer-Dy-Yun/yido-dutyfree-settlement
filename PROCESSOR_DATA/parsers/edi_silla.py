@@ -1,5 +1,5 @@
 import pandas as pd
-from DATA_PROCESSOR.edi_processor import EdiProcessor
+from PROCESSOR_DATA.edi_processor import EdiProcessor
 
 
 class EdiSilla(EdiProcessor):
@@ -46,14 +46,14 @@ class EdiSilla(EdiProcessor):
 
 
 # ---------------------------------------------------------------------------
-# TEST
+# TEST CODE
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
 
     import io
     from patch import fix_invalid_datetime_in_xlsx_bytes
-    path = r"D:\DEV\YIDO\DATA_PROCESSOR\testdata\testdata_for_edi_silla.xlsx"
+    path = r"D:\DEV\YIDO\PROCESSOR_DATA\testdata\testdata_for_edi_silla.xlsx"
     with open(path, "rb") as f:
         patched = fix_invalid_datetime_in_xlsx_bytes(f.read())
     # 전체를 문자열로 읽어서 코드 컬럼(상품코드 등)의 선행 0이 날아가지 않는지 테스트

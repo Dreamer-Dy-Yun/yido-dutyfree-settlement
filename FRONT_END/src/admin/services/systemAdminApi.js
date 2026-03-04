@@ -1,4 +1,4 @@
-import api from '../../services/api';
+import { adminApi } from '../../services/api';
 
 /**
  * 시스템 어드민 API 서비스
@@ -9,7 +9,7 @@ import api from '../../services/api';
  * 시스템 통계 조회
  */
 export const getSystemStats = async () => {
-  const response = await api.get('/api/system-admin/dashboard/stats');
+  const response = await adminApi.get('/api/system-admin/dashboard/stats');
   return response.data;
 };
 
@@ -18,7 +18,7 @@ export const getSystemStats = async () => {
  */
 export const getTenants = async (params = {}) => {
   const { skip = 0, limit = 100, is_active, search } = params;
-  const response = await api.get('/api/system-admin/tenants', {
+  const response = await adminApi.get('/api/system-admin/tenants', {
     params: {
       skip,
       limit,
@@ -33,7 +33,7 @@ export const getTenants = async (params = {}) => {
  * 테넌트 상세 조회
  */
 export const getTenantDetail = async (tenantId) => {
-  const response = await api.get(`/api/system-admin/tenants/${tenantId}`);
+  const response = await adminApi.get(`/api/system-admin/tenants/${tenantId}`);
   return response.data;
 };
 
@@ -62,7 +62,7 @@ export const getPendingTenants = async (params = {}) => {
  * 테넌트 승인
  */
 export const approveTenant = async (tenantId, reason = null) => {
-  const response = await api.post(`/api/system-admin/tenants/${tenantId}/approve`, {
+  const response = await adminApi.post(`/api/system-admin/tenants/${tenantId}/approve`, {
     reason,
   });
   return response.data;
@@ -72,7 +72,7 @@ export const approveTenant = async (tenantId, reason = null) => {
  * 테넌트 거부
  */
 export const rejectTenant = async (tenantId, reason) => {
-  const response = await api.post(`/api/system-admin/tenants/${tenantId}/reject`, {
+  const response = await adminApi.post(`/api/system-admin/tenants/${tenantId}/reject`, {
     reason,
   });
   return response.data;
@@ -82,7 +82,7 @@ export const rejectTenant = async (tenantId, reason) => {
  * 테넌트 정보 수정
  */
 export const updateTenant = async (tenantId, updateData) => {
-  const response = await api.put(`/api/system-admin/tenants/${tenantId}`, updateData);
+  const response = await adminApi.put(`/api/system-admin/tenants/${tenantId}`, updateData);
   return response.data;
 };
 
@@ -90,7 +90,7 @@ export const updateTenant = async (tenantId, updateData) => {
  * 테넌트 활성화
  */
 export const activateTenant = async (tenantId) => {
-  const response = await api.post(`/api/system-admin/tenants/${tenantId}/activate`);
+  const response = await adminApi.post(`/api/system-admin/tenants/${tenantId}/activate`);
   return response.data;
 };
 
@@ -98,7 +98,7 @@ export const activateTenant = async (tenantId) => {
  * 테넌트 비활성화
  */
 export const deactivateTenant = async (tenantId) => {
-  const response = await api.post(`/api/system-admin/tenants/${tenantId}/deactivate`);
+  const response = await adminApi.post(`/api/system-admin/tenants/${tenantId}/deactivate`);
   return response.data;
 };
 
@@ -106,7 +106,7 @@ export const deactivateTenant = async (tenantId) => {
  * 테넌트 삭제 (완전 삭제)
  */
 export const deleteTenant = async (tenantId, reason) => {
-  const response = await api.delete(`/api/system-admin/tenants/${tenantId}`, {
+  const response = await adminApi.delete(`/api/system-admin/tenants/${tenantId}`, {
     data: { reason },
   });
   return response.data;
@@ -117,7 +117,7 @@ export const deleteTenant = async (tenantId, reason) => {
  */
 export const getServiceAccounts = async (params = {}) => {
   const { skip = 0, limit = 100, role, is_active } = params;
-  const response = await api.get('/api/system-admin/service-accounts', {
+  const response = await adminApi.get('/api/system-admin/service-accounts', {
     params: {
       skip,
       limit,
@@ -132,7 +132,7 @@ export const getServiceAccounts = async (params = {}) => {
  * 서비스 어카운트 상세 조회
  */
 export const getServiceAccountDetail = async (accountId) => {
-  const response = await api.get(`/api/system-admin/service-accounts/${accountId}`);
+  const response = await adminApi.get(`/api/system-admin/service-accounts/${accountId}`);
   return response.data;
 };
 
@@ -140,7 +140,7 @@ export const getServiceAccountDetail = async (accountId) => {
  * 서비스 어카운트 생성
  */
 export const createServiceAccount = async (accountData) => {
-  const response = await api.post('/api/system-admin/service-accounts', accountData);
+  const response = await adminApi.post('/api/system-admin/service-accounts', accountData);
   return response.data;
 };
 
@@ -148,7 +148,7 @@ export const createServiceAccount = async (accountData) => {
  * 서비스 어카운트 수정
  */
 export const updateServiceAccount = async (accountId, updateData) => {
-  const response = await api.put(`/api/system-admin/service-accounts/${accountId}`, updateData);
+  const response = await adminApi.put(`/api/system-admin/service-accounts/${accountId}`, updateData);
   return response.data;
 };
 
@@ -156,6 +156,6 @@ export const updateServiceAccount = async (accountId, updateData) => {
  * 서비스 어카운트 삭제
  */
 export const deleteServiceAccount = async (accountId) => {
-  const response = await api.delete(`/api/system-admin/service-accounts/${accountId}`);
+  const response = await adminApi.delete(`/api/system-admin/service-accounts/${accountId}`);
   return response.data;
 };

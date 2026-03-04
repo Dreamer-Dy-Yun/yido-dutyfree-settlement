@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 
 from CUSTOMIZED.cust_excel_processor import ExcelProcessor
-from DATA_PROCESSOR.edi_lotte import EdiLotte
-from DATA_PROCESSOR.edi_silla import EdiSilla
-from DATA_PROCESSOR.patch import fix_invalid_datetime_in_xlsx_bytes
+from PROCESSOR_DATA.parsers.edi_lotte import EdiLotte
+from PROCESSOR_DATA.parsers.edi_silla import EdiSilla
+from PROCESSOR_DATA.patch import fix_invalid_datetime_in_xlsx_bytes
 
 
 _SCRIPT_DIR = Path(__file__).resolve().parent

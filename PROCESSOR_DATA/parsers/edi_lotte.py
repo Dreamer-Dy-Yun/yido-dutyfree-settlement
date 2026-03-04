@@ -1,5 +1,5 @@
 import pandas as pd
-from DATA_PROCESSOR.edi_processor import EdiProcessor
+from PROCESSOR_DATA.edi_processor import EdiProcessor
 
 class EdiLotte(EdiProcessor):
     HEADER_LEVELS : list[int] = [0, 1]
@@ -56,7 +56,7 @@ class EdiLotte(EdiProcessor):
 if __name__ == "__main__":
     import io
     from patch import fix_invalid_datetime_in_xlsx_bytes
-    path = r"D:\DEV\YIDO\DATA_PROCESSOR\testdata\testdata_for_edi_lotte.xlsx"
+    path = r"D:\DEV\YIDO\PROCESSOR_DATA\testdata\testdata_for_edi_lotte.xlsx"
     with open(path, "rb") as f:
         patched = fix_invalid_datetime_in_xlsx_bytes(f.read())
     df = pd.read_excel(io.BytesIO(patched), dtype=str)

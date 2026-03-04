@@ -1,4 +1,4 @@
-import api from './api';
+import api, { adminApi } from './api';
 
 /**
  * 회사 검색
@@ -66,13 +66,11 @@ export const logout = async () => {
  */
 export const systemAdminLogout = async () => {
   try {
-    await api.post('/api/auth/system-admin/logout');
+    await adminApi.post('/api/auth/system-admin/logout');
   } catch (error) {
     console.error('Logout error:', error);
   } finally {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('tenant_id');
-    localStorage.removeItem('tenant_schema');
+    localStorage.removeItem('admin_access_token');
     window.location.href = '/';
   }
 };
@@ -81,7 +79,7 @@ export const systemAdminLogout = async () => {
  * 시스템 어드민 현재 사용자 정보 조회
  */
 export const getCurrentSystemAdmin = async () => {
-  const response = await api.get('/api/auth/system-admin/me');
+  const response = await adminApi.get('/api/auth/system-admin/me');
   return response.data;
 };
 
@@ -89,7 +87,7 @@ export const getCurrentSystemAdmin = async () => {
  * 시스템 어드민 정보 수정 (비밀번호 확인 필요)
  */
 export const updateSystemAdminProfile = async (currentPassword, profile) => {
-  const response = await api.put('/api/auth/system-admin/me', {
+  const response = await adminApi.put('/api/auth/system-admin/me', {
     current_password: currentPassword,
     name: profile.name,
     alias: profile.alias,
@@ -149,10 +147,8 @@ export const systemAdminLogin = async (email, password) => {
     password,
   });
   
-  // 토큰 저장
   if (response.data.access_token) {
-    localStorage.setItem('access_token', response.data.access_token);
-    // 시스템 어드민은 tenant_id가 없음
+    localStorage.setItem('admin_access_token', response.data.access_token);
     localStorage.removeItem('tenant_id');
     localStorage.removeItem('tenant_schema');
   }
@@ -183,11 +179,28 @@ export const getTokenPayload = () => {
 };
 
 /**
+ * 시스템 어드민 토큰 payload (필요 시 사용)
+ */
+export const getAdminTokenPayload = () => {
+  const token = localStorage.getItem('admin_access_token');
+  if (!token) return null;
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch (e) {
+    return null;
+  }
+};
+
+/**
+ * 시스템 어드민 로그인 여부
+ */
+export const isAdminAuthenticated = () => {
+  return !!localStorage.getItem('admin_access_token');
+};
+
+/**
  * 시스템 어드민 권한 확인
  */
 export const isSuperuser = () => {
-  const payload = getTokenPayload();
-  // JWT에 is_superuser 또는 role 정보가 있는지 확인
-  // 백엔드에서 토큰에 포함시켜야 함
-  return payload?.is_superuser === true || payload?.role === 'system_admin';
+  return isAdminAuthenticated();
 };

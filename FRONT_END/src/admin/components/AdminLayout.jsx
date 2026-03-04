@@ -11,6 +11,9 @@ import useSessionTTL from '../../hooks/useSessionTTL';
 import ProfileModal from '../../components/ProfileModal';
 import './AdminLayout.css';
 
+const DEFAULT_TITLE = '구매대행B2C';
+const ADMIN_TITLE = '구매대행B2C-SYSADMIN';
+
 const pageTitles = {
   '/admin': '대시보드',
   '/admin/tenants': '테넌트 목록',
@@ -24,6 +27,13 @@ function AdminLayout({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const { ttl, minutes, seconds } = useSessionTTL();
+
+  useEffect(() => {
+    document.title = ADMIN_TITLE;
+    return () => {
+      document.title = DEFAULT_TITLE;
+    };
+  }, []);
 
   useEffect(() => {
     loadCurrentUser();

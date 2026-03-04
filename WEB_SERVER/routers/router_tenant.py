@@ -10,6 +10,12 @@
 from datetime import datetime, timedelta
 from typing import Any
 import io
+import os
+import secrets
+import string
+import uuid
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, func, and_, update as sql_update
@@ -24,18 +30,17 @@ from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_s
 from WEB_SERVER.services.verification_token import verification_token_service
 from WEB_SERVER.routers.settings import get_user_repository
 from CUSTOMIZED.cust_deco_error import handle_http_error
-from DATA_PROCESSOR.edi_lotte import EdiLotte
-from DATA_PROCESSOR.edi_silla import EdiSilla
-from DATA_PROCESSOR.patch import fix_invalid_datetime_in_xlsx_bytes
+from CUSTOMIZED.cust_zip_processor import ZipProcessor
+from PROCESSOR_DATA.parsers.edi_lotte import EdiLotte
+from PROCESSOR_DATA.parsers.edi_silla import EdiSilla
+from PROCESSOR_DATA.patch import fix_invalid_datetime_in_xlsx_bytes
 
 from DATABASE import models
 from DATABASE.models.tenant_model import UserRole
+from DATABASE.models.public_model import Tenant as PublicTenant
 from DATABASE.repositories.authorities import UserRepository, TenantRepository
 from DATABASE.dbms import DBManager
 import pandas as pd
-import os
-import secrets
-import string
 
 router = APIRouter(prefix="/api/tenant", tags=["테넌트 관리"])
 
@@ -151,7 +156,7 @@ async def upload_edi_data(
     token: str = Depends(oauth2_scheme),
 ):
     """
-    EDI/엑셀 파일 업로드 → DATA_PROCESSOR 파서로 파싱 → 테넌트 스키마 EDI 테이블에 업서트.
+    EDI/엑셀 파일 업로드 → PROCESSOR_DATA 파서로 파싱 → 테넌트 스키마 EDI 테이블에 업서트.
     """
     filename = file.filename or ""
     edi_source_lower = edi_source.strip().lower()
@@ -218,6 +223,112 @@ async def upload_edi_data(
         "filename": filename,
         "edi_source": edi_source_lower,
         "rows_upserted": rows_upserted,
+    }
+
+
+@router.post(
+    "/data-mapping/image-upload",
+    summary="이미지 ZIP 업로드",
+    description="데이터 매핑용 이미지 ZIP 파일 업로드 엔드포인트.",
+)
+@handle_http_error
+async def upload_image_zip(
+    file: UploadFile = File(..., description="이미지 ZIP 파일"),
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+    token: str = Depends(oauth2_scheme),
+):
+    """
+    이미지 ZIP 업로드용 엔드포인트입니다.
+    - 확장자가 .zip 인지 검증
+    - 토큰에서 tenant_schema를 읽어 해당 테넌트의 루트 디렉터리 조회
+    - .env 의 ROOT_DIR + 테넌트 전용 path_root + \"zip\" 하위에 ZIP 파일 저장
+    - 같은 루트의 \"img\" 하위에 ZipProcessor로 이미지 파일들만 풀어놓음
+    실제 이미지 처리/DB 반영은 추후 구현.
+    """
+    filename = file.filename or ""
+    if not filename.lower().endswith(".zip"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이미지 업로드는 ZIP(.zip) 파일만 지원합니다.",
+        )
+
+    # 토큰에서 tenant_schema 추출 및 스키마 설정
+    try:
+        payload = decode_token(token)
+        tenant_schema: str = payload.get("tenant_schema")
+        if not tenant_schema:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="테넌트 정보를 확인할 수 없습니다.",
+            )
+        # 테넌트 스키마 + public 스키마 모두 사용 가능하도록 설정
+        await db.set_schemas([tenant_schema, "public"])
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="토큰을 확인할 수 없습니다.",
+        )
+
+    # public.tenant 에서 현재 테넌트의 path_root 조회
+    stmt = select(PublicTenant).where(PublicTenant.schema_name == tenant_schema)
+    result = await db.execute_query(stmt)
+    tenant = result.scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="테넌트 정보를 찾을 수 없습니다.",
+        )
+
+    # ROOT_DIR + 테넌트 전용 디렉토리 + 하위(zip, img) 구성
+    root_dir = os.getenv("ROOT_DIR", "D:\\")
+    base_root = Path(root_dir)
+
+    # path_root 는 테넌트별 루트 (상대/절대 여부는 설정에 따름)
+    tenant_root = base_root / tenant.path_root
+    zip_root = tenant_root / "zip"
+    img_root = tenant_root / "img"
+
+    zip_root.mkdir(parents=True, exist_ok=True)
+    img_root.mkdir(parents=True, exist_ok=True)
+
+    # ZIP 파일 저장 경로 (업로드 ID + 원본 파일명 조합)
+    upload_id = uuid.uuid4().hex
+    safe_name = Path(filename).name
+    zip_path = zip_root / f"{upload_id}_{safe_name}"
+
+    # 업로드된 파일 내용을 디스크에 저장
+    contents = await file.read()
+    try:
+        zip_path.write_bytes(contents)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"ZIP 파일 저장에 실패했습니다: {e}",
+        ) from e
+
+    # ZIP 내용을 이미지 폴더로 풀기 (이미지 확장자만 대상으로 처리)
+    try:
+        ZipProcessor(zip_path).to_files(
+            dir_dest_root=img_root,
+            allowed_extensions=[".jpg", ".jpeg", ".png", ".gif", ".webp"],
+            ignore_inner_directory=True,
+        )
+    except Exception as e:
+        # 압축 해제 실패 시 ZIP 파일은 남겨두고 에러만 반환
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"이미지 압축 해제에 실패했습니다: {e}",
+        ) from e
+
+    return {
+        "message": "이미지 ZIP이 업로드되어 이미지 폴더에 풀렸습니다. (실제 처리/DB 반영은 추후 구현)",
+        "filename": filename,
+        "upload_id": upload_id,
+        "zip_path": str(zip_path),
+        "image_root": str(img_root),
     }
 
 

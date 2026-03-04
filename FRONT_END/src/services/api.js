@@ -3,41 +3,62 @@ import { updateSessionTTLFromResponse } from './sessionTTL';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-const api = axios.create({
+const commonConfig = {
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+  headers: { 'Content-Type': 'application/json' },
+};
 
-// 요청 인터셉터 - 토큰 자동 추가
+// 테넌트(일반)용 - access_token 사용
+const api = axios.create(commonConfig);
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      config._hadAuthToken = true;
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (e) => Promise.reject(e)
 );
-
-// 응답 인터셉터 - 세션 TTL 갱신 및 에러 처리
 api.interceptors.response.use(
-  (response) => {
-    // 백엔드에서 내려준 세션 남은 시간 헤더를 전역 스토어에 반영
-    updateSessionTTLFromResponse(response);
-    return response;
+  (res) => {
+    updateSessionTTLFromResponse(res);
+    return res;
   },
   (error) => {
-    if (error.response?.status === 401) {
-      // 토큰 만료 시 로그아웃 처리
+    if (error.response?.status === 401 && error.config?._hadAuthToken === true) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('tenant_id');
       localStorage.removeItem('tenant_schema');
       window.location.href = '/';
+    }
+    return Promise.reject(error);
+  }
+);
+
+// 시스템 관리자 전용 - admin_access_token만 사용
+export const adminApi = axios.create(commonConfig);
+adminApi.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('admin_access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+      config._hadAuthToken = true;
+    }
+    return config;
+  },
+  (e) => Promise.reject(e)
+);
+adminApi.interceptors.response.use(
+  (res) => {
+    updateSessionTTLFromResponse(res);
+    return res;
+  },
+  (error) => {
+    if (error.response?.status === 401 && error.config?._hadAuthToken === true) {
+      localStorage.removeItem('admin_access_token');
+      window.location.href = '/admin/login';
     }
     return Promise.reject(error);
   }

@@ -94,3 +94,20 @@ export const uploadEdiFile = async (file, ediSource = 'lotte') => {
 
   return response.data;
 };
+
+/**
+ * 이미지 ZIP 업로드 (데이터 매핑용)
+ * @param {File} file - 업로드할 ZIP 파일
+ */
+export const uploadImageZip = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await api.post('/api/tenant/data-mapping/image-upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
+  return response.data;
+};

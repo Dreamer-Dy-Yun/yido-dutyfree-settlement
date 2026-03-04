@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { isAuthenticated, isSuperuser } from './services/auth';
+import { isSuperuser } from './services/auth';
 import LoginPage from './pages/LoginPage';
 import SystemAdminLoginPage from './pages/SystemAdminLoginPage';
 import CompanyRegisterPage from './pages/CompanyRegisterPage';
@@ -17,15 +17,14 @@ import './App.css';
 
 // 공개 라우트 컴포넌트 (이미 로그인한 경우 리다이렉트, 단 로그인 페이지와 회사 등록 페이지는 제외)
 const PublicRoute = ({ children, skipRedirect = false }) => {
-  if (!isAuthenticated()) {
-    return children;
-  }
-  // skipRedirect가 true면 리다이렉트하지 않음 (로그인 페이지, 회사 등록 페이지용)
   if (skipRedirect) {
     return children;
   }
-  // 시스템 어드민은 /admin으로, 일반 사용자는 /dashboard로 리다이렉트
-  return <Navigate to={isSuperuser() ? "/admin" : "/dashboard"} replace />;
+  // /admin/login 전용: 시스템 관리자 로그인 여부만 확인
+  if (isSuperuser()) {
+    return <Navigate to="/admin" replace />;
+  }
+  return children;
 };
 
 function App() {

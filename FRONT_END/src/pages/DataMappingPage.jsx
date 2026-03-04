@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getCurrentUser, logout } from '../services/auth';
-import { uploadEdiFile } from '../services/tenant';
+import { uploadEdiFile, uploadImageZip } from '../services/tenant';
 import Sidebar from '../components/Sidebar';
 import TenantHeader from '../components/TenantHeader';
 import './DataMappingPage.css';
@@ -23,6 +23,12 @@ function DataMappingPage() {
   const [ediUploadError, setEdiUploadError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadMessage, setImageUploadMessage] = useState('');
+  const [imageUploadError, setImageUploadError] = useState('');
+  const [isImageDragging, setIsImageDragging] = useState(false);
+  const imageFileInputRef = useRef(null);
   
   // URL 파라미터에서 탭 정보 가져오기
   const searchParams = new URLSearchParams(location.search);
@@ -117,6 +123,65 @@ function DataMappingPage() {
     }
   };
 
+  const handleImageFileChange = (e) => {
+    const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+    setImageFile(file);
+    setImageUploadError('');
+    setImageUploadMessage('');
+  };
+
+  const handleImageDropZoneClick = () => {
+    if (imageFileInputRef.current) {
+      imageFileInputRef.current.click();
+    }
+  };
+
+  const handleImageDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsImageDragging(true);
+  };
+
+  const handleImageDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsImageDragging(false);
+  };
+
+  const handleImageDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsImageDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      setImageFile(file);
+      setImageUploadError('');
+      setImageUploadMessage('');
+    }
+  };
+
+  const handleImageUpload = async () => {
+    if (!imageFile) {
+      setImageUploadError('업로드할 ZIP 파일을 선택해주세요.');
+      return;
+    }
+
+    setImageUploading(true);
+    setImageUploadError('');
+    setImageUploadMessage('');
+
+    try {
+      const result = await uploadImageZip(imageFile);
+      const msg = result.message || 'ZIP 업로드 요청이 전송되었습니다.';
+      setImageUploadMessage(msg);
+    } catch (err) {
+      setImageUploadError(err.response?.data?.detail || 'ZIP 업로드에 실패했습니다.');
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'edi-upload':
@@ -187,7 +252,57 @@ function DataMappingPage() {
           </div>
         );
       case 'image-upload':
-        return <div className="tab-content"><p>이미지 업로드 기능은 준비 중입니다.</p></div>;
+        return (
+          <div className="tab-content edi-upload-section">
+            <h2>이미지 ZIP 업로드</h2>
+            <p className="upload-hint">
+              상품 이미지 ZIP 파일을 업로드하세요. (내부 구조 및 매핑 규칙은 추후 안내 예정)
+            </p>
+            <div
+              className={`edi-dropzone ${isImageDragging ? 'dragging' : ''}`}
+              onDragOver={handleImageDragOver}
+              onDragLeave={handleImageDragLeave}
+              onDrop={handleImageDrop}
+              onClick={handleImageDropZoneClick}
+            >
+              <input
+                type="file"
+                ref={imageFileInputRef}
+                className="file-input-hidden"
+                accept=".zip"
+                onChange={handleImageFileChange}
+              />
+              <p className="dropzone-text">
+                이 영역을 클릭하거나 ZIP 파일을 드래그 앤 드롭하여 업로드할 파일을 선택하세요.
+              </p>
+              <p className="dropzone-subtext">지원 형식: .zip</p>
+            </div>
+            {imageFile && (
+              <div className="selected-file">
+                선택된 파일: <strong>{imageFile.name}</strong>
+              </div>
+            )}
+            <div className="upload-actions">
+              <button
+                className="upload-button"
+                onClick={handleImageUpload}
+                disabled={imageUploading}
+              >
+                {imageUploading ? '업로드 중...' : '업로드'}
+              </button>
+            </div>
+            {imageUploadError && (
+              <div className="upload-error">
+                {imageUploadError}
+              </div>
+            )}
+            {imageUploadMessage && !imageUploadError && (
+              <div className="upload-success">
+                {imageUploadMessage}
+              </div>
+            )}
+          </div>
+        );
       case 'data-check':
         return <div className="tab-content"><p>데이터 확인 기능은 준비 중입니다.</p></div>;
       case 'fee-info':
