@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './Sidebar.css';
+import { DATA_MAPPING_TABS, getDataMappingTabPath } from '../constants/dataMappingTabs';
 
-function Sidebar({ isAdmin }) {
+function Sidebar({ isAdmin, variant = 'tenant' }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [expandedMenus, setExpandedMenus] = useState(['tenant', 'data-mapping']); // 기본적으로 테넌트 관리와 데이터 매핑 펼침
+  const [expandedMenus, setExpandedMenus] = useState(
+    variant === 'system-admin'
+      ? ['admin-tenant', 'admin-service-account', 'admin-api-key', 'admin-prompt']
+      : ['tenant', 'data-mapping']
+  );
 
-  const menuItems = [
+  const tenantMenuItems = [
     {
       id: 'tenant',
       label: '테넌트 관리',
@@ -34,34 +39,134 @@ function Sidebar({ isAdmin }) {
       label: '데이터 매핑',
       icon: '📋',
       visible: true,
+      children: DATA_MAPPING_TABS.map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        path: getDataMappingTabPath(tab.id),
+        icon: tab.icon,
+      })),
+    },
+  ];
+  const systemAdminMenuItems = [
+    {
+      id: 'admin-dashboard',
+      label: '대시보드',
+      icon: '🏠',
+      visible: true,
+      path: '/admin',
+    },
+    {
+      id: 'admin-tenant',
+      label: '테넌트 관리',
+      icon: '🏢',
+      visible: true,
       children: [
         {
-          id: 'edi-upload',
-          label: 'EDI 데이터 업로드',
-          path: '/dashboard/data-mapping?tab=edi-upload',
-          icon: '📤',
+          id: 'admin-tenant-all',
+          label: '전체',
+          path: '/admin/tenants',
+          icon: '📋',
         },
         {
-          id: 'image-upload',
-          label: '이미지 업로드',
-          path: '/dashboard/data-mapping?tab=image-upload',
-          icon: '🖼️',
+          id: 'admin-tenant-active',
+          label: '활성',
+          path: '/admin/tenants?is_active=true',
+          icon: '✅',
         },
         {
-          id: 'data-check',
-          label: '데이터 확인',
-          path: '/dashboard/data-mapping?tab=data-check',
-          icon: '🔍',
+          id: 'admin-tenant-pending',
+          label: '승인 대기',
+          path: '/admin/tenants/pending',
+          icon: '⏳',
         },
         {
-          id: 'fee-info',
-          label: '수수료 정보',
-          path: '/dashboard/data-mapping?tab=fee-info',
-          icon: '💰',
+          id: 'admin-tenant-inactive',
+          label: '비활성',
+          path: '/admin/tenants?is_active=false',
+          icon: '⛔',
+        },
+      ],
+    },
+    {
+      id: 'admin-service-account',
+      label: '서비스 어카운트 관리',
+      icon: '👤',
+      visible: true,
+      children: [
+        {
+          id: 'admin-service-account-all',
+          label: '전체',
+          path: '/admin/service-accounts',
+          icon: '📋',
+        },
+        {
+          id: 'admin-service-account-active',
+          label: '활성',
+          path: '/admin/service-accounts?is_active=true',
+          icon: '✅',
+        },
+        {
+          id: 'admin-service-account-inactive',
+          label: '비활성',
+          path: '/admin/service-accounts?is_active=false',
+          icon: '⛔',
+        },
+      ],
+    },
+    {
+      id: 'admin-api-key',
+      label: 'API KEY 관리',
+      icon: '🔐',
+      visible: true,
+      children: [
+        {
+          id: 'admin-api-key-all',
+          label: '전체',
+          path: '/admin/llm-api-keys',
+          icon: '📋',
+        },
+        {
+          id: 'admin-api-key-active',
+          label: '활성',
+          path: '/admin/llm-api-keys?is_active=true',
+          icon: '✅',
+        },
+        {
+          id: 'admin-api-key-inactive',
+          label: '비활성',
+          path: '/admin/llm-api-keys?is_active=false',
+          icon: '⛔',
+        },
+      ],
+    },
+    {
+      id: 'admin-prompt',
+      label: '프롬프트 관리',
+      icon: '🧠',
+      visible: true,
+      children: [
+        {
+          id: 'admin-prompt-all',
+          label: '전체',
+          path: '/admin/prompt-paths',
+          icon: '📋',
+        },
+        {
+          id: 'admin-prompt-active',
+          label: '활성',
+          path: '/admin/prompt-paths?is_active=true',
+          icon: '✅',
+        },
+        {
+          id: 'admin-prompt-inactive',
+          label: '비활성',
+          path: '/admin/prompt-paths?is_active=false',
+          icon: '⛔',
         },
       ],
     },
   ];
+  const menuItems = variant === 'system-admin' ? systemAdminMenuItems : tenantMenuItems;
 
   const handleMenuClick = (item) => {
     if (item.children) {
@@ -94,17 +199,28 @@ function Sidebar({ isAdmin }) {
 
   const isActive = (item) => {
     if (!item.path) return false;
+    if (item.path.includes('?')) {
+      const [path, queryString] = item.path.split('?');
+      if (location.pathname !== path) return false;
+
+      const currentParams = new URLSearchParams(location.search);
+      const targetParams = new URLSearchParams(queryString);
+
+      for (const [key, value] of targetParams.entries()) {
+        if (currentParams.get(key) !== value) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (item.path === '/admin') {
+      return location.pathname === '/admin' && location.search === '';
+    }
+    if (item.path.startsWith('/admin/')) {
+      return location.pathname === item.path && location.search === '';
+    }
     if (item.path === '/dashboard') {
       return location.pathname === '/dashboard' && !location.search.includes('tab=usage');
-    }
-    if (item.path.includes('?tab=')) {
-      const [path, tab] = item.path.split('?tab=');
-      if (path === '/dashboard') {
-        return location.pathname === '/dashboard' && location.search.includes(`tab=${tab}`);
-      }
-      if (path === '/dashboard/data-mapping') {
-        return location.pathname === '/dashboard/data-mapping' && location.search.includes(`tab=${tab}`);
-      }
     }
     return location.pathname === item.path;
   };

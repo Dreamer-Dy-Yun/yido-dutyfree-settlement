@@ -1286,8 +1286,7 @@ async def get_db_smtp_email_service(db: DBManager) -> EmailService | None:
     사용자/비밀번호/발신자(sender)는 ServiceAccount의 e_mail/password를 사용합니다.
     """
     try:
-        # public 스키마에서 조회
-        await db.set_schemas(["public"])
+        schemas = ["public"]
 
         stmt = (
             select(ServiceAccount)
@@ -1297,7 +1296,7 @@ async def get_db_smtp_email_service(db: DBManager) -> EmailService | None:
             )
             .limit(1)
         )
-        result = await db.execute_query(stmt)
+        result = await db.execute_query(stmt, schemas=schemas)
         account: ServiceAccount | None = result.scalar_one_or_none()
 
         if not account:

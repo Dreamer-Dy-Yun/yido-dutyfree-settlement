@@ -186,6 +186,7 @@ class Image(BaseModel):
     hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)  # 이미지 해싱값 (SHA-256)
     path: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # 경로
     exists: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 파일 존재 여부
+    is_processing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 작업 진행 중 여부 (논리 LOCK 역할)
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 이미지 작업 완료 여부
 
 

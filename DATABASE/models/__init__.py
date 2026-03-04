@@ -20,6 +20,8 @@ from DATABASE.models.public_model import (
     ServiceAccount,
     ServiceAccountRole,
     Tenant,
+    LLM_API_Key,
+    Prompt_path,
 )
 
 # Tenant 스키마 모델
@@ -34,6 +36,8 @@ __all__ = [
     "ServiceAccount",
     "ServiceAccountRole",
     "Tenant",
+    "LLM_API_Key",
+    "Prompt_path",
     # Tenant
     "User",
     # Business

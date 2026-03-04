@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { getCurrentUser } from '../services/auth';
+import { getCurrentUser, logout } from '../services/auth';
 import Sidebar from '../components/Sidebar';
+import SessionHeader from '../components/SessionHeader';
 import './TenantManagementPage.css';
 
 function TenantManagementPage() {
@@ -24,9 +25,14 @@ function TenantManagementPage() {
   return (
     <div className="tenant-management-page">
       <Sidebar isAdmin={isAdmin} />
-      <div className="page-header">
-        <h1>테넌트 관리</h1>
-      </div>
+      <SessionHeader
+        title="테넌트 관리"
+        currentUser={currentUser}
+        onLogout={async () => {
+          await logout();
+        }}
+        onProfileUpdated={loadCurrentUser}
+      />
       <div className="page-content">
         <p>테넌트 관리 기능은 준비 중입니다.</p>
       </div>

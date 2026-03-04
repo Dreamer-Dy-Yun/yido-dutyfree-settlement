@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, UniqueConstraint, BigInteger, Numeric, Enum as SQLEnum
-from DATABASE.models.base_model import BaseModel
+from .base_model import BaseModel
 
 
 class ServiceAccountRole(Enum):
@@ -83,3 +83,26 @@ class Tenant(BaseModelPublic):
     def __repr__(self) -> str:
         return f"<Tenant(name={self.name}, business_no={self.business_no}, is_active={self.is_active})>"
 
+
+class LLM_API_Key(BaseModelPublic):
+    __tablename__ = "llm_api_key"
+    
+    llm_provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # LLM 제공사
+    llm_model: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # LLM 모델
+    api_key: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)  # API 키
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 활성화 여부
+    
+    def __repr__(self) -> str:
+        return f"<LLM_API_Key(llm_provider={self.llm_provider}, llm_model={self.llm_model}, api_key={self.api_key}, is_active={self.is_active})>"
+
+
+class Prompt_path(BaseModelPublic):
+    __tablename__ = "prompt_path"
+
+    purpose: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 프롬프트 용도
+    path: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)  # 프롬프트 경로
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 활성화 여부
+    
+    def __repr__(self) -> str:
+        return f"<Prompt_path(path={self.path}, is_active={self.is_active})>"
+       

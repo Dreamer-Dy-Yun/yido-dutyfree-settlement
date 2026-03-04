@@ -16,8 +16,9 @@
 ############################################
 from abc import ABC, abstractmethod
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import Executable
-from typing import TypeVar, Any
+from typing import TypeVar, Any, AsyncContextManager
 import pandas as pd
 
 TableModel = TypeVar('TableModel', bound=DeclarativeBase)
@@ -47,6 +48,7 @@ class DBManager(ABC):
         self,
         table: DeclarativeBase,
         df: pd.DataFrame,
+        schemas: list[str] | None = None,
         allowed_param_size: int = 10000,
         try_convert: bool = True,
     ) -> int:
@@ -56,6 +58,7 @@ class DBManager(ABC):
         Args:
             table: SQLAlchemy DeclarativeBase 모델 클래스
             df: pandas DataFrame
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
             allowed_param_size: 파라미터 개수
         
         Returns:
@@ -68,8 +71,9 @@ class DBManager(ABC):
         self,
         table: DeclarativeBase,
         df: pd.DataFrame,
+        schemas: list[str] | None = None,
         conflict_cols: list[str] | None = None,
-        try_normalize: bool = True,
+        try_convert: bool = True,
     ) -> int:
         """
         DataFrame을 데이터베이스에 업데이트합니다.
@@ -77,7 +81,9 @@ class DBManager(ABC):
         Args:
             table: SQLAlchemy DeclarativeBase 모델 클래스
             df: pandas DataFrame
-            try_normalize: 날짜 형식 정규화 여부
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
+            conflict_cols: upsert 충돌 기준 컬럼
+            try_convert: 날짜/숫자 정규화 수행 여부
         
         Returns:
             업데이트 된 행 수
@@ -89,6 +95,7 @@ class DBManager(ABC):
         self,
         query: str | Executable,
         params: dict | list[dict] | None = None,
+        schemas: list[str] | None = None,
     ) -> Any:
         """
         SQL 쿼리를 실행합니다.
@@ -96,12 +103,29 @@ class DBManager(ABC):
         Args:
             query: 실행할 SQL 쿼리 문자열 또는 Executable 객체
             params: 쿼리 파라미터 (딕셔너리 또는 딕셔너리 리스트)
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
         
         Returns:
             쿼리 실행 결과 (DB별로 다를 수 있음, 일반적으로 SQLAlchemy Result 객체)
         
         Raises:
             DB별 예외 (예: PostgreSQL의 경우 asyncpg 예외)
+        """
+        pass
+
+    @abstractmethod
+    def open_session(
+        self,
+        schemas: list[str] | None = None,
+    ) -> AsyncContextManager[AsyncSession]:
+        """
+        스키마 컨텍스트가 적용된 AsyncSession 컨텍스트를 엽니다.
+
+        Args:
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
+
+        Returns:
+            AsyncSession을 제공하는 비동기 컨텍스트 매니저
         """
         pass
 

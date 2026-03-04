@@ -16,7 +16,7 @@ import string
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, BackgroundTasks
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, func, and_, update as sql_update
 from sqlalchemy.sql import Select
@@ -24,9 +24,8 @@ from sqlalchemy.sql import Select
 from WEB_SERVER.auth.dependencies import get_current_tenant_admin
 from WEB_SERVER.routers.settings import get_db_manager, get_tenant_repository
 from WEB_SERVER.auth import get_password_hash
-from WEB_SERVER.auth.config import oauth2_scheme
-from WEB_SERVER.auth.jwt import decode_token
 from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_service
+from WEB_SERVER.services.service_image_ocr import run_image_ocr_background
 from WEB_SERVER.services.verification_token import verification_token_service
 from WEB_SERVER.routers.settings import get_user_repository
 from CUSTOMIZED.cust_deco_error import handle_http_error
@@ -43,6 +42,22 @@ from DATABASE.dbms import DBManager
 import pandas as pd
 
 router = APIRouter(prefix="/api/tenant", tags=["테넌트 관리"])
+
+
+def _get_current_tenant_schema_from_user(current_user: models.User) -> str:
+    """인증 의존성에서 주입된 current_user 객체에서 tenant_schema를 가져온다."""
+    tenant_schema = getattr(current_user, "tenant_schema", None)
+    if not tenant_schema:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="유효한 테넌트 스키마를 확인할 수 없습니다.",
+        )
+    return tenant_schema
+
+
+def _get_current_tenant_schemas(current_user: models.User) -> list[str]:
+    tenant_schema = _get_current_tenant_schema_from_user(current_user)
+    return [tenant_schema, "public"]
 
 
 # 요청/응답 스키마
@@ -101,25 +116,15 @@ async def get_users(
     is_active: bool | None = Query(None),
     current_user: models.User = Depends(get_current_tenant_admin),
     db: DBManager = Depends(get_db_manager),
-    token: str = Depends(oauth2_scheme),
 ):
     """유저 목록 조회"""
-    # JWT 토큰에서 tenant_schema 가져와서 스키마 설정
-    try:
-        payload = decode_token(token)
-        tenant_schema: str = payload.get("tenant_schema")
-        if tenant_schema:
-            await db.set_schemas([tenant_schema, "public"])
-    except Exception:
-        # 토큰 디코딩 실패 시 get_current_tenant_admin에서 이미 스키마가 설정되어 있을 수 있음
-        pass
-    
+    schemas = _get_current_tenant_schemas(current_user)
     stmt: Select = select(models.User)
     if is_active is not None:
         stmt = stmt.where(models.User.is_active == is_active)
     stmt = stmt.offset(skip).limit(limit).order_by(models.User.db_created_at.desc())
     
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     users = result.scalars().all()
     
     return [
@@ -153,8 +158,8 @@ async def upload_edi_data(
     edi_source: str = Form(..., description="면세점 구분: lotte | silla"),
     current_user: models.User = Depends(get_current_tenant_admin),
     db: DBManager = Depends(get_db_manager),
-    token: str = Depends(oauth2_scheme),
 ):
+    schemas = _get_current_tenant_schemas(current_user)
     """
     EDI/엑셀 파일 업로드 → PROCESSOR_DATA 파서로 파싱 → 테넌트 스키마 EDI 테이블에 업서트.
     """
@@ -170,16 +175,6 @@ async def upload_edi_data(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="EDI 업로드는 엑셀(.xlsx, .xls)만 지원합니다.",
         )
-
-    # 테넌트 스키마 설정
-    try:
-        payload = decode_token(token)
-        tenant_schema: str = payload.get("tenant_schema")
-        if not tenant_schema:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="테넌트 정보를 확인할 수 없습니다.")
-        await db.set_schemas([tenant_schema, "public"])
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="토큰을 확인할 수 없습니다.")
 
     contents = await file.read()
     if edi_source_lower == "silla":
@@ -211,7 +206,7 @@ async def upload_edi_data(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="파싱 결과가 비어 있습니다.")
 
     try:
-        rows_upserted = await db.batch_upsert_dataframe(table, df_parsed)
+        rows_upserted = await db.batch_upsert_dataframe(table, df_parsed, schemas=schemas)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -233,10 +228,10 @@ async def upload_edi_data(
 )
 @handle_http_error
 async def upload_image_zip(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="이미지 ZIP 파일"),
     current_user: models.User = Depends(get_current_tenant_admin),
     db: DBManager = Depends(get_db_manager),
-    token: str = Depends(oauth2_scheme),
 ):
     """
     이미지 ZIP 업로드용 엔드포인트입니다.
@@ -253,28 +248,11 @@ async def upload_image_zip(
             detail="이미지 업로드는 ZIP(.zip) 파일만 지원합니다.",
         )
 
-    # 토큰에서 tenant_schema 추출 및 스키마 설정
-    try:
-        payload = decode_token(token)
-        tenant_schema: str = payload.get("tenant_schema")
-        if not tenant_schema:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="테넌트 정보를 확인할 수 없습니다.",
-            )
-        # 테넌트 스키마 + public 스키마 모두 사용 가능하도록 설정
-        await db.set_schemas([tenant_schema, "public"])
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="토큰을 확인할 수 없습니다.",
-        )
+    tenant_schema = _get_current_tenant_schema_from_user(current_user)
 
     # public.tenant 에서 현재 테넌트의 path_root 조회
     stmt = select(PublicTenant).where(PublicTenant.schema_name == tenant_schema)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=["public"])
     tenant = result.scalar_one_or_none()
     if tenant is None:
         raise HTTPException(
@@ -282,14 +260,16 @@ async def upload_image_zip(
             detail="테넌트 정보를 찾을 수 없습니다.",
         )
 
-    # ROOT_DIR + 테넌트 전용 디렉토리 + 하위(zip, img) 구성
+    # ROOT_DIR + 테넌트 전용 디렉토리 + 하위(zip/img 폴더명은 .env) 구성
     root_dir = os.getenv("ROOT_DIR", "D:\\")
+    zip_dir_name = os.getenv("ZIP_ROOT", "zip")
+    img_dir_name = os.getenv("IMG_ROOT", "img")
     base_root = Path(root_dir)
 
     # path_root 는 테넌트별 루트 (상대/절대 여부는 설정에 따름)
     tenant_root = base_root / tenant.path_root
-    zip_root = tenant_root / "zip"
-    img_root = tenant_root / "img"
+    zip_root = tenant_root / zip_dir_name
+    img_root = tenant_root / img_dir_name
 
     zip_root.mkdir(parents=True, exist_ok=True)
     img_root.mkdir(parents=True, exist_ok=True)
@@ -299,10 +279,15 @@ async def upload_image_zip(
     safe_name = Path(filename).name
     zip_path = zip_root / f"{upload_id}_{safe_name}"
 
-    # 업로드된 파일 내용을 디스크에 저장
-    contents = await file.read()
+    # 업로드된 파일 내용을 청크 단위로 디스크에 저장
+    upload_chunk_size = 1024 * 1024  # 1MB
     try:
-        zip_path.write_bytes(contents)
+        with zip_path.open("wb") as dst:
+            while True:
+                chunk = await file.read(upload_chunk_size)
+                if not chunk:
+                    break
+                dst.write(chunk)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -311,10 +296,12 @@ async def upload_image_zip(
 
     # ZIP 내용을 이미지 폴더로 풀기 (이미지 확장자만 대상으로 처리)
     try:
-        ZipProcessor(zip_path).to_files(
-            dir_dest_root=img_root,
+        zip_processor = ZipProcessor(zip_path).to_files(
+            dir_dest_root=tenant_root,
+            dir_dest_sub=Path(img_dir_name),
             allowed_extensions=[".jpg", ".jpeg", ".png", ".gif", ".webp"],
             ignore_inner_directory=True,
+            set_hash_as_file_name=True,
         )
     except Exception as e:
         # 압축 해제 실패 시 ZIP 파일은 남겨두고 에러만 반환
@@ -323,12 +310,88 @@ async def upload_image_zip(
             detail=f"이미지 압축 해제에 실패했습니다: {e}",
         ) from e
 
+    # 생성된 이미지 파일 메타를 테넌트 image 테이블에 업서트
+    image_rows: list[dict[str, Any]] = []
+    for _full_path, meta in zip_processor.saved_meta.items():
+        relative_path = meta.get("relative_path")
+        file_hash = meta.get("hash")
+        if not relative_path or not file_hash:
+            continue
+        image_rows.append(
+            {
+                "hash": str(file_hash),
+                "path": str(relative_path).replace("\\", "/"),
+                "exists": True,
+                "is_processed": False,
+            }
+        )
+
+    if not image_rows:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ZIP 내에서 처리 가능한 이미지 파일을 찾지 못했습니다.",
+        )
+
+    df_images = pd.DataFrame(image_rows).drop_duplicates(subset=["hash"], keep="last")
+    image_hashes = df_images["hash"].astype(str).tolist()
+    try:
+        rows_upserted = await db.batch_upsert_dataframe(models.Image, df_images, schemas=_get_current_tenant_schemas(current_user))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"이미지 메타데이터 저장에 실패했습니다: {e}",
+        ) from e
+
+    # OCR 비동기 백그라운드 작업 시작 (재시도 없음, 상태는 DB 컬럼으로 관리)
+    background_tasks.add_task(
+        run_image_ocr_background,
+        tenant_schema,
+        image_hashes,
+    )
+
     return {
-        "message": "이미지 ZIP이 업로드되어 이미지 폴더에 풀렸습니다. (실제 처리/DB 반영은 추후 구현)",
+        "message": "이미지 ZIP 업로드/압축 해제 및 image 테이블 업서트가 완료되었습니다. OCR 백그라운드 처리를 시작했습니다.",
         "filename": filename,
         "upload_id": upload_id,
-        "zip_path": str(zip_path),
-        "image_root": str(img_root),
+        "rows_upserted": rows_upserted,
+    }
+
+
+@router.get(
+    "/data-mapping/image-ocr-progress",
+    summary="이미지 OCR 진행도 조회",
+    description="현재 테넌트 이미지 OCR 진행 현황을 조회합니다.",
+)
+@handle_http_error
+async def get_image_ocr_progress(
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = _get_current_tenant_schemas(current_user)
+
+    # OCR 대상: exists=True 인 이미지 기준
+    stmt_total = select(func.count(models.Image.id)).where(models.Image.exists == True)
+    total = (await db.execute_query(stmt_total, schemas=schemas)).scalar() or 0
+
+    stmt_processing = select(func.count(models.Image.id)).where(
+        and_(models.Image.exists == True, models.Image.is_processing == True)
+    )
+    processing = (await db.execute_query(stmt_processing, schemas=schemas)).scalar() or 0
+
+    stmt_done = select(func.count(models.Image.id)).where(
+        and_(models.Image.exists == True, models.Image.is_processed == True)
+    )
+    done = (await db.execute_query(stmt_done, schemas=schemas)).scalar() or 0
+
+    pending = max(total - processing - done, 0)
+    progress_percent = round((done / total) * 100, 2) if total > 0 else 0.0
+
+    return {
+        "total": int(total),
+        "processing": int(processing),
+        "done": int(done),
+        "pending": int(pending),
+        "progress_percent": progress_percent,
     }
 
 
@@ -340,11 +403,12 @@ async def create_user(
     db: DBManager = Depends(get_db_manager),
 ):
     """유저 추가"""
+    schemas = _get_current_tenant_schemas(current_user)
     # TODO: 스키마 전환 로직 추가 필요
     
     # 이메일 중복 확인
     stmt = select(models.User).where(models.User.e_mail == user_data.e_mail)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     existing_user = result.scalar_one_or_none()
     if existing_user:
         raise HTTPException(
@@ -366,11 +430,11 @@ async def create_user(
         "is_active": False,  # 이메일 인증 전까지 비활성화
     }])
     
-    await db.upsert_dataframe(models.User, user_df)
+    await db.upsert_dataframe(models.User, user_df, schemas=schemas)
     
     # 생성된 유저 조회
     stmt = select(models.User).where(models.User.e_mail == user_data.e_mail)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     created_user = result.scalar_one_or_none()
     
     if not created_user:
@@ -411,10 +475,11 @@ async def get_user(
     db: DBManager = Depends(get_db_manager),
 ):
     """유저 상세 조회"""
+    schemas = _get_current_tenant_schemas(current_user)
     # TODO: 스키마 전환 로직 추가 필요
     
     stmt = select(models.User).where(models.User.id == user_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     user = result.scalar_one_or_none()
     
     if not user:
@@ -445,10 +510,11 @@ async def update_user(
     db: DBManager = Depends(get_db_manager),
 ):
     """유저 수정"""
+    schemas = _get_current_tenant_schemas(current_user)
     # TODO: 스키마 전환 로직 추가 필요
     
     stmt = select(models.User).where(models.User.id == user_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     user = result.scalar_one_or_none()
     
     if not user:
@@ -480,7 +546,7 @@ async def update_user(
     
     # 업데이트 실행
     stmt = sql_update(models.User).where(models.User.id == user_id).values(**update_data)
-    await db.execute_query(stmt)
+    await db.execute_query(stmt, schemas=schemas)
     
     return {"message": "유저 정보가 수정되었습니다", "user_id": user_id}
 
@@ -493,10 +559,11 @@ async def delete_user(
     db: DBManager = Depends(get_db_manager),
 ):
     """유저 삭제/비활성화"""
+    schemas = _get_current_tenant_schemas(current_user)
     # TODO: 스키마 전환 로직 추가 필요
     
     stmt = select(models.User).where(models.User.id == user_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     user = result.scalar_one_or_none()
     
     if not user:
@@ -514,7 +581,7 @@ async def delete_user(
     
     # 비활성화 처리 (실제 삭제는 하지 않음)
     stmt = sql_update(models.User).where(models.User.id == user_id).values(is_active=False)
-    await db.execute_query(stmt)
+    await db.execute_query(stmt, schemas=schemas)
     
     return {"message": "유저가 비활성화되었습니다", "user_id": user_id}
 
@@ -527,10 +594,11 @@ async def reset_password(
     db: DBManager = Depends(get_db_manager),
 ):
     """비밀번호 재설정"""
+    schemas = _get_current_tenant_schemas(current_user)
     # TODO: 스키마 전환 로직 추가 필요
     
     stmt = select(models.User).where(models.User.id == user_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     user = result.scalar_one_or_none()
     
     if not user:
@@ -548,7 +616,7 @@ async def reset_password(
     
     # 비밀번호 업데이트
     stmt = sql_update(models.User).where(models.User.id == user_id).values(password=hashed_password)
-    await db.execute_query(stmt)
+    await db.execute_query(stmt, schemas=schemas)
 
     # 임시 비밀번호를 이메일로 발송
     # 우선 DB 기반 SMTP 계정 사용, 없으면 기본 email_service 사용
@@ -580,6 +648,7 @@ async def get_usage(
     db: DBManager = Depends(get_db_manager),
 ):
     """전체 사용량 조회"""
+    schemas = _get_current_tenant_schemas(current_user)
     # JWT에서 테넌트 스키마 정보는 이미 get_current_user에서 설정됨
     
     # 기본 기간 설정 (최근 30일)
@@ -599,49 +668,49 @@ async def get_usage(
     stmt = select(func.count(models.Image.id))
     if conditions:
         stmt = stmt.where(and_(*conditions))
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     total_images = result.scalar() or 0
     
     # OCR Passport 카운트
     stmt = select(func.count(models.OcrPassport.id))
     if conditions:
         stmt = stmt.where(and_(*conditions))
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     total_ocr_passport = result.scalar() or 0
     
     # OCR Receipt 카운트
     stmt = select(func.count(models.OcrReceipt.id))
     if conditions:
         stmt = stmt.where(and_(*conditions))
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     total_ocr_receipt = result.scalar() or 0
     
     # Verified Passport 카운트
     stmt = select(func.count(models.VerifiedPassport.id))
     if conditions:
         stmt = stmt.where(and_(*conditions))
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     total_verified_passport = result.scalar() or 0
     
     # Verified Receipt 카운트
     stmt = select(func.count(models.VerifiedReceipt.id))
     if conditions:
         stmt = stmt.where(and_(*conditions))
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     total_verified_receipt = result.scalar() or 0
     
     # Matched 카운트
     stmt = select(func.count(models.Matched.id))
     if conditions:
         stmt = stmt.where(and_(*conditions))
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     total_matched = result.scalar() or 0
     
     # LLM 토큰 합계
     stmt = select(func.sum(models.LlmUsage.token_total))
     if conditions:
         stmt = stmt.where(and_(*conditions))
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     total_llm_tokens = result.scalar() or 0
     
     return {
@@ -667,9 +736,10 @@ async def get_user_token_usage(
     db: DBManager = Depends(get_db_manager),
 ):
     """사용자별 토큰 사용량 조회"""
+    schemas = _get_current_tenant_schemas(current_user)
     # 사용자 존재 확인
     stmt = select(models.User).where(models.User.id == user_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     user = result.scalar_one_or_none()
     
     if not user:
@@ -701,7 +771,7 @@ async def get_user_token_usage(
     if conditions:
         stmt = stmt.where(and_(*conditions))
     
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     row = result.first()
     
     return {

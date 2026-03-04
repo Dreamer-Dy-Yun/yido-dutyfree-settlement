@@ -31,17 +31,18 @@ class YidoParser:
             llm_response: LLM 응답 객체
             path_image: 이미지 경로
         """
-        self.request_id = str(uuid.uuid4())  # 비동기 환경에서 고유 식별자
-        self.model = llm_response.model
-        self.start_time = llm_response.start_time
-        self._df_receipt = pd.DataFrame()
-        self._df_passport = pd.DataFrame()
-        self._df_usage = pd.DataFrame()
+        self.request_id: str = str(uuid.uuid4())  # 비동기 환경에서 고유 식별자
+        self.model: str = llm_response.model
+        self.start_time: float = llm_response.start_time
+        self._df_receipt: pd.DataFrame = pd.DataFrame()
+        self._df_passport: pd.DataFrame = pd.DataFrame()
+        self._df_usage: pd.DataFrame = pd.DataFrame()
+        self.hashed_image: str = ""
         self._run(llm_response)
 
 
     def add_hashed_image(self, path_image: Path) -> None:
-        self.hashed_image = Hasher().hash_file(path_image, True).value
+        self.hashed_image = Hasher().hash(path_image, ignore_errors=True).value.hex()
         
         if not self.df_receipt.empty: 
             self.df_receipt["hash_img"] = self.hashed_image

@@ -1,29 +1,27 @@
-.admin-layout {
-  min-height: 100vh;
-  background-color: #f5f7fa;
-}
-
-.admin-header {
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
+.app-header {
+  background: #fff;
   padding: 16px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.app-header--sticky {
   position: sticky;
   top: 0;
   z-index: 100;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-.header-left {
+.app-header-left {
   flex: 1;
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.btn-home {
+.app-header-home-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -38,54 +36,66 @@
   transition: all 0.2s;
 }
 
-.btn-home:hover {
+.app-header-home-btn:hover {
   background-color: #f3f4f6;
   border-color: #d1d5db;
   color: #111827;
 }
 
-.btn-home--current {
+.app-header-home-btn--current {
   background-color: #111827;
   border-color: #111827;
   color: #f9fafb;
   cursor: default;
 }
 
-.btn-home--current:hover {
+.app-header-home-btn--current:hover {
   background-color: #111827;
   border-color: #111827;
   color: #f9fafb;
 }
 
-.page-title {
+.app-header-title {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 600;
   color: #111827;
 }
 
-.header-right {
+.app-header-right {
   display: flex;
   align-items: center;
   gap: 16px;
 }
 
-.user-info {
+.app-header-user-info {
   display: flex;
   align-items: center;
   gap: 16px;
 }
 
-.session-timer {
-  font-size: 0.875rem;
-  color: #4b5563;
+.app-header-user-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.2s;
 }
 
-.session-timer strong {
+.app-header-user-btn:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
   color: #111827;
 }
 
-.user-details {
+.app-header-user-details {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -93,23 +103,32 @@
   color: #6b7280;
 }
 
-.user-name {
+.app-header-user-name {
   font-weight: 600;
   color: #111827;
 }
 
-.user-department {
+.app-header-user-department {
   padding: 2px 8px;
   background-color: #f3f4f6;
   border-radius: 4px;
   color: #374151;
 }
 
-.user-email {
+.app-header-user-email {
   color: #6b7280;
 }
 
-.btn-logout {
+.app-header-session-timer {
+  font-size: 0.875rem;
+  color: #4b5563;
+}
+
+.app-header-session-timer strong {
+  color: #111827;
+}
+
+.app-header-logout-btn {
   padding: 8px 16px;
   background-color: #ef4444;
   color: white;
@@ -121,34 +140,6 @@
   transition: background-color 0.2s;
 }
 
-.btn-logout:hover {
+.app-header-logout-btn:hover {
   background-color: #dc2626;
-}
-
-.admin-content {
-  padding: 24px;
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-/* 사용자 아이콘 (내 정보 모달 열기) */
-.btn-user-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid #e5e7eb;
-  border-radius: 999px;
-  cursor: pointer;
-  color: #6b7280;
-  transition: all 0.2s;
-}
-
-.btn-user-icon:hover {
-  background-color: #f3f4f6;
-  border-color: #d1d5db;
-  color: #111827;
 }

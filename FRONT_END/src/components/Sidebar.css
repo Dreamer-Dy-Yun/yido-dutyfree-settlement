@@ -81,6 +81,21 @@
   cursor: not-allowed;
 }
 
+/* 클릭 시 과도한 기본 포커스 링 제거 */
+.sidebar-toggle:focus,
+.sidebar-item:focus,
+.sidebar-submenu-item:focus {
+  outline: none;
+}
+
+/* 키보드 탐색 접근성은 유지 */
+.sidebar-toggle:focus-visible,
+.sidebar-item:focus-visible,
+.sidebar-submenu-item:focus-visible {
+  outline: 2px solid #667eea;
+  outline-offset: -2px;
+}
+
 .sidebar-icon {
   font-size: 18px;
   min-width: 20px;

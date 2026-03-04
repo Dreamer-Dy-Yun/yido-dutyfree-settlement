@@ -1,81 +1,13 @@
-.tenant-admin-page {
-  min-height: 100vh;
-  background: #f5f7fa;
-  padding: 20px;
-  padding-left: 270px; /* 사이드바 너비 + 여백 */
-  transition: padding-left 0.3s ease;
-}
+@import '../admin/pages/CommonUI.css';
+@import '../admin/components/AppLayout.css';
 
-.tenant-admin-page:has(.sidebar.collapsed) {
-  padding-left: 80px; /* 접힌 사이드바 너비 + 여백 */
-}
-
-.admin-header {
-  background: white;
-  padding: 20px 30px;
-  border-radius: 8px;
-  margin-bottom: 20px;
+.workspace-content {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  flex-direction: column;
+  gap: 8px;
 }
 
-.admin-header h1 {
-  margin: 0;
-  color: #333;
-  font-size: 24px;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.current-user {
-  color: #666;
-  font-size: 14px;
-}
-
-.logout-button {
-  padding: 8px 16px;
-  background: #e74c3c;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.3s;
-}
-
-.logout-button:hover {
-  background: #c0392b;
-}
-
-.admin-tabs {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.admin-tabs button {
-  padding: 12px 24px;
-  background: white;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px 8px 0 0;
-  cursor: pointer;
-  font-size: 16px;
-  transition: all 0.3s;
-}
-
-.admin-tabs button.active {
-  background: #667eea;
-  color: white;
-  border-color: #667eea;
-}
-
-.error-message {
+.workspace-error-message {
   background: #fee;
   color: #e74c3c;
   padding: 12px;
@@ -83,28 +15,28 @@
   margin-bottom: 20px;
 }
 
-.users-section,
-.usage-section {
+.workspace-users-section,
+.workspace-usage-section {
   background: white;
   padding: 30px;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.section-header {
+.workspace-section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
 }
 
-.section-header h2 {
+.workspace-section-header h2 {
   margin: 0;
   color: #333;
   font-size: 20px;
 }
 
-.create-button {
+.workspace-create-button {
   padding: 10px 20px;
   background: #667eea;
   color: white;
@@ -115,39 +47,39 @@
   transition: background 0.3s;
 }
 
-.create-button:hover {
+.workspace-create-button:hover {
   background: #5568d3;
 }
 
-.loading {
+.workspace-loading {
   text-align: center;
   padding: 40px;
   color: #666;
 }
 
-.users-table {
+.workspace-users-table {
   width: 100%;
   border-collapse: collapse;
 }
 
-.users-table th,
-.users-table td {
+.workspace-users-table th,
+.workspace-users-table td {
   padding: 12px;
   text-align: left;
   border-bottom: 1px solid #e0e0e0;
 }
 
-.users-table th {
+.workspace-users-table th {
   background: #f8f9fa;
   font-weight: 600;
   color: #333;
 }
 
-.users-table tr:hover {
+.workspace-users-table tr:hover {
   background: #f8f9fa;
 }
 
-.status {
+.workspace-status {
   display: inline-block;
   padding: 4px 12px;
   border-radius: 12px;
@@ -155,24 +87,24 @@
   font-weight: 600;
 }
 
-.status.active {
+.workspace-status.active {
   background: #d4edda;
   color: #155724;
 }
 
-.status.inactive {
+.workspace-status.inactive {
   background: #f8d7da;
   color: #721c24;
 }
 
-.action-buttons {
+.workspace-user-action-buttons {
   display: flex;
   gap: 8px;
 }
 
-.edit-button,
-.delete-button,
-.reset-button {
+.workspace-edit-button,
+.workspace-delete-button,
+.workspace-reset-button {
   padding: 6px 12px;
   border: none;
   border-radius: 4px;
@@ -181,65 +113,65 @@
   transition: all 0.3s;
 }
 
-.edit-button {
+.workspace-edit-button {
   background: #667eea;
   color: white;
 }
 
-.edit-button:hover {
+.workspace-edit-button:hover {
   background: #5568d3;
 }
 
-.delete-button {
+.workspace-delete-button {
   background: #e74c3c;
   color: white;
 }
 
-.delete-button:hover {
+.workspace-delete-button:hover {
   background: #c0392b;
 }
 
-.reset-button {
+.workspace-reset-button {
   background: #f39c12;
   color: white;
 }
 
-.reset-button:hover {
+.workspace-reset-button:hover {
   background: #e67e22;
 }
 
-.usage-stats {
+.workspace-usage-stats {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 20px;
 }
 
-.stat-card {
+.workspace-stat-card {
   background: #f8f9fa;
   padding: 20px;
   border-radius: 8px;
   text-align: center;
 }
 
-.stat-label {
+.workspace-stat-label {
   font-size: 14px;
   color: #666;
   margin-bottom: 10px;
 }
 
-.stat-value {
+.workspace-stat-value {
   font-size: 32px;
   font-weight: 600;
   color: #333;
 }
 
-.no-data {
+.workspace-no-data {
   text-align: center;
   padding: 40px;
   color: #666;
 }
 
-.modal-overlay {
+.workspace-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -252,7 +184,7 @@
   z-index: 1000;
 }
 
-.modal-content {
+.workspace-modal-content {
   background: white;
   padding: 30px;
   border-radius: 12px;
@@ -262,51 +194,51 @@
   overflow-y: auto;
 }
 
-.modal-content h2 {
+.workspace-modal-content h2 {
   margin-top: 0;
   margin-bottom: 20px;
   color: #333;
 }
 
-.modal-form {
+.workspace-modal-form {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-.modal-form .form-group {
+.workspace-modal-form .workspace-form-group {
   display: flex;
   flex-direction: column;
 }
 
-.modal-form label {
+.workspace-modal-form label {
   margin-bottom: 8px;
   color: #333;
   font-weight: 500;
 }
 
-.modal-form input,
-.modal-form select {
+.workspace-modal-form input,
+.workspace-modal-form select {
   padding: 10px;
   border: 2px solid #e0e0e0;
   border-radius: 6px;
   font-size: 14px;
 }
 
-.modal-form input:focus,
-.modal-form select:focus {
+.workspace-modal-form input:focus,
+.workspace-modal-form select:focus {
   outline: none;
   border-color: #667eea;
 }
 
-.modal-actions {
+.workspace-modal-actions {
   display: flex;
   gap: 10px;
   margin-top: 20px;
 }
 
-.cancel-button,
-.save-button {
+.workspace-cancel-button,
+.workspace-save-button {
   flex: 1;
   padding: 12px;
   border: none;
@@ -316,34 +248,34 @@
   transition: all 0.3s;
 }
 
-.cancel-button {
+.workspace-cancel-button {
   background: #e0e0e0;
   color: #333;
 }
 
-.cancel-button:hover {
+.workspace-cancel-button:hover {
   background: #d0d0d0;
 }
 
-.save-button {
+.workspace-save-button {
   background: #667eea;
   color: white;
 }
 
-.save-button:hover {
+.workspace-save-button:hover {
   background: #5568d3;
 }
 
-.password-match-message {
+.workspace-password-match-message {
   margin-top: 6px;
   font-size: 12px;
   font-weight: 500;
 }
 
-.password-match-message.match {
+.workspace-password-match-message.match {
   color: #28a745;
 }
 
-.password-match-message.no-match {
+.workspace-password-match-message.no-match {
   color: #dc3545;
 }

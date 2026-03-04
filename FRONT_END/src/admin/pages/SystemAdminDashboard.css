@@ -1,3 +1,5 @@
+@import './CommonUI.css';
+
 .system-admin-dashboard {
   padding: 0;
 }
@@ -36,14 +38,6 @@
   font-size: 0.875rem;
   color: #7f1d1d;
   line-height: 1.5;
-}
-
-.dashboard-loading,
-.dashboard-error {
-  padding: 48px 24px;
-  text-align: center;
-  font-size: 1.1rem;
-  color: #4b5563;
 }
 
 .dashboard-error {
@@ -96,53 +90,3 @@
   color: #111827;
 }
 
-.dashboard-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: center;
-  margin-top: 8px;
-}
-
-.btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 500;
-  transition: background-color 0.18s ease, transform 0.12s ease, box-shadow 0.12s ease;
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
-}
-
-.btn:active {
-  transform: translateY(1px);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
-}
-
-.btn-primary {
-  background-color: #2563eb;
-  color: white;
-}
-
-.btn-primary:hover {
-  background-color: #1d4ed8;
-}
-
-.btn-secondary {
-  background-color: #4b5563;
-  color: white;
-}
-
-.btn-secondary:hover {
-  background-color: #374151;
-}
-
-.btn-logout {
-  background-color: #ef4444;
-  color: white;
-}
-
-.btn-logout:hover {
-  background-color: #dc2626;
-}

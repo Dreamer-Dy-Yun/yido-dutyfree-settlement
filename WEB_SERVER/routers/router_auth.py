@@ -102,12 +102,11 @@ async def login(
             detail="승인되지 않은 회사입니다"
         )
     
-    # 테넌트 스키마로 전환
-    await db.set_schemas([tenant.schema_name, "public"])
-    
+    schemas = [tenant.schema_name, "public"]
+
     # 테넌트 스키마에서 사용자 조회
     stmt = select(models.User).where(models.User.e_mail == login_data.email)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     user = result.scalar_one_or_none()
     
     if not user:
@@ -172,12 +171,11 @@ async def system_admin_login(
     """시스템 어드민 로그인 (SystemAdmin 인증)"""
     from DATABASE.models.public_model import SystemAdmin
     
-    # public 스키마로 전환
-    await db.set_schemas(["public"])
-    
+    schemas = ["public"]
+
     # SystemAdmin에서 사용자 조회
     stmt = select(SystemAdmin).where(SystemAdmin.e_mail == login_data.email)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     system_admin = result.scalar_one_or_none()
     
     if not system_admin:
@@ -262,9 +260,9 @@ async def verify_password_me(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
     if payload.get("is_superuser"):
         from DATABASE.models.public_model import SystemAdmin
-        await db.set_schemas(["public"])
+        schemas = ["public"]
         stmt = select(SystemAdmin).where(SystemAdmin.id == user_id)
-        row = await db.execute_query(stmt)
+        row = await db.execute_query(stmt, schemas=schemas)
         user = row.scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비밀번호가 일치하지 않습니다.")
@@ -272,9 +270,9 @@ async def verify_password_me(
         tenant_schema = payload.get("tenant_schema")
         if not tenant_schema:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
-        await db.set_schemas([tenant_schema, "public"])
+        schemas = [tenant_schema, "public"]
         stmt = select(models.User).where(models.User.id == user_id)
-        row = await db.execute_query(stmt)
+        row = await db.execute_query(stmt, schemas=schemas)
         user = row.scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비밀번호가 일치하지 않습니다.")
@@ -382,9 +380,9 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
     if payload.get("is_superuser"):
         from DATABASE.models.public_model import SystemAdmin
-        await db.set_schemas(["public"])
+        schemas = ["public"]
         stmt = select(SystemAdmin).where(SystemAdmin.id == user_id)
-        row = await db.execute_query(stmt)
+        row = await db.execute_query(stmt, schemas=schemas)
         current_user = row.scalar_one_or_none()
         if not current_user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
@@ -395,14 +393,14 @@ async def change_password(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 비밀번호가 올바르지 않습니다")
         hashed_password = get_password_hash(new_password)
         stmt = update(SystemAdmin).where(SystemAdmin.id == current_user.id).values(password=hashed_password)
-        await db.execute_query(stmt)
+        await db.execute_query(stmt, schemas=schemas)
     else:
         tenant_schema = payload.get("tenant_schema")
         if not tenant_schema:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
-        await db.set_schemas([tenant_schema, "public"])
+        schemas = [tenant_schema, "public"]
         stmt = select(models.User).where(models.User.id == user_id)
-        row = await db.execute_query(stmt)
+        row = await db.execute_query(stmt, schemas=schemas)
         current_user = row.scalar_one_or_none()
         if not current_user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
@@ -413,7 +411,7 @@ async def change_password(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 비밀번호가 올바르지 않습니다")
         hashed_password = get_password_hash(new_password)
         stmt = update(models.User).where(models.User.id == current_user.id).values(password=hashed_password)
-        await db.execute_query(stmt)
+        await db.execute_query(stmt, schemas=schemas)
     return {"message": "비밀번호가 변경되었습니다"}
 
 
@@ -488,9 +486,9 @@ async def update_system_admin_me(
     if not update_data:
         return {"message": "변경할 항목이 없습니다."}
 
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     stmt = update(SystemAdmin).where(SystemAdmin.id == current_superuser.id).values(**update_data)
-    await db.execute_query(stmt)
+    await db.execute_query(stmt, schemas=schemas)
 
     return {"message": "정보가 수정되었습니다."}
 

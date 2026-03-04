@@ -1,0 +1,13 @@
+@import './CommonUI.css';
+
+.crud-list-page .action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.crud-list-page .empty-cell {
+  text-align: center;
+  color: #6b7280;
+  padding: 24px;
+}
+

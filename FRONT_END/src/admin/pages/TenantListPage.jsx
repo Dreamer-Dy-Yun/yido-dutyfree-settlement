@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getTenants, getPendingTenants, approveTenant, rejectTenant, deleteTenant } from '../services/systemAdminApi';
+import { getTenants, getPendingTenants } from '../services/systemAdminApi';
 import TenantCard from '../components/TenantCard';
+import CommonTabsRow from '../../components/CommonTabsRow';
 import './TenantListPage.css';
 
 function TenantListPage() {
@@ -11,22 +12,32 @@ function TenantListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  // URL 쿼리 파라미터와 pathname에서 초기 필터 값 읽기
-  const searchParams = new URLSearchParams(location.search);
-  const isActiveParam = searchParams.get('is_active');
-  let initialFilter = 'all';
-  if (location.pathname === '/admin/tenants/pending') {
-    initialFilter = 'pending';
-  } else if (isActiveParam === 'true') {
-    initialFilter = 'active';
-  } else if (isActiveParam === 'false') {
-    initialFilter = 'inactive';
-  }
+  const getFilterFromLocation = () => {
+    const searchParams = new URLSearchParams(location.search);
+    const isActiveParam = searchParams.get('is_active');
+    if (location.pathname === '/admin/tenants/pending') {
+      return 'pending';
+    }
+    if (isActiveParam === 'true') {
+      return 'active';
+    }
+    if (isActiveParam === 'false') {
+      return 'inactive';
+    }
+    return 'all';
+  };
   
-  const [filter, setFilter] = useState(initialFilter);
+  const [filter, setFilter] = useState(getFilterFromLocation);
   const [search, setSearch] = useState('');
   const [skip, setSkip] = useState(0);
   const [limit] = useState(20);
+
+  // 사이드바/URL 이동 시 탭 상태를 URL 기준으로 동기화
+  useEffect(() => {
+    const nextFilter = getFilterFromLocation();
+    setFilter(nextFilter);
+    setSkip(0);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     loadTenants();
@@ -61,93 +72,30 @@ function TenantListPage() {
     navigate(`/admin/tenants/${tenantId}`);
   };
 
-  const handleApprove = async (tenantId) => {
-    if (!confirm('이 테넌트를 승인하시겠습니까?')) return;
-    
-    try {
-      await approveTenant(tenantId);
-      alert('테넌트가 승인되었습니다');
-      loadTenants();
-    } catch (err) {
-      alert(err.response?.data?.detail || '승인에 실패했습니다');
-    }
-  };
-
-  const handleReject = async (tenantId) => {
-    const reason = prompt('거부 사유를 입력하세요:');
-    if (!reason) return;
-    
-    try {
-      await rejectTenant(tenantId, reason);
-      alert('테넌트가 거부되었습니다');
-      loadTenants();
-    } catch (err) {
-      alert(err.response?.data?.detail || '거부에 실패했습니다');
-    }
-  };
-
-  const handleDelete = async (tenantId) => {
-    if (!confirm('이 테넌트를 삭제(비활성화)하시겠습니까?')) return;
-    
-    try {
-      await deleteTenant(tenantId);
-      alert('테넌트가 삭제되었습니다');
-      loadTenants();
-    } catch (err) {
-      alert(err.response?.data?.detail || '삭제에 실패했습니다');
-    }
-  };
-
   const handleSearch = () => {
     setSkip(0);
     loadTenants();
   };
 
   return (
-    <div className="tenant-list-page">
-      <div className="page-header">
-        <h1>테넌트 관리</h1>
-      </div>
+    <div className="common-page tenant-list-page">
+      <CommonTabsRow
+        tabs={[
+          { key: 'all', label: '전체' },
+          { key: 'active', label: '활성' },
+          { key: 'pending', label: '승인 대기' },
+          { key: 'inactive', label: '비활성' },
+        ]}
+        activeKey={filter}
+        onTabChange={(nextFilter) => {
+          if (nextFilter === 'all') navigate('/admin/tenants');
+          if (nextFilter === 'active') navigate('/admin/tenants?is_active=true');
+          if (nextFilter === 'pending') navigate('/admin/tenants/pending');
+          if (nextFilter === 'inactive') navigate('/admin/tenants?is_active=false');
+        }}
+      />
 
-      <div className="filters">
-        <div className="filter-buttons">
-          <button
-            className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => {
-              setFilter('all');
-              setSkip(0);
-            }}
-          >
-            전체
-          </button>
-          <button
-            className={`btn ${filter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => {
-              setFilter('active');
-              setSkip(0);
-            }}
-          >
-            활성
-          </button>
-          <button
-            className={`btn ${filter === 'pending' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => {
-              setFilter('pending');
-              setSkip(0);
-            }}
-          >
-            승인 대기
-          </button>
-          <button
-            className={`btn ${filter === 'inactive' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => {
-              setFilter('inactive');
-              setSkip(0);
-            }}
-          >
-            비활성
-          </button>
-        </div>
+      <div className="common-card common-toolbar filters">
         <div className="search-box">
           <input
             type="text"
@@ -156,18 +104,18 @@ function TenantListPage() {
             onChange={(e) => setSearch(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
           />
-          <button className="btn btn-primary" onClick={handleSearch}>
+          <button className="common-btn common-btn-primary" onClick={handleSearch}>
             검색
           </button>
         </div>
       </div>
 
-      {loading && <div className="loading">로딩 중...</div>}
-      {error && <div className="error">에러: {error}</div>}
+      {loading && <div className="common-card common-state">로딩 중...</div>}
+      {error && <div className="common-card common-state error">에러: {error}</div>}
 
       {!loading && !error && (
         <>
-          <div className="tenant-list">
+          <div className="common-card tenant-list">
             {tenants.length === 0 ? (
               <div className="empty-state">테넌트가 없습니다</div>
             ) : (

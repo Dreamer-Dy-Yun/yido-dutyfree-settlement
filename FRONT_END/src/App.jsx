@@ -3,7 +3,7 @@ import { isSuperuser } from './services/auth';
 import LoginPage from './pages/LoginPage';
 import SystemAdminLoginPage from './pages/SystemAdminLoginPage';
 import CompanyRegisterPage from './pages/CompanyRegisterPage';
-import TenantAdminPage from './pages/TenantAdminPage';
+import WorkspacePage from './pages/WorkspacePage';
 import TenantManagementPage from './pages/TenantManagementPage';
 import DataMappingPage from './pages/DataMappingPage';
 import SystemAdminDashboard from './admin/pages/SystemAdminDashboard';
@@ -11,7 +11,9 @@ import TenantListPage from './admin/pages/TenantListPage';
 import TenantDetailPage from './admin/pages/TenantDetailPage';
 import ServiceAccountListPage from './admin/pages/ServiceAccountListPage';
 import ServiceAccountDetailPage from './admin/pages/ServiceAccountDetailPage';
-import AdminLayout from './admin/components/AdminLayout';
+import LlmApiKeyListPage from './admin/pages/LlmApiKeyListPage';
+import PromptPathListPage from './admin/pages/PromptPathListPage';
+import SystemAdminLayout from './admin/components/SystemAdminLayout';
 import ProtectedRoute from './common/components/ProtectedRoute';
 import './App.css';
 
@@ -67,7 +69,7 @@ function App() {
           path="/dashboard"
           element={
             <ProtectedRoute>
-              <TenantAdminPage />
+              <WorkspacePage />
             </ProtectedRoute>
           }
         />
@@ -92,9 +94,9 @@ function App() {
           path="/admin"
           element={
             <ProtectedRoute requireSuperuser>
-              <AdminLayout>
+              <SystemAdminLayout>
                 <SystemAdminDashboard />
-              </AdminLayout>
+              </SystemAdminLayout>
             </ProtectedRoute>
           }
         />
@@ -102,9 +104,9 @@ function App() {
           path="/admin/tenants"
           element={
             <ProtectedRoute requireSuperuser>
-              <AdminLayout>
+              <SystemAdminLayout>
                 <TenantListPage />
-              </AdminLayout>
+              </SystemAdminLayout>
             </ProtectedRoute>
           }
         />
@@ -112,9 +114,9 @@ function App() {
           path="/admin/tenants/pending"
           element={
             <ProtectedRoute requireSuperuser>
-              <AdminLayout>
+              <SystemAdminLayout>
                 <TenantListPage />
-              </AdminLayout>
+              </SystemAdminLayout>
             </ProtectedRoute>
           }
         />
@@ -122,9 +124,9 @@ function App() {
           path="/admin/tenants/:tenantId"
           element={
             <ProtectedRoute requireSuperuser>
-              <AdminLayout>
+              <SystemAdminLayout>
                 <TenantDetailPage />
-              </AdminLayout>
+              </SystemAdminLayout>
             </ProtectedRoute>
           }
         />
@@ -132,9 +134,9 @@ function App() {
           path="/admin/service-accounts"
           element={
             <ProtectedRoute requireSuperuser>
-              <AdminLayout>
+              <SystemAdminLayout>
                 <ServiceAccountListPage />
-              </AdminLayout>
+              </SystemAdminLayout>
             </ProtectedRoute>
           }
         />
@@ -142,9 +144,29 @@ function App() {
           path="/admin/service-accounts/:accountId"
           element={
             <ProtectedRoute requireSuperuser>
-              <AdminLayout>
+              <SystemAdminLayout>
                 <ServiceAccountDetailPage />
-              </AdminLayout>
+              </SystemAdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/llm-api-keys"
+          element={
+            <ProtectedRoute requireSuperuser>
+              <SystemAdminLayout>
+                <LlmApiKeyListPage />
+              </SystemAdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/prompt-paths"
+          element={
+            <ProtectedRoute requireSuperuser>
+              <SystemAdminLayout>
+                <PromptPathListPage />
+              </SystemAdminLayout>
             </ProtectedRoute>
           }
         />

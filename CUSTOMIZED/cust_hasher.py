@@ -10,6 +10,7 @@
 #        2025.09.23 : 기존 파일(data_archiver.py)에서 분리
 #        2026.02.25 : 해시 값 비교 시 문자열 비교 가능하도록 수정 등
 #        2026.03.03 : overload 적용 등
+#        2026.03.04 : 파일 해시 시, 청킹 추가
 ############################################
 
 import hashlib
@@ -48,13 +49,13 @@ class Hasher:
         pass
 
     @overload
-    def hash(self, contents: Path, ignore_errors: bool = True) -> Self:
+    def hash(self, contents: Path, chunk_size : int = 1024 * 1024, ignore_errors: bool = True) -> Self:
         pass
 
-    def hash(self, contents: bytes | int | str | Path, ignore_errors: bool = True) -> Self:
+    def hash(self, contents: bytes | int | str | Path, chunk_size : int = 1024 * 1024, ignore_errors: bool = True) -> Self:
         try:
             if isinstance(contents, Path):
-                return self._hash_file(contents)
+                return self._hash_file(contents, chunk_size)
             elif isinstance(contents, bytes):
                 return self._hash_bytes(contents)
             elif isinstance(contents, str):
@@ -85,16 +86,21 @@ class Hasher:
         return self
 
 
-    def _hash_file(self, path_file: Path) -> Self:
+    def _hash_file(self, path_file: Path, chunk_size : int = 1024 * 1024) -> Self:
 
         if not path_file.exists():
             raise FileNotFoundError(f"파일이 존재하지 않습니다: {path_file}")
         if not path_file.is_file():
             raise ValueError(f"파일이 아닙니다: {path_file}")
+        hasher = hashlib.sha256()
         with open(path_file, "rb") as f:
-            path_file = f.read()
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                hasher.update(chunk)
         
-        self._hashed_value = hashlib.sha256(path_file).digest()
+        self._hashed_value = hasher.digest()
 
         return self
     

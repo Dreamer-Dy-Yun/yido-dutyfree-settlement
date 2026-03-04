@@ -111,3 +111,11 @@ export const uploadImageZip = async (file) => {
 
   return response.data;
 };
+
+/**
+ * 이미지 OCR 진행도 조회 (폴링용)
+ */
+export const getImageOcrProgress = async () => {
+  const response = await api.get('/api/tenant/data-mapping/image-ocr-progress');
+  return response.data;
+};

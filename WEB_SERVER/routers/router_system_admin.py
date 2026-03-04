@@ -25,7 +25,12 @@ from CUSTOMIZED.cust_logger import logger
 
 from DATABASE import models
 from DATABASE.models.tenant_model import UserRole, User
-from DATABASE.models.public_model import ServiceAccount, ServiceAccountRole
+from DATABASE.models.public_model import (
+    ServiceAccount,
+    ServiceAccountRole,
+    LLM_API_Key,
+    Prompt_path,
+)
 from DATABASE.repositories.authorities import TenantRepository
 from DATABASE.dbms import DBManager
 import pandas as pd
@@ -87,6 +92,32 @@ class ServiceAccountUpdateRequest(BaseModel):
     is_active: bool | None = None
 
 
+class LLMApiKeyCreateRequest(BaseModel):
+    llm_provider: str
+    llm_model: str
+    api_key: str
+    is_active: bool = False
+
+
+class LLMApiKeyUpdateRequest(BaseModel):
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    api_key: str | None = None
+    is_active: bool | None = None
+
+
+class PromptPathCreateRequest(BaseModel):
+    purpose: str
+    path: str
+    is_active: bool = False
+
+
+class PromptPathUpdateRequest(BaseModel):
+    purpose: str | None = None
+    path: str | None = None
+    is_active: bool | None = None
+
+
 # ============================================================================
 # 대시보드 및 통계
 # ============================================================================
@@ -99,8 +130,7 @@ async def get_system_stats(
     db: DBManager = Depends(get_db_manager),
 ):
     """시스템 전체 통계 조회"""
-    # public 스키마로 전환
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     
     # 테넌트 통계
     all_tenants = await tenant_repo.get_all()
@@ -109,11 +139,11 @@ async def get_system_stats(
     
     # 서비스 어카운트 통계
     stmt_total = select(func.count(ServiceAccount.id))
-    result_total = await db.execute_query(stmt_total)
+    result_total = await db.execute_query(stmt_total, schemas=schemas)
     total_service_accounts = result_total.scalar() or 0
     
     stmt_active = select(func.count(ServiceAccount.id)).where(ServiceAccount.is_active == True)
-    result_active = await db.execute_query(stmt_active)
+    result_active = await db.execute_query(stmt_active, schemas=schemas)
     active_service_accounts = result_active.scalar() or 0
     
     # SMTP 송신 계정 존재 여부 확인
@@ -121,7 +151,7 @@ async def get_system_stats(
         ServiceAccount.role == ServiceAccountRole.SMTP_SENDER.value,
         ServiceAccount.is_active == True,
     ).limit(1)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     has_smtp_account = result.scalar_one_or_none() is not None
     
     return SystemStatsResponse(
@@ -239,8 +269,7 @@ async def approve_tenant(
     schema_name = tenant.schema_name
     await db.execute_query(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
     
-    # 2. 테넌트 스키마로 전환하여 테이블 생성
-    await db.set_schemas([schema_name, "public"])
+    schemas = [schema_name, "public"]
     
     # BaseModel의 metadata에 모든 테이블이 등록되어 있으므로 create_all 사용
     async with db.async_engine.begin() as conn:
@@ -268,7 +297,7 @@ async def approve_tenant(
         "is_active": True,
     }])
     
-    await db.upsert_dataframe(User, admin_user_df)
+    await db.upsert_dataframe(User, admin_user_df, schemas=schemas)
     
     # 4. 스키마와 DB 생성이 완료되었으므로 is_db_built를 True로 업데이트
     await tenant_repo.update(tenant_id, {"is_db_built": True})
@@ -314,8 +343,7 @@ async def reject_tenant(
     db: DBManager = Depends(get_db_manager),
 ):
     """테넌트 거부 및 삭제"""
-    # public 스키마로 전환
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     
     # 테넌트 조회
     tenant = await tenant_repo.get_by_id(tenant_id)
@@ -346,7 +374,7 @@ async def reject_tenant(
     
     # 거부 시 테넌트 실제 삭제
     stmt = delete(models.Tenant).where(models.Tenant.id == tenant_id)
-    await db.execute_query(stmt)
+    await db.execute_query(stmt, schemas=schemas)
     
     return {
         "message": "테넌트 등록이 거부되어 삭제되었습니다",
@@ -478,8 +506,7 @@ async def delete_tenant(
     db: DBManager = Depends(get_db_manager),
 ):
     """테넌트 완전 삭제 (스키마 및 모든 데이터 삭제)"""
-    # public 스키마로 전환
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     
     tenant = await tenant_repo.get_by_id(tenant_id)
     if not tenant:
@@ -508,14 +535,14 @@ async def delete_tenant(
         try:
             # 스키마 삭제 (CASCADE 옵션으로 모든 테이블도 함께 삭제)
             schema_quoted = f'"{schema_name}"'
-            await db.execute_query(text(f'DROP SCHEMA IF EXISTS {schema_quoted} CASCADE'))
+            await db.execute_query(text(f'DROP SCHEMA IF EXISTS {schema_quoted} CASCADE'), schemas=schemas)
             logger.info(f"테넌트 스키마 '{schema_name}' 및 모든 테이블이 삭제되었습니다")
         except Exception as e:
             logger.warning(f"테넌트 스키마 삭제 중 오류 발생 (무시하고 계속): {e}")
     
     # 3. public 스키마의 tenant 레코드 삭제
     stmt = delete(models.Tenant).where(models.Tenant.id == tenant_id)
-    await db.execute_query(stmt)
+    await db.execute_query(stmt, schemas=schemas)
     
     return {
         "message": "테넌트가 완전히 삭제되었습니다",
@@ -541,7 +568,7 @@ async def get_service_accounts(
     db: DBManager = Depends(get_db_manager),
 ):
     """서비스 어카운트 목록 조회"""
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     
     stmt = select(ServiceAccount)
     if role:
@@ -550,7 +577,7 @@ async def get_service_accounts(
         stmt = stmt.where(ServiceAccount.is_active == is_active)
     stmt = stmt.offset(skip).limit(limit)
     
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     accounts = result.scalars().all()
     
     accounts_list = []
@@ -581,10 +608,10 @@ async def get_service_account_detail(
     db: DBManager = Depends(get_db_manager),
 ):
     """서비스 어카운트 상세 조회"""
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     
     stmt = select(ServiceAccount).where(ServiceAccount.id == account_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     account = result.scalar_one_or_none()
     
     if not account:
@@ -611,7 +638,7 @@ async def create_service_account(
     db: DBManager = Depends(get_db_manager),
 ):
     """서비스 어카운트 생성"""
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     
     # 역할 검증
     try:
@@ -624,7 +651,7 @@ async def create_service_account(
     
     # 이메일 중복 확인
     stmt = select(ServiceAccount).where(ServiceAccount.e_mail == account_data.e_mail)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     existing = result.scalar_one_or_none()
     if existing:
         raise HTTPException(
@@ -642,11 +669,11 @@ async def create_service_account(
         "is_active": account_data.is_active,
     }])
     
-    await db.upsert_dataframe(ServiceAccount, account_df)
+    await db.upsert_dataframe(ServiceAccount, account_df, schemas=schemas)
     
     # 생성된 계정 조회
     stmt = select(ServiceAccount).where(ServiceAccount.e_mail == account_data.e_mail)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     created_account = result.scalar_one()
     
     account_dict = created_account.to_dict()
@@ -675,11 +702,11 @@ async def update_service_account(
     db: DBManager = Depends(get_db_manager),
 ):
     """서비스 어카운트 수정"""
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     
     # 계정 조회
     stmt = select(ServiceAccount).where(ServiceAccount.id == account_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     account = result.scalar_one_or_none()
     
     if not account:
@@ -698,7 +725,7 @@ async def update_service_account(
             ServiceAccount.e_mail == update_data.e_mail,
             ServiceAccount.id != account_id
         )
-        result = await db.execute_query(stmt)
+        result = await db.execute_query(stmt, schemas=schemas)
         existing = result.scalar_one_or_none()
         if existing:
             raise HTTPException(
@@ -730,11 +757,11 @@ async def update_service_account(
     
     # 업데이트 실행
     stmt = update(ServiceAccount).where(ServiceAccount.id == account_id).values(**update_dict)
-    await db.execute_query(stmt)
+    await db.execute_query(stmt, schemas=schemas)
     
     # 수정된 계정 조회
     stmt = select(ServiceAccount).where(ServiceAccount.id == account_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     updated_account = result.scalar_one()
     
     account_dict = updated_account.to_dict()
@@ -762,11 +789,11 @@ async def delete_service_account(
     db: DBManager = Depends(get_db_manager),
 ):
     """서비스 어카운트 삭제"""
-    await db.set_schemas(["public"])
+    schemas = ["public"]
     
     # 계정 조회
     stmt = select(ServiceAccount).where(ServiceAccount.id == account_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     account = result.scalar_one_or_none()
     
     if not account:
@@ -778,7 +805,7 @@ async def delete_service_account(
     # 실제 삭제 (또는 비활성화)
     # 여기서는 실제 삭제를 수행
     stmt = text(f'DELETE FROM public.service_account WHERE id = :account_id')
-    await db.execute_query(stmt, {"account_id": account_id})
+    await db.execute_query(stmt, {"account_id": account_id}, schemas=schemas)
     
     return {
         "message": "서비스 어카운트가 삭제되었습니다",
@@ -786,3 +813,255 @@ async def delete_service_account(
         "deleted_at": datetime.now().isoformat(),
         "deleted_by": current_user.e_mail,
     }
+
+
+# ============================================================================
+# LLM API KEY 관리
+# ============================================================================
+
+@router.get("/llm-api-keys", summary="LLM API Key 목록 조회", description="LLM API Key 목록을 조회합니다.")
+@handle_http_error
+async def get_llm_api_keys(
+    skip: int = Query(0, ge=0, description="건너뛸 레코드 수"),
+    limit: int = Query(100, ge=1, le=1000, description="조회할 레코드 수"),
+    llm_provider: str | None = Query(None, description="LLM 제공사 필터"),
+    is_active: bool | None = Query(None, description="활성화 여부 필터"),
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt = select(LLM_API_Key)
+    if llm_provider:
+        stmt = stmt.where(LLM_API_Key.llm_provider == llm_provider)
+    if is_active is not None:
+        stmt = stmt.where(LLM_API_Key.is_active == is_active)
+    stmt = stmt.offset(skip).limit(limit)
+
+    result = await db.execute_query(stmt, schemas=schemas)
+    rows = result.scalars().all()
+    return {
+        "llm_api_keys": [row.to_dict() for row in rows],
+        "total": len(rows),
+        "skip": skip,
+        "limit": limit,
+    }
+
+
+@router.get("/llm-api-keys/{api_key_id}", summary="LLM API Key 상세 조회", description="특정 LLM API Key를 조회합니다.")
+@handle_http_error
+async def get_llm_api_key_detail(
+    api_key_id: int,
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt = select(LLM_API_Key).where(LLM_API_Key.id == api_key_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="LLM API Key를 찾을 수 없습니다")
+    return row.to_dict()
+
+
+@router.post("/llm-api-keys", summary="LLM API Key 생성", description="새 LLM API Key를 등록합니다.")
+@handle_http_error
+async def create_llm_api_key(
+    body: LLMApiKeyCreateRequest,
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt_dup = select(LLM_API_Key).where(LLM_API_Key.api_key == body.api_key)
+    result_dup = await db.execute_query(stmt_dup, schemas=schemas)
+    if result_dup.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 API Key입니다")
+
+    df = pd.DataFrame([body.model_dump()])
+    await db.upsert_dataframe(LLM_API_Key, df, schemas=schemas)
+
+    stmt = select(LLM_API_Key).where(LLM_API_Key.api_key == body.api_key)
+    result = await db.execute_query(stmt, schemas=schemas)
+    created = result.scalar_one()
+    return {"message": "LLM API Key가 등록되었습니다", "llm_api_key": created.to_dict()}
+
+
+@router.put("/llm-api-keys/{api_key_id}", summary="LLM API Key 수정", description="LLM API Key 정보를 수정합니다.")
+@handle_http_error
+async def update_llm_api_key(
+    api_key_id: int,
+    body: LLMApiKeyUpdateRequest,
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt = select(LLM_API_Key).where(LLM_API_Key.id == api_key_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="LLM API Key를 찾을 수 없습니다")
+
+    update_dict = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="수정할 데이터가 없습니다")
+
+    if "api_key" in update_dict:
+        stmt_dup = select(LLM_API_Key).where(
+            LLM_API_Key.api_key == update_dict["api_key"],
+            LLM_API_Key.id != api_key_id,
+        )
+        result_dup = await db.execute_query(stmt_dup, schemas=schemas)
+        if result_dup.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 API Key입니다")
+
+    stmt_update = update(LLM_API_Key).where(LLM_API_Key.id == api_key_id).values(**update_dict)
+    await db.execute_query(stmt_update, schemas=schemas)
+
+    stmt_after = select(LLM_API_Key).where(LLM_API_Key.id == api_key_id)
+    result_after = await db.execute_query(stmt_after, schemas=schemas)
+    updated_row = result_after.scalar_one()
+    return {"message": "LLM API Key가 수정되었습니다", "llm_api_key": updated_row.to_dict()}
+
+
+@router.delete("/llm-api-keys/{api_key_id}", summary="LLM API Key 삭제", description="LLM API Key를 삭제합니다.")
+@handle_http_error
+async def delete_llm_api_key(
+    api_key_id: int,
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt = select(LLM_API_Key).where(LLM_API_Key.id == api_key_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="LLM API Key를 찾을 수 없습니다")
+
+    stmt_del = delete(LLM_API_Key).where(LLM_API_Key.id == api_key_id)
+    await db.execute_query(stmt_del, schemas=schemas)
+    return {"message": "LLM API Key가 삭제되었습니다", "api_key_id": api_key_id}
+
+
+# ============================================================================
+# Prompt Path 관리
+# ============================================================================
+
+@router.get("/prompt-paths", summary="Prompt Path 목록 조회", description="Prompt Path 목록을 조회합니다.")
+@handle_http_error
+async def get_prompt_paths(
+    skip: int = Query(0, ge=0, description="건너뛸 레코드 수"),
+    limit: int = Query(100, ge=1, le=1000, description="조회할 레코드 수"),
+    purpose: str | None = Query(None, description="프롬프트 용도 필터"),
+    is_active: bool | None = Query(None, description="활성화 여부 필터"),
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt = select(Prompt_path)
+    if purpose:
+        stmt = stmt.where(Prompt_path.purpose == purpose)
+    if is_active is not None:
+        stmt = stmt.where(Prompt_path.is_active == is_active)
+    stmt = stmt.offset(skip).limit(limit)
+
+    result = await db.execute_query(stmt, schemas=schemas)
+    rows = result.scalars().all()
+    return {
+        "prompt_paths": [row.to_dict() for row in rows],
+        "total": len(rows),
+        "skip": skip,
+        "limit": limit,
+    }
+
+
+@router.get("/prompt-paths/{prompt_path_id}", summary="Prompt Path 상세 조회", description="특정 Prompt Path를 조회합니다.")
+@handle_http_error
+async def get_prompt_path_detail(
+    prompt_path_id: int,
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt = select(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt Path를 찾을 수 없습니다")
+    return row.to_dict()
+
+
+@router.post("/prompt-paths", summary="Prompt Path 생성", description="새 Prompt Path를 등록합니다.")
+@handle_http_error
+async def create_prompt_path(
+    body: PromptPathCreateRequest,
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt_dup = select(Prompt_path).where(Prompt_path.path == body.path)
+    result_dup = await db.execute_query(stmt_dup, schemas=schemas)
+    if result_dup.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 Prompt Path입니다")
+
+    df = pd.DataFrame([body.model_dump()])
+    await db.upsert_dataframe(Prompt_path, df, schemas=schemas)
+
+    stmt = select(Prompt_path).where(Prompt_path.path == body.path)
+    result = await db.execute_query(stmt, schemas=schemas)
+    created = result.scalar_one()
+    return {"message": "Prompt Path가 등록되었습니다", "prompt_path": created.to_dict()}
+
+
+@router.put("/prompt-paths/{prompt_path_id}", summary="Prompt Path 수정", description="Prompt Path 정보를 수정합니다.")
+@handle_http_error
+async def update_prompt_path(
+    prompt_path_id: int,
+    body: PromptPathUpdateRequest,
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt = select(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt Path를 찾을 수 없습니다")
+
+    update_dict = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="수정할 데이터가 없습니다")
+
+    if "path" in update_dict:
+        stmt_dup = select(Prompt_path).where(
+            Prompt_path.path == update_dict["path"],
+            Prompt_path.id != prompt_path_id,
+        )
+        result_dup = await db.execute_query(stmt_dup, schemas=schemas)
+        if result_dup.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 Prompt Path입니다")
+
+    stmt_update = update(Prompt_path).where(Prompt_path.id == prompt_path_id).values(**update_dict)
+    await db.execute_query(stmt_update, schemas=schemas)
+
+    stmt_after = select(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    result_after = await db.execute_query(stmt_after, schemas=schemas)
+    updated_row = result_after.scalar_one()
+    return {"message": "Prompt Path가 수정되었습니다", "prompt_path": updated_row.to_dict()}
+
+
+@router.delete("/prompt-paths/{prompt_path_id}", summary="Prompt Path 삭제", description="Prompt Path를 삭제합니다.")
+@handle_http_error
+async def delete_prompt_path(
+    prompt_path_id: int,
+    current_user: models.User = Depends(get_current_superuser),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = ["public"]
+    stmt = select(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt Path를 찾을 수 없습니다")
+
+    stmt_del = delete(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    await db.execute_query(stmt_del, schemas=schemas)
+    return {"message": "Prompt Path가 삭제되었습니다", "prompt_path_id": prompt_path_id}

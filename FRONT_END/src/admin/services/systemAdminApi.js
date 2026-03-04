@@ -159,3 +159,83 @@ export const deleteServiceAccount = async (accountId) => {
   const response = await adminApi.delete(`/api/system-admin/service-accounts/${accountId}`);
   return response.data;
 };
+
+/**
+ * LLM API KEY 목록 조회
+ */
+export const getLlmApiKeys = async (params = {}) => {
+  const { skip = 0, limit = 100, llm_provider, is_active } = params;
+  const response = await adminApi.get('/api/system-admin/llm-api-keys', {
+    params: {
+      skip,
+      limit,
+      ...(llm_provider && { llm_provider }),
+      ...(is_active !== undefined && { is_active }),
+    },
+  });
+  return response.data;
+};
+
+/**
+ * LLM API KEY 생성
+ */
+export const createLlmApiKey = async (payload) => {
+  const response = await adminApi.post('/api/system-admin/llm-api-keys', payload);
+  return response.data;
+};
+
+/**
+ * LLM API KEY 수정
+ */
+export const updateLlmApiKey = async (apiKeyId, payload) => {
+  const response = await adminApi.put(`/api/system-admin/llm-api-keys/${apiKeyId}`, payload);
+  return response.data;
+};
+
+/**
+ * LLM API KEY 삭제
+ */
+export const deleteLlmApiKey = async (apiKeyId) => {
+  const response = await adminApi.delete(`/api/system-admin/llm-api-keys/${apiKeyId}`);
+  return response.data;
+};
+
+/**
+ * Prompt Path 목록 조회
+ */
+export const getPromptPaths = async (params = {}) => {
+  const { skip = 0, limit = 100, purpose, is_active } = params;
+  const response = await adminApi.get('/api/system-admin/prompt-paths', {
+    params: {
+      skip,
+      limit,
+      ...(purpose && { purpose }),
+      ...(is_active !== undefined && { is_active }),
+    },
+  });
+  return response.data;
+};
+
+/**
+ * Prompt Path 생성
+ */
+export const createPromptPath = async (payload) => {
+  const response = await adminApi.post('/api/system-admin/prompt-paths', payload);
+  return response.data;
+};
+
+/**
+ * Prompt Path 수정
+ */
+export const updatePromptPath = async (promptPathId, payload) => {
+  const response = await adminApi.put(`/api/system-admin/prompt-paths/${promptPathId}`, payload);
+  return response.data;
+};
+
+/**
+ * Prompt Path 삭제
+ */
+export const deletePromptPath = async (promptPathId) => {
+  const response = await adminApi.delete(`/api/system-admin/prompt-paths/${promptPathId}`);
+  return response.data;
+};

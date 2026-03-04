@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getCurrentUser, logout } from '../services/auth';
-import { uploadEdiFile, uploadImageZip } from '../services/tenant';
+import { uploadEdiFile, uploadImageZip, getImageOcrProgress } from '../services/tenant';
 import Sidebar from '../components/Sidebar';
-import TenantHeader from '../components/TenantHeader';
+import SessionHeader from '../components/SessionHeader';
+import CommonTabsRow from '../components/CommonTabsRow';
+import { DATA_MAPPING_TABS, DEFAULT_DATA_MAPPING_TAB } from '../constants/dataMappingTabs';
 import './DataMappingPage.css';
 
 /** 면세점(EDI 출처) 목록 – 프론트 상수. 추후 API/DB로 전환 가능 */
@@ -29,11 +31,13 @@ function DataMappingPage() {
   const [imageUploadError, setImageUploadError] = useState('');
   const [isImageDragging, setIsImageDragging] = useState(false);
   const imageFileInputRef = useRef(null);
+  const [ocrProgress, setOcrProgress] = useState(null);
+  const [ocrProgressError, setOcrProgressError] = useState('');
   
   // URL 파라미터에서 탭 정보 가져오기
   const searchParams = new URLSearchParams(location.search);
   const tabFromUrl = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState(tabFromUrl || 'edi-upload');
+  const [activeTab, setActiveTab] = useState(tabFromUrl || DEFAULT_DATA_MAPPING_TAB);
   
   // 관리자 권한 확인
   const isAdmin = currentUser?.role === 'admin';
@@ -45,7 +49,7 @@ function DataMappingPage() {
   useEffect(() => {
     // URL 파라미터 변경 시 탭 업데이트
     const searchParams = new URLSearchParams(location.search);
-    const tabFromUrl = searchParams.get('tab') || 'edi-upload';
+    const tabFromUrl = searchParams.get('tab') || DEFAULT_DATA_MAPPING_TAB;
     setActiveTab(tabFromUrl);
   }, [location.search]);
 
@@ -182,6 +186,33 @@ function DataMappingPage() {
     }
   };
 
+  useEffect(() => {
+    if (activeTab !== 'image-review') {
+      return;
+    }
+
+    let mounted = true;
+    const poll = async () => {
+      try {
+        const result = await getImageOcrProgress();
+        if (!mounted) return;
+        setOcrProgress(result);
+        setOcrProgressError('');
+      } catch (err) {
+        if (!mounted) return;
+        setOcrProgressError(err.response?.data?.detail || '진행도 조회에 실패했습니다.');
+      }
+    };
+
+    poll();
+    const timerId = setInterval(poll, 2000);
+
+    return () => {
+      mounted = false;
+      clearInterval(timerId);
+    };
+  }, [activeTab]);
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'edi-upload':
@@ -303,6 +334,27 @@ function DataMappingPage() {
             )}
           </div>
         );
+      case 'image-review':
+        return (
+          <div className="tab-content">
+            <h2>이미지 확인</h2>
+            <p>여권/영수증 AI OCR 결과를 확인하여 확정합니다.</p>
+            {ocrProgressError && <div className="upload-error">{ocrProgressError}</div>}
+            {ocrProgress && (
+              <div className="upload-success">
+                전체 {ocrProgress.total}건 / 처리중 {ocrProgress.processing}건 / 완료 {ocrProgress.done}건 / 대기 {ocrProgress.pending}건
+                {' '}({ocrProgress.progress_percent}%)
+              </div>
+            )}
+          </div>
+        );
+      case 'image-mapping':
+        return (
+          <div className="tab-content">
+            <h2>이미지 매핑</h2>
+            <p>확인된 이미지를 기준으로 여권정보와 영수증정보를 매핑합니다. 준비 중입니다.</p>
+          </div>
+        );
       case 'data-check':
         return <div className="tab-content"><p>데이터 확인 기능은 준비 중입니다.</p></div>;
       case 'fee-info':
@@ -313,46 +365,29 @@ function DataMappingPage() {
   };
 
   return (
-    <div className="data-mapping-page">
+    <div className="app-layout">
       <Sidebar isAdmin={isAdmin} />
-      <TenantHeader
-        title="데이터 매핑"
-        currentUser={currentUser}
-        onLogout={async () => {
-          await logout();
-        }}
-        onProfileUpdated={loadCurrentUser}
-      />
+      <div className="app-main">
+        <SessionHeader
+          title="데이터 매핑"
+          currentUser={currentUser}
+          onLogout={async () => {
+            await logout();
+          }}
+          onProfileUpdated={loadCurrentUser}
+        />
 
-      <div className="admin-tabs">
-        <button
-          className={activeTab === 'edi-upload' ? 'active' : ''}
-          onClick={() => handleTabChange('edi-upload')}
-        >
-          EDI 데이터 업로드
-        </button>
-        <button
-          className={activeTab === 'image-upload' ? 'active' : ''}
-          onClick={() => handleTabChange('image-upload')}
-        >
-          이미지 업로드
-        </button>
-        <button
-          className={activeTab === 'data-check' ? 'active' : ''}
-          onClick={() => handleTabChange('data-check')}
-        >
-          데이터 확인
-        </button>
-        <button
-          className={activeTab === 'fee-info' ? 'active' : ''}
-          onClick={() => handleTabChange('fee-info')}
-        >
-          수수료 정보
-        </button>
-      </div>
+        <main className="app-content data-mapping-content">
+          <CommonTabsRow
+            tabs={DATA_MAPPING_TABS.map((tab) => ({ key: tab.id, label: tab.label }))}
+            activeKey={activeTab}
+            onTabChange={handleTabChange}
+          />
 
-      <div className="page-content">
-        {renderTabContent()}
+          <div className="common-card page-content">
+            {renderTabContent()}
+          </div>
+        </main>
       </div>
     </div>
   );

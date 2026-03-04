@@ -15,12 +15,12 @@ from CUSTOMIZED.cust_hasher import Hasher
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """비밀번호 검증 (SHA-256 해시 비교)"""
     hasher = Hasher()
-    hasher.hash_string(plain_password)
+    hasher.hash(plain_password)
     return hasher.equals(hashed_password, is_hashed=True)
 
 
 def get_password_hash(password: str) -> str:
     """비밀번호 해싱 (SHA-256 hex 문자열 반환)"""
     hasher = Hasher()
-    hasher.hash_string(password)
+    hasher.hash(password)
     return hasher.to_hex_string  # @property이므로 괄호 없이 사용

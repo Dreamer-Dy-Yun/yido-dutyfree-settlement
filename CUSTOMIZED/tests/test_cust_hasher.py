@@ -21,7 +21,7 @@ class TestHasher:
     def test_hash_string(self):
         """문자열 해시 테스트"""
         hasher = Hasher()
-        hasher.hash_string("test123")
+        hasher.hash("test123")
         
         expected = hashlib.sha256("test123".encode('utf-8')).digest()
         assert hasher.value == expected
@@ -30,7 +30,7 @@ class TestHasher:
         """bytes 해시 테스트"""
         hasher = Hasher()
         test_bytes = b"test123"
-        hasher.hash_bytes(test_bytes)
+        hasher.hash(test_bytes)
         
         expected = hashlib.sha256(test_bytes).digest()
         assert hasher.value == expected
@@ -38,7 +38,7 @@ class TestHasher:
     def test_hash_int(self):
         """정수 해시 테스트"""
         hasher = Hasher()
-        hasher.hash_int(123)
+        hasher.hash(123)
         
         expected = hashlib.sha256("123".encode('utf-8')).digest()
         assert hasher.value == expected
@@ -53,7 +53,7 @@ class TestHasher:
             temp_path = Path(f.name)
         
         try:
-            hasher.hash_file(temp_path)
+            hasher.hash(temp_path)
             expected = hashlib.sha256(b"test file content").digest()
             assert hasher.value == expected
         finally:
@@ -64,27 +64,27 @@ class TestHasher:
         hasher = Hasher()
         fake_path = Path("nonexistent_file.txt")
         
-        hasher.hash_file(fake_path, ignore_errors=True)
+        hasher.hash(fake_path, ignore_errors=True)
         # 에러 무시 시 빈 bytes 반환
         assert hasher.value == bytes()
 
     def test_equals_bytes_is_hashed_true(self):
         """equals: bytes 비교 (is_hashed=True)"""
         hasher = Hasher()
-        hasher.hash_string("test123")
+        hasher.hash("test123")
         
         # 같은 해시 bytes와 비교
         assert hasher.equals(hasher.value, is_hashed=True) == True
         
         # 다른 해시 bytes와 비교
         other_hasher = Hasher()
-        other_hasher.hash_string("different")
+        other_hasher.hash("different")
         assert hasher.equals(other_hasher.value, is_hashed=True) == False
 
     def test_equals_hex_string_is_hashed_true(self):
         """equals: hex 문자열 비교 (is_hashed=True)"""
         hasher = Hasher()
-        hasher.hash_string("test123")
+        hasher.hash("test123")
         
         # hex 문자열로 변환 후 비교
         hex_str = hasher.to_hex_string
@@ -99,7 +99,7 @@ class TestHasher:
     def test_equals_other_type_is_hashed_true(self):
         """equals: 그 외 타입 비교 (is_hashed=True)"""
         hasher = Hasher()
-        hasher.hash_string("test123")
+        hasher.hash("test123")
         
         # int 타입
         assert hasher.equals(123, is_hashed=True) == False
@@ -110,7 +110,7 @@ class TestHasher:
     def test_equals_is_hashed_false(self):
         """equals: 해시되지 않은 값 비교 (is_hashed=False)"""
         hasher = Hasher()
-        hasher.hash_string("test123")
+        hasher.hash("test123")
         
         # 같은 문자열 비교
         assert hasher.equals("test123", is_hashed=False) == True
@@ -119,14 +119,14 @@ class TestHasher:
         assert hasher.equals("different", is_hashed=False) == False
         
         # 정수 비교
-        hasher.hash_int(123)
+        hasher.hash(123)
         assert hasher.equals(123, is_hashed=False) == True
         assert hasher.equals(456, is_hashed=False) == False
 
     def test_to_hex_string(self):
         """hex 문자열 변환 테스트"""
         hasher = Hasher()
-        hasher.hash_string("test123")
+        hasher.hash("test123")
         
         hex_str = hasher.to_hex_string
         assert isinstance(hex_str, str)
@@ -164,7 +164,7 @@ class TestHasher:
     def test_equals_default_is_hashed(self):
         """equals 기본값 테스트 (is_hashed=True가 기본값)"""
         hasher = Hasher()
-        hasher.hash_string("test123")
+        hasher.hash("test123")
         
         # 기본값은 is_hashed=True
         hex_str = hasher.to_hex_string
@@ -176,7 +176,7 @@ class TestHasher:
     def test_chaining(self):
         """메서드 체이닝 테스트"""
         hasher = Hasher()
-        result = hasher.hash_string("test").hash_int(123).hash_string("final")
+        result = hasher.hash("test").hash(123).hash("final")
         
         assert result is hasher
         assert hasher.value == hashlib.sha256("final".encode('utf-8')).digest()

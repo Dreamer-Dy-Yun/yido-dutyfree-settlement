@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getServiceAccounts, deleteServiceAccount } from '../services/systemAdminApi';
+import CommonTabsRow from '../../components/CommonTabsRow';
 import './ServiceAccountListPage.css';
 
 function ServiceAccountListPage() {
@@ -9,13 +10,27 @@ function ServiceAccountListPage() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
-  // URL 쿼리 파라미터에서 초기 필터 값 읽기
-  const searchParams = new URLSearchParams(location.search);
-  const initialFilter = searchParams.get('is_active') === 'true' ? 'active' : 'all';
-  
-  const [filter, setFilter] = useState(initialFilter);
-  const [roleFilter, setRoleFilter] = useState('');
+
+  const getFilterFromLocation = () => {
+    const searchParams = new URLSearchParams(location.search);
+    const isActive = searchParams.get('is_active');
+    if (isActive === 'true') return 'active';
+    if (isActive === 'false') return 'inactive';
+    return 'all';
+  };
+
+  const getRoleFromLocation = () => {
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('role') || '';
+  };
+
+  const [filter, setFilter] = useState(getFilterFromLocation);
+  const [roleFilter, setRoleFilter] = useState(getRoleFromLocation);
+
+  useEffect(() => {
+    setFilter(getFilterFromLocation());
+    setRoleFilter(getRoleFromLocation());
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     loadAccounts();
@@ -41,6 +56,21 @@ function ServiceAccountListPage() {
     navigate(`/admin/service-accounts/${accountId}`);
   };
 
+  const navigateWithFilters = (nextFilter, nextRole) => {
+    const params = new URLSearchParams();
+    if (nextFilter === 'active') {
+      params.set('is_active', 'true');
+    } else if (nextFilter === 'inactive') {
+      params.set('is_active', 'false');
+    }
+    if (nextRole) {
+      params.set('role', nextRole);
+    }
+
+    const query = params.toString();
+    navigate(query ? `/admin/service-accounts?${query}` : '/admin/service-accounts');
+  };
+
   const handleDelete = async (accountId) => {
     if (!confirm('이 서비스 어카운트를 삭제하시겠습니까?')) return;
     
@@ -54,49 +84,29 @@ function ServiceAccountListPage() {
   };
 
   return (
-    <div className="service-account-list-page">
-      <div className="page-header">
-        <h1>서비스 어카운트 관리</h1>
-        <div className="header-actions">
-          <button className="btn btn-primary" onClick={() => navigate('/admin/service-accounts/new')}>
-            새 계정 추가
+    <div className="common-page service-account-list-page">
+      <CommonTabsRow
+        tabs={[
+          { key: 'all', label: '전체' },
+          { key: 'active', label: '활성' },
+          { key: 'inactive', label: '비활성' },
+        ]}
+        activeKey={filter}
+        onTabChange={(nextFilter) => navigateWithFilters(nextFilter, roleFilter)}
+        rightAction={
+          <button className="common-btn common-btn-primary" onClick={() => navigate('/admin/service-accounts/new')}>
+            새 서비스 어카운트 추가
           </button>
-        </div>
-      </div>
+        }
+      />
 
-      <div className="filters">
-        <div className="filter-buttons">
-          <button
-            className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => {
-              setFilter('all');
-            }}
-          >
-            전체
-          </button>
-          <button
-            className={`btn ${filter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => {
-              setFilter('active');
-            }}
-          >
-            활성
-          </button>
-          <button
-            className={`btn ${filter === 'inactive' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => {
-              setFilter('inactive');
-            }}
-          >
-            비활성
-          </button>
-        </div>
+      <div className="common-card common-toolbar filters">
         <div className="role-filter">
           <label>역할:</label>
           <select
             className="select-input"
             value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
+            onChange={(e) => navigateWithFilters(filter, e.target.value)}
           >
             <option value="">전체</option>
             <option value="smtp_sender">SMTP 송신</option>
@@ -109,57 +119,59 @@ function ServiceAccountListPage() {
         </div>
       </div>
 
-      {loading && <div className="loading">로딩 중...</div>}
-      {error && <div className="error">에러: {error}</div>}
+      {loading && <div className="common-card common-state">로딩 중...</div>}
+      {error && <div className="common-card common-state error">에러: {error}</div>}
 
       {!loading && !error && (
-        <div className="account-list">
+        <div className="common-card account-list">
           {accounts.length === 0 ? (
             <div className="empty-state">서비스 어카운트가 없습니다</div>
           ) : (
-            <table className="account-table">
-              <thead>
-                <tr>
-                  <th>별칭</th>
-                  <th>이메일</th>
-                  <th>역할</th>
-                  <th>설명</th>
-                  <th>상태</th>
-                  <th>작업</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((account) => (
-                  <tr key={account.id} className={!account.is_active ? 'inactive' : ''}>
-                    <td>{account.alias || '-'}</td>
-                    <td>{account.e_mail}</td>
-                    <td>{account.role}</td>
-                    <td>{account.description || '-'}</td>
-                    <td>
-                      <span className={`status-badge ${account.is_active ? 'active' : 'inactive'}`}>
-                        {account.is_active ? '활성' : '비활성'}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="action-buttons">
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => handleViewDetail(account.id)}
-                        >
-                          상세
-                        </button>
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() => handleDelete(account.id)}
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    </td>
+            <div className="common-table-wrap">
+              <table className="common-table account-table">
+                <thead>
+                  <tr>
+                    <th>별칭</th>
+                    <th>이메일</th>
+                    <th>역할</th>
+                    <th>설명</th>
+                    <th>상태</th>
+                    <th>작업</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {accounts.map((account) => (
+                    <tr key={account.id} className={!account.is_active ? 'inactive' : ''}>
+                      <td>{account.alias || '-'}</td>
+                      <td>{account.e_mail}</td>
+                      <td>{account.role}</td>
+                      <td>{account.description || '-'}</td>
+                      <td>
+                        <span className={`status-badge ${account.is_active ? 'active' : 'inactive'}`}>
+                          {account.is_active ? '활성' : '비활성'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="action-buttons">
+                          <button
+                            className="common-btn common-btn-primary"
+                            onClick={() => handleViewDetail(account.id)}
+                          >
+                            상세
+                          </button>
+                          <button
+                            className="common-btn common-btn-secondary"
+                            onClick={() => handleDelete(account.id)}
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

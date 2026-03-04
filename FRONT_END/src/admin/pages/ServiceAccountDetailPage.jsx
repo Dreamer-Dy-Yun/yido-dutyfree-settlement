@@ -93,17 +93,17 @@ function ServiceAccountDetailPage() {
 
   if (loading) {
     return (
-      <div className="service-account-detail-page">
-        <div className="loading">로딩 중...</div>
+      <div className="common-page service-account-detail-page">
+        <div className="common-card common-state">로딩 중...</div>
       </div>
     );
   }
 
   if (error && !isNew) {
     return (
-      <div className="service-account-detail-page">
-        <div className="error">에러: {error}</div>
-        <button className="btn btn-secondary" onClick={() => navigate('/admin/service-accounts')}>
+      <div className="common-page service-account-detail-page">
+        <div className="common-card common-state error">에러: {error}</div>
+        <button className="common-btn common-btn-secondary" onClick={() => navigate('/admin/service-accounts')}>
           목록으로 돌아가기
         </button>
       </div>
@@ -111,10 +111,10 @@ function ServiceAccountDetailPage() {
   }
 
   return (
-    <div className="service-account-detail-page">
-      <div className="page-header">
+    <div className="common-page service-account-detail-page">
+      <div className="common-card common-card-header detail-toolbar">
         <h1>{isNew ? '새 서비스 어카운트 추가' : '서비스 어카운트 상세 정보'}</h1>
-        <button className="btn btn-secondary" onClick={() => navigate('/admin/service-accounts')}>
+        <button className="common-btn common-btn-secondary" onClick={() => navigate('/admin/service-accounts')}>
           목록으로
         </button>
       </div>
@@ -205,7 +205,7 @@ function ServiceAccountDetailPage() {
         <div className="form-actions">
           <button
             type="button"
-            className="btn btn-secondary"
+            className="common-btn common-btn-secondary"
             onClick={() => navigate('/admin/service-accounts')}
             disabled={saving}
           >
@@ -213,7 +213,7 @@ function ServiceAccountDetailPage() {
           </button>
           <button
             type="submit"
-            className="btn btn-primary"
+            className="common-btn common-btn-primary"
             disabled={saving}
           >
             {saving ? '저장 중...' : (isNew ? '생성' : '수정')}

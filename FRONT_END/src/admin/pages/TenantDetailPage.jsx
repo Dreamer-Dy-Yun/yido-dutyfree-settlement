@@ -33,8 +33,6 @@ function TenantDetailPage() {
       setLoading(true);
       const data = await getTenantDetail(tenantId);
       setTenant(data);
-      console.log('Tenant data loaded:', data);
-      console.log('is_db_built:', data.is_db_built);
       setFormData({
         name: data.name || '',
         alias: data.alias || '',
@@ -175,17 +173,17 @@ function TenantDetailPage() {
 
   if (loading) {
     return (
-      <div className="tenant-detail-page">
-        <div className="loading">로딩 중...</div>
+      <div className="common-page tenant-detail-page">
+        <div className="common-card common-state">로딩 중...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="tenant-detail-page">
-        <div className="error">에러: {error}</div>
-        <button className="btn btn-secondary" onClick={() => navigate('/admin/tenants')}>
+      <div className="common-page tenant-detail-page">
+        <div className="common-card common-state error">에러: {error}</div>
+        <button className="common-btn common-btn-secondary" onClick={() => navigate('/admin/tenants')}>
           목록으로 돌아가기
         </button>
       </div>
@@ -194,9 +192,9 @@ function TenantDetailPage() {
 
   if (!tenant) {
     return (
-      <div className="tenant-detail-page">
-        <div className="error">테넌트를 찾을 수 없습니다</div>
-        <button className="btn btn-secondary" onClick={() => navigate('/admin/tenants')}>
+      <div className="common-page tenant-detail-page">
+        <div className="common-card common-state error">테넌트를 찾을 수 없습니다</div>
+        <button className="common-btn common-btn-secondary" onClick={() => navigate('/admin/tenants')}>
           목록으로 돌아가기
         </button>
       </div>
@@ -204,39 +202,39 @@ function TenantDetailPage() {
   }
 
   return (
-    <div className="tenant-detail-page">
-      <div className="page-header">
+    <div className="common-page tenant-detail-page">
+      <div className="common-card common-card-header detail-toolbar">
         <h1>테넌트 상세 정보</h1>
-        <div className="header-actions">
-          <button className="btn btn-secondary" onClick={() => navigate('/admin/tenants')}>
+        <div className="detail-actions">
+          <button className="common-btn common-btn-secondary" onClick={() => navigate('/admin/tenants')}>
             목록으로
           </button>
           {!tenant.is_active && !tenant.is_db_built && (
             <>
-              <button className="btn btn-success" onClick={handleApprove}>
+              <button className="common-btn common-btn-success" onClick={handleApprove}>
                 승인
               </button>
-              <button className="btn btn-danger" onClick={() => setShowRejectModal(true)}>
+              <button className="common-btn common-btn-danger" onClick={() => setShowRejectModal(true)}>
                 거부
               </button>
             </>
           )}
           {tenant && tenant.is_db_built === true && !isEditing && (
             <>
-              <button className="btn btn-primary" onClick={handleEdit}>
+              <button className="common-btn common-btn-primary" onClick={handleEdit}>
                 수정
               </button>
-              <button className="btn btn-danger" onClick={() => setShowDeleteModal(true)}>
+              <button className="common-btn common-btn-danger" onClick={() => setShowDeleteModal(true)}>
                 삭제
               </button>
             </>
           )}
           {tenant && tenant.is_db_built === true && isEditing && (
             <>
-              <button type="submit" form="tenant-form" className="btn btn-primary" disabled={saving}>
+              <button type="submit" form="tenant-form" className="common-btn common-btn-primary" disabled={saving}>
                 {saving ? '저장 중...' : '수정완료'}
               </button>
-              <button type="button" className="btn btn-secondary" onClick={handleCancel} disabled={saving}>
+              <button type="button" className="common-btn common-btn-secondary" onClick={handleCancel} disabled={saving}>
                 수정취소
               </button>
             </>
@@ -496,7 +494,7 @@ function TenantDetailPage() {
             />
             <div className="modal-actions">
               <button
-                className="btn btn-secondary"
+                className="common-btn common-btn-secondary"
                 onClick={() => {
                   setShowRejectModal(false);
                   setRejectReason('');
@@ -505,7 +503,7 @@ function TenantDetailPage() {
                 취소
               </button>
               <button
-                className="btn btn-danger"
+                className="common-btn common-btn-danger"
                 onClick={handleReject}
                 disabled={!rejectReason.trim()}
               >
@@ -532,7 +530,7 @@ function TenantDetailPage() {
             />
             <div className="modal-actions">
               <button
-                className="btn btn-secondary"
+                className="common-btn common-btn-secondary"
                 onClick={() => {
                   setShowDeleteModal(false);
                   setDeleteReason('');
@@ -541,7 +539,7 @@ function TenantDetailPage() {
                 취소
               </button>
               <button
-                className="btn btn-danger"
+                className="common-btn common-btn-danger"
                 onClick={handleDelete}
                 disabled={!deleteReason.trim()}
               >

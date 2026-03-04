@@ -54,12 +54,11 @@ async def get_current_user(
     except (JWTError, ValueError):
         raise credentials_exception
     
-    # 테넌트 스키마로 전환
-    await db.set_schemas([tenant_schema, "public"])
-    
+    schemas = [tenant_schema, "public"]
+
     # 테넌트 스키마에서 사용자 조회
     stmt = select(models.User).where(models.User.id == user_id)
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     user = result.scalar_one_or_none()
     
     if user is None:
@@ -70,7 +69,10 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="비활성화된 사용자입니다"
         )
-    
+
+    # 후속 라우터에서 tenant_schema를 명시적으로 전달할 수 있도록 주입
+    setattr(user, "tenant_schema", tenant_schema)
+
     # 세션 연장 (활동 시 자동 연장)
     # 사용자별 토큰 유효기간 사용
     user_token_expire_minutes = session_manager.get_user_token_expire_minutes(
@@ -137,15 +139,13 @@ async def get_current_superuser(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # public 스키마로 전환
-    await db.set_schemas(["public"])
-    
     # SystemAdmin에서 확인 (이메일로 조회)
+    schemas = ["public"]
     stmt = select(SystemAdmin).where(
         SystemAdmin.e_mail == email,
         SystemAdmin.is_active == True,
     )
-    result = await db.execute_query(stmt)
+    result = await db.execute_query(stmt, schemas=schemas)
     system_admin = result.scalar_one_or_none()
     
     if not system_admin:

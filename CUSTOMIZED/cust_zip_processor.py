@@ -6,36 +6,50 @@
 # Created at : 2026.03.03
 # Updated at : 2026.03.03
 # Supported by : -
-# Note : 
-#        - 청킹은 하지 않음.
-#            - 사유 : 파일 해시시, 어차피 해당 파일을 통째로 메모리에 올려야 하므로 파일 청킹이 의미 없음
-#            - 청킹을 하려면 set_hash_as_file_name = false 일 때만 청킹을 해야 함.
+# Note :
+#        - ZIP 전체는 Path(파일) 기준으로 처리하여 메모리 사용을 줄임.
+#        - ZIP 내부 개별 파일은 청크(기본 1MB) 단위로 읽고, 해시는 hashlib.update(chunk)로 누적 계산.
+#        - set_hash_as_file_name=True 인 경우 임시 파일로 먼저 저장 후 해시 파일명으로 rename.
 #        - Zip은 순차처리가 불가(스트리밍 불가)하므로, 바이트로 받지 않고 Path로만 받아 처리.
 ############################################
 
 
+import hashlib
+import os
+import uuid
 import zipfile
 from pathlib import Path
-from typing import Self
-from cust_hasher import Hasher
+from typing import Self, Any
 
 class ZipProcessor:
+    _CHUNK_SIZE: int = 1024 * 1024  # 1MB
 
 
     def __init__(self, zip_path: Path):
         self._zip_path: Path = Path(zip_path)
+        self._meta_data: dict[Path, dict[str, Any]] = {}
         self._saved_paths: list[Path] = []
         self._dir_dest_root: Path = Path()
         self._dir_dest_sub: Path | None = None
 
 
     @property
-    def saved_full_paths(self) -> list[Path]:
-        return self._saved_paths
+    def saved_meta(self) -> dict[Path, dict[str, Any]]:
+        """
+        저장된 파일 메타데이터 반환
+        - 파일 경로 : Path
+        - 파일 메타데이터 : dict[str, Any]
+        - 파일 메타데이터 종류 : hash, ext, name, relative_path
+        """
+        return self._meta_data
 
     @property
-    def saved_relative_paths(self) -> list[Path]:
-        return [path.relative_to(self._dir_dest_root) for path in self._saved_paths]
+    def saved_full_paths_only(self) -> list[Path]:
+        return [path for path in self._meta_data.keys()]
+
+    @property
+    def saved_relative_paths_only(self) -> list[Path]:
+        return [meta_data["relative_path"] for meta_data in self._meta_data.values()]
 
 
     def exists(self) -> bool:
@@ -71,53 +85,77 @@ class ZipProcessor:
         - 확장자는 대소문자 구분 없이 비교
         - 파일명.lower().endswith(allowed_extensions)로 비교.
         """
+        # TODO : 시간있을 때 리팩토링. 잘게 나눌 것
+        try : 
+        # 이전 실행 결과 초기화
+            self._meta_data = {}
 
-        self._dir_dest_root = dir_dest_root
-        self._dir_dest_sub = dir_dest_sub
-        dir_target: Path = Path()
-        file_name: str = ""
-        file_ext: str = ""
-        file_hash: str = ""
+            self._dir_dest_root = dir_dest_root
+            self._dir_dest_sub = dir_dest_sub
+            dir_target: Path = Path()
+            file_name: str = ""
+            file_ext: str = ""
+            file_hash: str = ""
+            path_temp: Path = Path()
 
-        dir_destination: Path = dir_dest_root / dir_dest_sub if dir_dest_sub else dir_dest_root
+            dir_destination: Path = dir_dest_root / dir_dest_sub if dir_dest_sub else dir_dest_root
 
-        allowed_ext: tuple[str, ...] = tuple(ext.lower() for ext in allowed_extensions)
+            allowed_ext: tuple[str, ...] = tuple(ext.lower() for ext in allowed_extensions)
 
-        with zipfile.ZipFile(self._zip_path, "r") as zip_file:
-            for info in zip_file.infolist():
-                
-                if info.is_dir():
-                    # 디렉토리는 대상외
-                    continue
-                if not info.filename.lower().endswith(allowed_ext):
-                    # 허용된 확장자가 아니면 대상외
-                    continue
+            with zipfile.ZipFile(self._zip_path, "r") as zip_file:
+                for info in zip_file.infolist():
+                    
+                    if info.is_dir():
+                        # 디렉토리는 대상외
+                        continue
+                    if not info.filename.lower().endswith(allowed_ext):
+                        # 허용된 확장자가 아니면 대상외
+                        continue
 
-                # ZIP 안의 경로를 그대로 살려서 저장
-                if ignore_inner_directory:
-                    dir_target = dir_destination
-                else:
-                    dir_target = dir_destination / Path(info.filename).parent
-
-                dir_target.mkdir(parents=True, exist_ok=True)
-
-                with zip_file.open(info, "r") as src :
-                    raw_data : bytes = src.read()
-
-                    if set_hash_as_file_name:
-                        file_hash = Hasher().hash(raw_data).to_hex_string
-                        file_ext = Path(info.filename).suffix
-                        file_name = f"{file_hash}{file_ext}"
+                    # ZIP 안의 경로를 그대로 살려서 저장
+                    if ignore_inner_directory:
+                        dir_target = dir_destination
                     else:
-                        file_name = Path(info.filename).name
+                        dir_target = dir_destination / Path(info.filename).parent
 
-                    with (dir_target / file_name).open("wb") as dst:
-                        dst.write(raw_data)
+                    dir_target.mkdir(parents=True, exist_ok=True)
 
-                self._saved_paths.append(dir_target / file_name)
+                    with zip_file.open(info, "r") as src:
+                        file_ext = Path(info.filename).suffix
+                        original_file_name = Path(info.filename).name
+                        path_temp = dir_target / f".tmp_{uuid.uuid4().hex}"
+                        hasher = hashlib.sha256()
 
-        return self
+                        with path_temp.open("wb") as dst:
+                            while True:
+                                chunk = src.read(self._CHUNK_SIZE)
+                                if not chunk:
+                                    break
+                                hasher.update(chunk)
+                                dst.write(chunk)
 
+                        file_hash = hasher.hexdigest()
+                        if set_hash_as_file_name:
+                            file_name = f"{file_hash}{file_ext}"
+                        else:
+                            file_name = original_file_name
+
+                        final_path = dir_target / file_name
+                        os.replace(path_temp, final_path)
+
+                        temp_dict: dict[str, Any] = {}
+                        temp_dict["relative_path"] = final_path.relative_to(self._dir_dest_root)
+                        temp_dict["hash"] = file_hash
+                        temp_dict["ext"] = file_ext
+                        temp_dict["name"] = file_name
+                        self._meta_data[final_path] = temp_dict
+
+            return self
+        except Exception :
+            raise
+        finally:
+            if path_temp.exists():
+                path_temp.unlink()
 # ---------------------------------------------------------------------------
 # TEST CODE
 # ---------------------------------------------------------------------------

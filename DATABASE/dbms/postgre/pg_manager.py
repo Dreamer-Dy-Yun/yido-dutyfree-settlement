@@ -29,6 +29,8 @@
 #       2026.02.24 : PGDBManager._get_most_suitable_unique_keys() 추가 및 피영향 메서드 수정
 #       2026.03.02 : PGDBManager.normalize_datetime_columns() -> PGDBManager.convert_datetime_for_db()로 수정
 #                    PGDBManager.convert_numeric_for_db()로 추가
+#       2026.03.04 : 싱글톤 호환을 위해, 주요 메서드들에 스키마 설정 옵션 추가, 매서드 레벨에서 스키마 선택(인젝션) 가능하도록 변경
+#                    PGDBManager.open_session() 추가 (세션 컨트롤 필요시 사용), 레거시 컨텍스트 매니저 삭제
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 import urllib
@@ -39,7 +41,7 @@ from sqlalchemy import Table, text, UniqueConstraint, Column, PrimaryKeyConstrai
 from sqlalchemy.sql import quoted_name
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from sqlalchemy.schema import AddConstraint
-from typing import Type, TypeVar, Optional, AsyncContextManager, Self
+from typing import Type, TypeVar, Optional, AsyncContextManager, Self, AsyncIterator
 from pandas import DataFrame
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.sql.dml import Insert
@@ -49,6 +51,7 @@ import asyncio
 import numpy as np
 import pandas as pd
 from CUSTOMIZED.cust_logger import logger
+from contextlib import asynccontextmanager
 
 TableModel = TypeVar('TableModel', bound=DeclarativeBase)
 
@@ -153,8 +156,8 @@ class PGDBManager(DBManager):
 
     async def set_schemas(self, schemas: list[str] | None = None) -> Self:
         """
-        스키마 설정 (search_path 변경)
-        
+        기본 스키마 설정 (search_path 변경)
+        각 메서드에서 스키마 미설정시 여기서 설정한 스키마가 기본값이 됨.
         Args:
             schemas: 설정할 스키마 이름 리스트 (예: ["tenant_123", "public"])
                     기본값은 None (public 스키마만 사용)
@@ -219,11 +222,12 @@ class PGDBManager(DBManager):
         return True
 
 
-    async def _set_session_schemas(self, session: AsyncSession) -> None:
+    async def _set_session_schemas(self, session: AsyncSession, schemas: list[str] | None = None) -> None:
         """세션에 스키마 설정 (헬퍼 메서드)"""
-        if self.schemas:
+        schemas = schemas or self.schemas
+        if schemas:
             # quoted_name을 사용하여 식별자 안전하게 처리
-            schema_list = ", ".join([str(quoted_name(s, quote=True)) for s in self.schemas])
+            schema_list = ", ".join([str(quoted_name(s, quote=True)) for s in schemas])
             await session.execute(text(f"SET search_path TO {schema_list}"))
 
 
@@ -232,28 +236,6 @@ class PGDBManager(DBManager):
         result = await self.execute_query(text("SELECT nspname FROM pg_namespace ORDER BY nspname"))
         schemas = [row[0] for row in result.fetchall()]
         return schemas
- 
-
-    async def __aenter__(self) -> AsyncSession:
-        self._session_cm = self.session_maker()  
-        self.session = await self._session_cm.__aenter__()
-        
-        try:
-            await self._set_session_schemas(self.session)
-            return self.session
-        except Exception:
-            # 스키마 설정 실패 시 세션 정리
-            await self._session_cm.__aexit__(None, None, None)
-            raise
-
-
-    async def __aexit__(self, exc_type, exc, tb) -> None : # 변경후 검증 안됨
-        try:
-            if self._session_cm is not None:
-                await self._session_cm.__aexit__(exc_type, exc, tb)
-        finally:
-            self.session = None
-            self._session_cm = None
 
 
     def initialize_engine(
@@ -279,6 +261,27 @@ class PGDBManager(DBManager):
                 class_=AsyncSession,
                 expire_on_commit=False,
             )
+
+
+    @asynccontextmanager
+    async def open_session(
+        self,
+        schemas: list[str] | None = None,
+    ) -> AsyncIterator[AsyncSession]:
+        '''
+        세션 컨트롤이 필요한 경우 사용.
+        Args:
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
+        Returns:
+            AsyncSession
+        '''
+        async with self.session_maker() as session:
+            await self._set_session_schemas(session, schemas)
+            try:
+                yield session
+            except Exception:
+                await session.rollback()
+                raise
 
 
     async def create_tables(self, schema: str | None = None) -> int:
@@ -369,11 +372,24 @@ class PGDBManager(DBManager):
             logger.info("✅Connection pool disposed.")
 
 
-    async def execute_query(self, query: str | Executable, params: dict | list[dict] | None = None):
-        """비동기 ORM 세션 사용 쿼리 실행"""
+    async def execute_query(
+        self, query: str | Executable, 
+        params: dict | list[dict] | None = None, 
+        schemas: list[str] | None = None
+        ):
+        """
+        단일 쿼리 실행. 반드시 커밋 됨.
+        ※ 세션 컨트롤 필요시 PGDBManager에서 커넥션(conn) 직접 사용 할 것.
+        Args:
+            query: 실행할 SQL 쿼리 문자열 또는 Executable 객체
+            params: 쿼리 파라미터 (딕셔너리 또는 딕셔너리 리스트)
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])        
+        Returns:
+            쿼리 실행 결과 (DB별로 다를 수 있음, 일반적으로 SQLAlchemy Result 객체)
+        """
         async with self.session_maker() as session:
             try:
-                await self._set_session_schemas(session)
+                await self._set_session_schemas(session, schemas)
                 if isinstance(query, str):
                     query = text(query)
                 # logger.info(f"⏩SQL : {str(query)} | params: {params}")
@@ -411,7 +427,7 @@ class PGDBManager(DBManager):
             return False
 
 
-    async def batch_upsert_dataframe(self, table: DeclarativeBase, df: DataFrame, allowed_param_size: int = 10000, try_convert: bool = True) -> int:
+    async def batch_upsert_dataframe(self, table: DeclarativeBase, df: DataFrame, schemas: list[str] | None = None, allowed_param_size: int = 10000, try_convert: bool = True) -> int:
         # TODO : Copy / executemany 등을 이용한 최적화 시도 (필요시)
         # TODO : 배치 크기 최적화 시도 (바인딩 개수 계산 방법 확인 필요)
         
@@ -432,7 +448,7 @@ class PGDBManager(DBManager):
 
         for i in range(0, cnt_rows, number_of_rows_for_one_request):
             df_batch: DataFrame = df.iloc[i:i+number_of_rows_for_one_request]
-            cnt_upserted += await self.upsert_dataframe(table, df_batch, try_convert=False)
+            cnt_upserted += await self.upsert_dataframe(table, df_batch, schemas, try_convert=False)
 
         return cnt_upserted
 
@@ -551,7 +567,7 @@ class PGDBManager(DBManager):
         )
 
 
-    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, conflict_cols: list[str] | None = None, try_convert: bool = True) -> int:
+    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, schemas: list[str] | None = None, conflict_cols: list[str] | None = None, try_convert: bool = True) -> int:
         '''
         자동 Upserter.
         가용한 모든 df(DataFrame)컬럼 업데이트.
@@ -581,7 +597,7 @@ class PGDBManager(DBManager):
             df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
 
         async with self.session_maker() as session:
-            await self._set_session_schemas(session)
+            await self._set_session_schemas(session, schemas)
             try:
                 # logger.info(f"🚀 START [upsert_dataframe]")
 
