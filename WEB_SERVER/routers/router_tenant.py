@@ -237,7 +237,7 @@ async def upload_image_zip(
     이미지 ZIP 업로드용 엔드포인트입니다.
     - 확장자가 .zip 인지 검증
     - 토큰에서 tenant_schema를 읽어 해당 테넌트의 루트 디렉터리 조회
-    - .env 의 ROOT_DIR + 테넌트 전용 path_root + \"zip\" 하위에 ZIP 파일 저장
+    - .env 의 ROOT_DIR + 테넌트 전용 dir_root + \"zip\" 하위에 ZIP 파일 저장
     - 같은 루트의 \"img\" 하위에 ZipProcessor로 이미지 파일들만 풀어놓음
     실제 이미지 처리/DB 반영은 추후 구현.
     """
@@ -250,7 +250,7 @@ async def upload_image_zip(
 
     tenant_schema = _get_current_tenant_schema_from_user(current_user)
 
-    # public.tenant 에서 현재 테넌트의 path_root 조회
+    # public.tenant 에서 현재 테넌트의 dir_root 조회
     stmt = select(PublicTenant).where(PublicTenant.schema_name == tenant_schema)
     result = await db.execute_query(stmt, schemas=["public"])
     tenant = result.scalar_one_or_none()
@@ -266,8 +266,8 @@ async def upload_image_zip(
     img_dir_name = os.getenv("IMG_ROOT", "img")
     base_root = Path(root_dir)
 
-    # path_root 는 테넌트별 루트 (상대/절대 여부는 설정에 따름)
-    tenant_root = base_root / tenant.path_root
+    # dir_root 는 테넌트별 루트 (상대/절대 여부는 설정에 따름)
+    tenant_root = base_root / tenant.dir_root
     zip_root = tenant_root / zip_dir_name
     img_root = tenant_root / img_dir_name
 

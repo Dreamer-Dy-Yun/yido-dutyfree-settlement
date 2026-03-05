@@ -50,6 +50,7 @@ class DBManager(ABC):
         df: pd.DataFrame,
         schemas: list[str] | None = None,
         allowed_param_size: int = 10000,
+        conflict_cols: list[str] | None = None,
         try_convert: bool = True,
     ) -> int:
         """
@@ -60,7 +61,35 @@ class DBManager(ABC):
             df: pandas DataFrame
             schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
             allowed_param_size: 파라미터 개수
+            conflict_cols: upsert 충돌 기준 컬럼 (None이면 자동 선택)
+            try_convert: 날짜/숫자 정규화 수행 여부
         
+        Returns:
+            업데이트 된 행 수
+        """
+        pass
+
+    @abstractmethod
+    async def batch_update_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: pd.DataFrame,
+        schemas: list[str] | None = None,
+        allowed_param_size: int = 10000,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+    ) -> int:
+        """
+        DataFrame을 배치 업데이트합니다. (UPDATE only)
+
+        Args:
+            table: SQLAlchemy DeclarativeBase 모델 클래스
+            df: pandas DataFrame
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
+            allowed_param_size: 파라미터 개수
+            conflict_cols: 업데이트 매칭 기준 컬럼 (None이면 자동 선택)
+            try_convert: 날짜/숫자 정규화 수행 여부
+
         Returns:
             업데이트 된 행 수
         """
@@ -85,6 +114,30 @@ class DBManager(ABC):
             conflict_cols: upsert 충돌 기준 컬럼
             try_convert: 날짜/숫자 정규화 수행 여부
         
+        Returns:
+            업데이트 된 행 수
+        """
+        pass
+
+    @abstractmethod
+    async def update_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+    ) -> int:
+        """
+        DataFrame을 업데이트합니다. (UPDATE only)
+
+        Args:
+            table: SQLAlchemy DeclarativeBase 모델 클래스
+            df: pandas DataFrame
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
+            conflict_cols: 업데이트 매칭 기준 컬럼
+            try_convert: 날짜/숫자 정규화 수행 여부
+
         Returns:
             업데이트 된 행 수
         """

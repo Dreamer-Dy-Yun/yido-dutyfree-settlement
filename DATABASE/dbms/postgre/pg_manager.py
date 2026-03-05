@@ -31,13 +31,14 @@
 #                    PGDBManager.convert_numeric_for_db()로 추가
 #       2026.03.04 : 싱글톤 호환을 위해, 주요 메서드들에 스키마 설정 옵션 추가, 매서드 레벨에서 스키마 선택(인젝션) 가능하도록 변경
 #                    PGDBManager.open_session() 추가 (세션 컨트롤 필요시 사용), 레거시 컨텍스트 매니저 삭제
+#       2026.03.05 : PGDBManager.update_dataframe() 추가, PGDBManager.batch_update_dataframe() 추가
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 import urllib
 
 from DATABASE.dbms import DBManager
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
-from sqlalchemy import Table, text, UniqueConstraint, Column, PrimaryKeyConstraint, ForeignKeyConstraint
+from sqlalchemy import Table, text, UniqueConstraint, Column, PrimaryKeyConstraint, ForeignKeyConstraint, and_, values, update
 from sqlalchemy.sql import quoted_name
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from sqlalchemy.schema import AddConstraint
@@ -147,6 +148,8 @@ class PGDBManager(DBManager):
         self.unique_constraints: dict[str, list[list[str]]] = {}
         self.primary_constraints: dict[str, list[list[str]]] = {}
         self.foreign_key_constraints: dict[str, list[list[str]]] = {}
+        self.nullable_columns: dict[str, list[str]] = {}
+        self.not_null_columns: dict[str, list[str]] = {}
         self.unique_keys: dict[str, list[str]] = {}
         self.primary_keys: dict[str, list[str]] = {}
         self._get_uniqueness(self.base_model)
@@ -427,7 +430,15 @@ class PGDBManager(DBManager):
             return False
 
 
-    async def batch_upsert_dataframe(self, table: DeclarativeBase, df: DataFrame, schemas: list[str] | None = None, allowed_param_size: int = 10000, try_convert: bool = True) -> int:
+    async def batch_upsert_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: DataFrame,
+        schemas: list[str] | None = None,
+        allowed_param_size: int = 10000,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+    ) -> int:
         # TODO : Copy / executemany 등을 이용한 최적화 시도 (필요시)
         # TODO : 배치 크기 최적화 시도 (바인딩 개수 계산 방법 확인 필요)
         
@@ -436,22 +447,72 @@ class PGDBManager(DBManager):
 
         if cnt_rows == 0:
             return 0
+        if cnt_cols == 0:
+            raise ValueError("DataFrame has no columns.")
 
         if try_convert:
             df = df.copy()
             df = self.convert_datetime_for_db(df, deep_copy=False)
             df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
 
-        number_of_rows_for_one_request: int = allowed_param_size // cnt_cols
+        number_of_rows_for_one_request: int = max(1, allowed_param_size // cnt_cols)
 
         cnt_upserted: int = 0
 
         for i in range(0, cnt_rows, number_of_rows_for_one_request):
             df_batch: DataFrame = df.iloc[i:i+number_of_rows_for_one_request]
-            cnt_upserted += await self.upsert_dataframe(table, df_batch, schemas, try_convert=False)
+            cnt_upserted += await self.upsert_dataframe(
+                table,
+                df_batch,
+                schemas=schemas,
+                conflict_cols=conflict_cols,
+                try_convert=False,
+            )
 
         return cnt_upserted
 
+
+    async def batch_update_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: DataFrame,
+        schemas: list[str] | None = None,
+        allowed_param_size: int = 10000,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+    ) -> int:
+        # TODO : Copy / executemany 등을 이용한 최적화 시도 (필요시)
+        # TODO : 배치 크기 최적화 시도 (바인딩 개수 계산 방법 확인 필요)
+        
+        cnt_rows: int = len(df)
+        cnt_cols: int = len(df.columns)
+
+        if cnt_rows == 0:
+            return 0
+        if cnt_cols == 0:
+            raise ValueError("DataFrame has no columns.")
+
+        if try_convert:
+            df = df.copy()
+            df = self.convert_datetime_for_db(df, deep_copy=False)
+            df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
+
+        number_of_rows_for_one_request: int = max(1, allowed_param_size // cnt_cols)
+
+        cnt_updated: int = 0
+
+        for i in range(0, cnt_rows, number_of_rows_for_one_request):
+            df_batch: DataFrame = df.iloc[i:i+number_of_rows_for_one_request]
+            cnt_updated += await self.update_dataframe(
+                table,
+                df_batch,
+                schemas=schemas,
+                conflict_cols=conflict_cols,
+                try_convert=False,
+            )
+
+        return cnt_updated
+        
 
     @staticmethod
     def convert_datetime_for_db(df: pd.DataFrame, deep_copy: bool = True) -> pd.DataFrame:
@@ -506,6 +567,11 @@ class PGDBManager(DBManager):
                 result[col] = s.where(mask, set_none_as)
 
         return result
+
+
+    def _contains_all_not_nullable_cols(self, cols: list[str], table: DeclarativeBase) -> bool:
+        not_nullable_cols = self.not_null_columns.get(table.__table__.name, [])
+        return all(col in cols for col in not_nullable_cols)
 
 
     def _is_valid_conflict_cols(self, conflict_cols: list[str], table: DeclarativeBase) -> bool:
@@ -576,7 +642,8 @@ class PGDBManager(DBManager):
               - PrimaryKeyConstraint
               - UniqueKey
               - PrimaryKey
-            - Key나 Constraint 를 제외한 모든 컬럼이 양쪽에 존재할 필요는 없음 
+            - Key나 Constraint 와 not nullable 컬럼을 제외한 모든 컬럼이 양쪽에 존재할 필요는 없음 
+              (df에 not nullable인 모든 컬럼은 반드시 존재해야 함)
                 - df에 존재하지 않는 컬럼은 table에 업데이트 되지 않음(에러 발생 X)
                 - table에 존재하지 않는 df컬럼은 무시됨(에러 발생 X)
                 - df 값이 None 인 경우 Null 값으로 업데이트 됨
@@ -596,13 +663,13 @@ class PGDBManager(DBManager):
             df = self.convert_datetime_for_db(df, deep_copy=False)
             df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
 
+        if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
+            raise ValueError(f"Invalid conflict columns: {conflict_cols}")
+
         async with self.session_maker() as session:
             await self._set_session_schemas(session, schemas)
             try:
                 # logger.info(f"🚀 START [upsert_dataframe]")
-
-                if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
-                    raise ValueError(f"Invalid conflict columns: {conflict_cols}")
                 
                 uniqs: list[str] = conflict_cols or self._get_most_suitable_unique_keys(table, df)
 
@@ -635,6 +702,76 @@ class PGDBManager(DBManager):
             except Exception as e:
                 await session.rollback()
                 logger.exception(f"❌ UPSERT 실패 @ {table.__tablename__} | 이유: {str(e)}")
+                raise
+
+
+    async def update_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, schemas: Optional[list[str]] = None, conflict_cols: Optional[list[str]] = None, try_convert: bool = True) -> int:
+        """
+        자동 Updater (UPDATE only, PostgreSQL).(Upserter 참조한한 ChatGPT-5.2 생성분)
+        - upsert_dataframe의 데이터 준비 로직 재사용
+        - 매칭되는 row만 UPDATE (없으면 아무것도 하지 않음)
+        """
+
+        if try_convert:
+            df = df.copy()
+            df = self.convert_datetime_for_db(df, deep_copy=False)
+            df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
+
+        if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
+            raise ValueError(f"Invalid conflict columns: {conflict_cols}")
+
+        async with self.session_maker() as session:
+            await self._set_session_schemas(session, schemas)
+            try:
+                uniqs: list[str] = conflict_cols or self._get_most_suitable_unique_keys(table, df)
+
+                # 모델에 정의된 컬럼만 선택
+                model_columns = [col.name for col in table.__table__.columns]
+                df_filtered = df[[col for col in model_columns if col in df.columns]]
+
+                # 키 컬럼 누락은 UPDATE 성립 불가
+                missing_keys = [k for k in uniqs if k not in df_filtered.columns]
+                if missing_keys:
+                    raise ValueError(f"Missing key columns in df: {missing_keys} (keys={uniqs})")
+
+                rows: list[dict] = df_filtered.to_dict(orient="records")
+
+                # 키 제외 업데이트 컬럼
+                update_col_names = [c for c in df_filtered.columns if c not in uniqs]
+
+                if not update_col_names:
+                    await session.commit()
+                    return 0
+
+                v_cols = uniqs + update_col_names
+
+                t = table.__table__
+                v = (
+                    values(*[t.c[c] for c in v_cols], name="v")
+                    .data([tuple(r.get(c) for c in v_cols) for r in rows])
+                    .alias("v")
+                )
+
+                where_clause = and_(*[t.c[k] == v.c[k] for k in uniqs])
+                set_clause = {c: v.c[c] for c in update_col_names}
+
+                # ✅ 핵심: v.c 를 참조하면 PostgreSQL에서 UPDATE ... FROM v 로 렌더링됨
+                stmt = (
+                    update(t)
+                    .where(where_clause)
+                    .values(**set_clause)
+                    .execution_options(synchronize_session=False)
+                )
+
+                result = await session.execute(stmt)
+                await session.commit()
+
+                rc = result.rowcount
+                return int(rc) if rc is not None and rc >= 0 else 0
+
+            except Exception as e:
+                await session.rollback()
+                logger.exception(f"❌ UPDATE 실패 @ {table.__tablename__} | 이유: {str(e)}")
                 raise
 
 
@@ -672,13 +809,21 @@ class PGDBManager(DBManager):
     def _get_keys(self, table: Table) -> None:
         unique_keys: list[str] = []
         primary_keys: list[str] = []
+        nullable_columns: list[str] = []
+        not_null_columns: list[str] = []
         for col in table.columns:
             if col.unique:
                 unique_keys.append(col.name)
             if col.primary_key:
                 primary_keys.append(col.name)
+            if col.nullable:
+                nullable_columns.append(col.name)
+            if not col.nullable:
+                not_null_columns.append(col.name)
         self.unique_keys[table.name] = unique_keys
         self.primary_keys[table.name] = primary_keys
+        self.nullable_columns[table.name] = nullable_columns
+        self.not_null_columns[table.name] = not_null_columns
 
 
     async def copy_tables_of_schema(self, schema_to_make: str, schemas_for_fk: list[str] | None = None) -> int:

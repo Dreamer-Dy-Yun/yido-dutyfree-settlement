@@ -130,7 +130,7 @@ async def test_upsert_tenant_and_query(pg_manager: PGDBManager):
                 "name": "통합테스트 회사",
                 "business_no": biz_no,
                 "schema_name": schema_name,
-                "path_root": "/test/integration",
+                "dir_root": "/test/integration",
                 "is_active": True,
             }
         ]
@@ -162,7 +162,7 @@ async def test_upsert_tenant_and_query(pg_manager: PGDBManager):
                 "name": "통합테스트 회사(수정)",
                 "business_no": biz_no,
                 "schema_name": schema_name,
-                "path_root": "/test/integration",
+                "dir_root": "/test/integration",
                 "is_active": False,
             }
         ]

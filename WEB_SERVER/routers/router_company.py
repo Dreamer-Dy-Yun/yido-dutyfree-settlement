@@ -153,7 +153,7 @@ async def register_company(
         # 스키마명/경로 생성 (UUID 사용 - 하이픈 제거)
         uuid_str = str(uuid.uuid4()).replace("-", "")  # 예: 550e8400e29b41d4a716446655440000 (32자)
         schema_name = f"company_{uuid_str}"  # 예: company_550e8400e29b41d4a716446655440000
-        path_root = f"tenants/{schema_name}"
+        dir_root = f"tenants/{schema_name}"
 
         # 테넌트 생성 (is_active=False로 생성, 승인 대기 상태)
         tenant_df = pd.DataFrame([{
@@ -164,7 +164,7 @@ async def register_company(
             "contact": company_data.contact,
             "email": company_data.email,  # 회사 대표 이메일 저장
             "address": company_data.address,
-            "path_root": path_root,
+            "dir_root": dir_root,
             "schema_name": schema_name,
             "is_active": False,  # 승인 대기 상태
         }])

@@ -115,3 +115,13 @@ class Prompt(BaseModelPublic):
     def __repr__(self) -> str:
         return f"<Prompt(purpose={self.purpose}, type={self.type}, prompt={self.prompt}, note={self.note}, is_active={self.is_active})>"
        
+
+class TestModel(BaseModelPublic):
+    """테스트 모델."""
+    __tablename__ = "test_model"
+
+    a: Mapped[str] = mapped_column(String, nullable=False, unique=True) 
+    b: Mapped[str] = mapped_column(String, nullable=False) 
+    c: Mapped[str | None] = mapped_column(String, nullable=True)  
+
+       

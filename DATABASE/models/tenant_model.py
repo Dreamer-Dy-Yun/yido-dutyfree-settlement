@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Text, Boolean, Date, DateTime, Numeric, ForeignKey, UniqueConstraint, BigInteger, Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from DATABASE.models.base_model import BaseModel
 from enum import Enum
 
@@ -157,21 +157,6 @@ class VerifiedPassport(BaseModel):
     __table_args__ = (
         UniqueConstraint("country_code", "passport_no", name="uq_verified_passport_country_pass"),
     )
-
-
-# ---------------------------------------------------------------------------
-# PROMPT: 사용 프롬프트 이력
-# 테이블 목적: 모델 관리, 사용 프롬프트 이력 관리
-# Version: 0.3.0, 작성자: 윤대영
-# ---------------------------------------------------------------------------
-class Prompt(BaseModel):
-    """사용 프롬프트 이력. 프롬프트 해시로 유니크 관리."""
-    __tablename__ = "prompt"
-
-    hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)  # 프롬프트 해시 (SHA-256)
-    prompt: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # 프롬프트
-    note: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)  # 노트
-
 
 
 # ---------------------------------------------------------------------------
@@ -331,13 +316,9 @@ class LlmUsage(BaseModel):
     __tablename__ = "llm_usage"
 
     llm_model: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 사용된 LLM명
-    hash_prompt: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 사용된 프롬프트 hash (COMPOSITE)
+    hash_prompts: Mapped[list[str]] = mapped_column(ARRAY(String(64)), nullable=False, index=True)  # 사용된 프롬프트 hash (COMPOSITE)
     ocr_name: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 사용된 OCR 명
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (COMPOSITE)
     token_input: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 입력토큰 사용량
     token_output: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 출력토큰 사용량
     token_total: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 총 토큰 사용량
-
-    __table_args__ = (
-        UniqueConstraint("hash_prompt", "hash_img", name="uq_llm_usage_prompt_img"),
-    )

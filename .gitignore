@@ -20,3 +20,11 @@ POC/test copy.py
 # Nginx 설정 파일 (프로젝트별로 다름)
 nginx/nginx.env
 nginx/nginx.conf.generated
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Local tenant upload artifacts
+tenants/
