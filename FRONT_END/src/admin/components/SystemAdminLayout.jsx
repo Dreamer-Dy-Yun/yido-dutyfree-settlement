@@ -27,17 +27,6 @@ function SystemAdminLayout({ children }) {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const { ttl, minutes, seconds } = useSessionTTL();
 
-  useEffect(() => {
-    document.title = ADMIN_TITLE;
-    return () => {
-      document.title = DEFAULT_TITLE;
-    };
-  }, []);
-
-  useEffect(() => {
-    loadCurrentUser();
-  }, []);
-
   const loadCurrentUser = async () => {
     try {
       const user = await getCurrentSystemAdmin();
@@ -46,6 +35,25 @@ function SystemAdminLayout({ children }) {
       console.error('Failed to load current user:', err);
     }
   };
+
+  useEffect(() => {
+    document.title = ADMIN_TITLE;
+    return () => {
+      document.title = DEFAULT_TITLE;
+    };
+  }, []);
+
+  useEffect(() => {
+    const initializeCurrentUser = async () => {
+      try {
+        const user = await getCurrentSystemAdmin();
+        setCurrentUser(user);
+      } catch (err) {
+        console.error('Failed to load current user:', err);
+      }
+    };
+    initializeCurrentUser();
+  }, []);
 
   const handleLogout = async () => {
     await systemAdminLogout();
@@ -75,7 +83,7 @@ function SystemAdminLayout({ children }) {
     if (location.pathname.startsWith('/admin/llm-api-keys')) {
       return 'API KEY 관리';
     }
-    if (location.pathname.startsWith('/admin/prompt-paths')) {
+    if (location.pathname.startsWith('/admin/prompts')) {
       return '프롬프트 관리';
     }
 

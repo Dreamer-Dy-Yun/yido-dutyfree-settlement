@@ -91,7 +91,7 @@ function LoginPage() {
             navigate('/admin');
             return;
           }
-        } catch (e) {
+        } catch {
           // 토큰 파싱 실패 시 기본 동작
         }
       }

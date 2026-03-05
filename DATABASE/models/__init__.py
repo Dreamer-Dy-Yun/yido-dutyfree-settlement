@@ -21,11 +21,11 @@ from DATABASE.models.public_model import (
     ServiceAccountRole,
     Tenant,
     LLM_API_Key,
-    Prompt_path,
+    Prompt,
 )
 
 # Tenant 스키마 모델
-from DATABASE.models.tenant_model import User, OcrPassport, OcrReceipt, VerifiedPassport, VerifiedReceipt, Prompt, Image, EdiSilla, EdiLotte, Matched, LlmUsage
+from DATABASE.models.tenant_model import User, OcrPassport, OcrReceipt, VerifiedPassport, VerifiedReceipt, Image, EdiSilla, EdiLotte, Matched, LlmUsage
 
 # 하위 호환성을 위해 __all__ 정의
 __all__ = [
@@ -37,7 +37,7 @@ __all__ = [
     "ServiceAccountRole",
     "Tenant",
     "LLM_API_Key",
-    "Prompt_path",
+    "Prompt",
     # Tenant
     "User",
     # Business
@@ -45,7 +45,6 @@ __all__ = [
     "OcrReceipt",
     "VerifiedPassport",
     "VerifiedReceipt",
-    "Prompt",
     "Image",
     "EdiSilla",
     "EdiLotte",

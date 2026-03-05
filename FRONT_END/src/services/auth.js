@@ -173,7 +173,7 @@ export const getTokenPayload = () => {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     return payload;
-  } catch (e) {
+  } catch {
     return null;
   }
 };
@@ -186,7 +186,7 @@ export const getAdminTokenPayload = () => {
   if (!token) return null;
   try {
     return JSON.parse(atob(token.split('.')[1]));
-  } catch (e) {
+  } catch {
     return null;
   }
 };

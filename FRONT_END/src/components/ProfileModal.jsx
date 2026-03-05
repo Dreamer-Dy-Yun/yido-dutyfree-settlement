@@ -116,7 +116,7 @@ function ProfileModal({
       setPasswordForEdit('');
       closeModal();
       alert('정보가 수정되었습니다.');
-    } catch (err) {
+    } catch {
       const message = '수정에 실패했습니다.';
       setModalError(message);
       alert(message);

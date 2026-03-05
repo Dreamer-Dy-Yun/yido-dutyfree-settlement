@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getServiceAccounts, deleteServiceAccount } from '../services/systemAdminApi';
+import { getServiceAccounts, updateServiceAccount, deleteServiceAccount } from '../services/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
+import CommonDataTable from '../components/CommonDataTable';
 import './ServiceAccountListPage.css';
 
 function ServiceAccountListPage() {
@@ -83,6 +84,30 @@ function ServiceAccountListPage() {
     }
   };
 
+  const handleDeactivate = async (accountId) => {
+    if (!confirm('이 서비스 어카운트를 비활성화하시겠습니까?')) return;
+
+    try {
+      await updateServiceAccount(accountId, { is_active: false });
+      alert('서비스 어카운트가 비활성화되었습니다');
+      loadAccounts();
+    } catch (err) {
+      alert(err.response?.data?.detail || '비활성화에 실패했습니다');
+    }
+  };
+
+  const handleActivate = async (accountId) => {
+    if (!confirm('이 서비스 어카운트를 활성화하시겠습니까?')) return;
+
+    try {
+      await updateServiceAccount(accountId, { is_active: true });
+      alert('서비스 어카운트가 활성화되었습니다');
+      loadAccounts();
+    } catch (err) {
+      alert(err.response?.data?.detail || '활성화에 실패했습니다');
+    }
+  };
+
   return (
     <div className="common-page service-account-list-page">
       <CommonTabsRow
@@ -123,56 +148,66 @@ function ServiceAccountListPage() {
       {error && <div className="common-card common-state error">에러: {error}</div>}
 
       {!loading && !error && (
-        <div className="common-card account-list">
-          {accounts.length === 0 ? (
-            <div className="empty-state">서비스 어카운트가 없습니다</div>
-          ) : (
-            <div className="common-table-wrap">
-              <table className="common-table account-table">
-                <thead>
-                  <tr>
-                    <th>별칭</th>
-                    <th>이메일</th>
-                    <th>역할</th>
-                    <th>설명</th>
-                    <th>상태</th>
-                    <th>작업</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accounts.map((account) => (
-                    <tr key={account.id} className={!account.is_active ? 'inactive' : ''}>
-                      <td>{account.alias || '-'}</td>
-                      <td>{account.e_mail}</td>
-                      <td>{account.role}</td>
-                      <td>{account.description || '-'}</td>
-                      <td>
-                        <span className={`status-badge ${account.is_active ? 'active' : 'inactive'}`}>
-                          {account.is_active ? '활성' : '비활성'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="action-buttons">
-                          <button
-                            className="common-btn common-btn-primary"
-                            onClick={() => handleViewDetail(account.id)}
-                          >
-                            상세
-                          </button>
-                          <button
-                            className="common-btn common-btn-secondary"
-                            onClick={() => handleDelete(account.id)}
-                          >
-                            삭제
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <div className="common-card">
+          <CommonDataTable
+            tableClassName="account-table"
+            columns={[
+              { key: 'alias', label: '별칭', render: (account) => account.alias || '-' },
+              { key: 'email', label: '이메일', render: (account) => account.e_mail },
+              { key: 'role', label: '역할' },
+              { key: 'description', label: '설명', render: (account) => account.description || '-' },
+              {
+                key: 'status',
+                label: '상태',
+                render: (account) => (
+                  <span className={`status-badge ${account.is_active ? 'active' : 'inactive'}`}>
+                    {account.is_active ? '활성' : '비활성'}
+                  </span>
+                ),
+              },
+              {
+                key: 'actions',
+                label: '작업',
+                isAction: true,
+                render: (account) => (
+                  <>
+                    <button
+                      className="common-btn common-btn-primary"
+                      onClick={() => handleViewDetail(account.id)}
+                    >
+                      상세보기
+                    </button>
+                    {account.is_active ? (
+                      <button
+                        className="common-btn common-btn-secondary"
+                        onClick={() => handleDeactivate(account.id)}
+                      >
+                        비활성화
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          className="common-btn common-btn-success"
+                          onClick={() => handleActivate(account.id)}
+                        >
+                          활성화
+                        </button>
+                        <button
+                          className="common-btn common-btn-secondary"
+                          onClick={() => handleDelete(account.id)}
+                        >
+                          삭제
+                        </button>
+                      </>
+                    )}
+                  </>
+                ),
+              },
+            ]}
+            rows={accounts}
+            emptyMessage="서비스 어카운트가 없습니다"
+            getRowClassName={(account) => (!account.is_active ? 'inactive' : '')}
+          />
         </div>
       )}
     </div>

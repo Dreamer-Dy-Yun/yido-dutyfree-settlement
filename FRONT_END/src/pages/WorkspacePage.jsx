@@ -140,7 +140,8 @@ function WorkspacePage() {
     }
 
     try {
-      const { passwordConfirm, ...dataToSend } = userFormData;
+      const dataToSend = { ...userFormData };
+      delete dataToSend.passwordConfirm;
       if (editingUser) {
         await updateTenantUser(editingUser.id, dataToSend);
       } else {

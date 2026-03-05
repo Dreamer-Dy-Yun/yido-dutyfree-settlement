@@ -119,7 +119,7 @@ function ServiceAccountDetailPage() {
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="account-form">
+      <form onSubmit={handleSubmit} className="common-card account-form">
         <div className="form-section">
           <h2>기본 정보</h2>
           <div className="form-grid">

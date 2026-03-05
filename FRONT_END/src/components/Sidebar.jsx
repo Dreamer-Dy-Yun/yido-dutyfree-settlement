@@ -148,19 +148,19 @@ function Sidebar({ isAdmin, variant = 'tenant' }) {
         {
           id: 'admin-prompt-all',
           label: '전체',
-          path: '/admin/prompt-paths',
+          path: '/admin/prompts',
           icon: '📋',
         },
         {
           id: 'admin-prompt-active',
           label: '활성',
-          path: '/admin/prompt-paths?is_active=true',
+          path: '/admin/prompts?is_active=true',
           icon: '✅',
         },
         {
           id: 'admin-prompt-inactive',
           label: '비활성',
-          path: '/admin/prompt-paths?is_active=false',
+          path: '/admin/prompts?is_active=false',
           icon: '⛔',
         },
       ],

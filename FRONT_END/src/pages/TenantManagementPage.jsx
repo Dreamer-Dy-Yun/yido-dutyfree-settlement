@@ -7,10 +7,6 @@ import './TenantManagementPage.css';
 function TenantManagementPage() {
   const [currentUser, setCurrentUser] = useState(null);
 
-  useEffect(() => {
-    loadCurrentUser();
-  }, []);
-
   const loadCurrentUser = async () => {
     try {
       const user = await getCurrentUser();
@@ -19,6 +15,18 @@ function TenantManagementPage() {
       console.error('Failed to load current user:', err);
     }
   };
+
+  useEffect(() => {
+    const initializeCurrentUser = async () => {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user);
+      } catch (err) {
+        console.error('Failed to load current user:', err);
+      }
+    };
+    initializeCurrentUser();
+  }, []);
 
   const isAdmin = currentUser?.role === 'admin';
 

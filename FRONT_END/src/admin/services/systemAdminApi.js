@@ -87,22 +87,6 @@ export const updateTenant = async (tenantId, updateData) => {
 };
 
 /**
- * 테넌트 활성화
- */
-export const activateTenant = async (tenantId) => {
-  const response = await adminApi.post(`/api/system-admin/tenants/${tenantId}/activate`);
-  return response.data;
-};
-
-/**
- * 테넌트 비활성화
- */
-export const deactivateTenant = async (tenantId) => {
-  const response = await adminApi.post(`/api/system-admin/tenants/${tenantId}/deactivate`);
-  return response.data;
-};
-
-/**
  * 테넌트 삭제 (완전 삭제)
  */
 export const deleteTenant = async (tenantId, reason) => {
@@ -177,6 +161,14 @@ export const getLlmApiKeys = async (params = {}) => {
 };
 
 /**
+ * LLM API KEY 상세 조회
+ */
+export const getLlmApiKeyDetail = async (apiKeyId) => {
+  const response = await adminApi.get(`/api/system-admin/llm-api-keys/${apiKeyId}`);
+  return response.data;
+};
+
+/**
  * LLM API KEY 생성
  */
 export const createLlmApiKey = async (payload) => {
@@ -201,15 +193,16 @@ export const deleteLlmApiKey = async (apiKeyId) => {
 };
 
 /**
- * Prompt Path 목록 조회
+ * Prompt 목록 조회
  */
-export const getPromptPaths = async (params = {}) => {
-  const { skip = 0, limit = 100, purpose, is_active } = params;
-  const response = await adminApi.get('/api/system-admin/prompt-paths', {
+export const getPrompts = async (params = {}) => {
+  const { skip = 0, limit = 100, purpose, type, is_active } = params;
+  const response = await adminApi.get('/api/system-admin/prompts', {
     params: {
       skip,
       limit,
       ...(purpose && { purpose }),
+      ...(type && { type }),
       ...(is_active !== undefined && { is_active }),
     },
   });
@@ -217,25 +210,33 @@ export const getPromptPaths = async (params = {}) => {
 };
 
 /**
- * Prompt Path 생성
+ * Prompt 상세 조회
  */
-export const createPromptPath = async (payload) => {
-  const response = await adminApi.post('/api/system-admin/prompt-paths', payload);
+export const getPromptDetail = async (promptId) => {
+  const response = await adminApi.get(`/api/system-admin/prompts/${promptId}`);
   return response.data;
 };
 
 /**
- * Prompt Path 수정
+ * Prompt 생성
  */
-export const updatePromptPath = async (promptPathId, payload) => {
-  const response = await adminApi.put(`/api/system-admin/prompt-paths/${promptPathId}`, payload);
+export const createPrompt = async (payload) => {
+  const response = await adminApi.post('/api/system-admin/prompts', payload);
   return response.data;
 };
 
 /**
- * Prompt Path 삭제
+ * Prompt 수정
  */
-export const deletePromptPath = async (promptPathId) => {
-  const response = await adminApi.delete(`/api/system-admin/prompt-paths/${promptPathId}`);
+export const updatePrompt = async (promptId, payload) => {
+  const response = await adminApi.put(`/api/system-admin/prompts/${promptId}`, payload);
+  return response.data;
+};
+
+/**
+ * Prompt 삭제
+ */
+export const deletePrompt = async (promptId) => {
+  const response = await adminApi.delete(`/api/system-admin/prompts/${promptId}`);
   return response.data;
 };

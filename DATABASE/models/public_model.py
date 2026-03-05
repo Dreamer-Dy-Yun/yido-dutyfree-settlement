@@ -96,13 +96,22 @@ class LLM_API_Key(BaseModelPublic):
         return f"<LLM_API_Key(llm_provider={self.llm_provider}, llm_model={self.llm_model}, api_key={self.api_key}, is_active={self.is_active})>"
 
 
-class Prompt_path(BaseModelPublic):
-    __tablename__ = "prompt_path"
+# ---------------------------------------------------------------------------
+# PROMPT: 사용 프롬프트 이력
+# 테이블 목적: 모델 관리, 사용 프롬프트 이력 관리
+# Version: 2.0.0, 작성자: 윤대영
+# ---------------------------------------------------------------------------
+class Prompt(BaseModelPublic):
+    """사용 프롬프트 이력. 프롬프트 해시로 유니크 관리."""
+    __tablename__ = "prompt"
 
-    purpose: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 프롬프트 용도
-    path: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)  # 프롬프트 경로
+    hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)  # 프롬프트 해시 (SHA-256)
+    purpose : Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 프롬프트 목적, 현재 OCR 전용
+    type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 프롬프트 타입, SYSTEM | USER
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # 프롬프트
+    note: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)  # 노트
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 활성화 여부
     
     def __repr__(self) -> str:
-        return f"<Prompt_path(path={self.path}, is_active={self.is_active})>"
+        return f"<Prompt(purpose={self.purpose}, type={self.type}, prompt={self.prompt}, note={self.note}, is_active={self.is_active})>"
        

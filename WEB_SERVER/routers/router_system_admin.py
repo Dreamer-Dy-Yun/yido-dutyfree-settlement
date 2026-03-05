@@ -9,7 +9,8 @@
 ############################################
 
 from datetime import datetime
-from typing import Any
+import hashlib
+from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import text, select, func, update, delete
@@ -29,7 +30,7 @@ from DATABASE.models.public_model import (
     ServiceAccount,
     ServiceAccountRole,
     LLM_API_Key,
-    Prompt_path,
+    Prompt,
 )
 from DATABASE.repositories.authorities import TenantRepository
 from DATABASE.dbms import DBManager
@@ -106,15 +107,19 @@ class LLMApiKeyUpdateRequest(BaseModel):
     is_active: bool | None = None
 
 
-class PromptPathCreateRequest(BaseModel):
+class PromptCreateRequest(BaseModel):
     purpose: str
-    path: str
+    type: Literal["SYSTEM", "USER"]
+    prompt: str
+    note: str | None = None
     is_active: bool = False
 
 
-class PromptPathUpdateRequest(BaseModel):
+class PromptUpdateRequest(BaseModel):
     purpose: str | None = None
-    path: str | None = None
+    type: Literal["SYSTEM", "USER"] | None = None
+    prompt: str | None = None
+    note: str | None = None
     is_active: bool | None = None
 
 
@@ -942,126 +947,139 @@ async def delete_llm_api_key(
 
 
 # ============================================================================
-# Prompt Path 관리
+# Prompt 관리
 # ============================================================================
 
-@router.get("/prompt-paths", summary="Prompt Path 목록 조회", description="Prompt Path 목록을 조회합니다.")
+@router.get("/prompts", summary="Prompt 목록 조회", description="Prompt 목록을 조회합니다.")
 @handle_http_error
-async def get_prompt_paths(
+async def get_prompts(
     skip: int = Query(0, ge=0, description="건너뛸 레코드 수"),
     limit: int = Query(100, ge=1, le=1000, description="조회할 레코드 수"),
-    purpose: str | None = Query(None, description="프롬프트 용도 필터"),
+    purpose: str | None = Query(None, description="프롬프트 목적 필터"),
+    type: str | None = Query(None, description="프롬프트 타입 필터"),
     is_active: bool | None = Query(None, description="활성화 여부 필터"),
     current_user: models.User = Depends(get_current_superuser),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = ["public"]
-    stmt = select(Prompt_path)
+    stmt = select(Prompt)
     if purpose:
-        stmt = stmt.where(Prompt_path.purpose == purpose)
+        stmt = stmt.where(Prompt.purpose == purpose)
+    if type:
+        stmt = stmt.where(Prompt.type == type)
     if is_active is not None:
-        stmt = stmt.where(Prompt_path.is_active == is_active)
+        stmt = stmt.where(Prompt.is_active == is_active)
     stmt = stmt.offset(skip).limit(limit)
 
     result = await db.execute_query(stmt, schemas=schemas)
     rows = result.scalars().all()
     return {
-        "prompt_paths": [row.to_dict() for row in rows],
+        "prompts": [row.to_dict() for row in rows],
         "total": len(rows),
         "skip": skip,
         "limit": limit,
     }
 
 
-@router.get("/prompt-paths/{prompt_path_id}", summary="Prompt Path 상세 조회", description="특정 Prompt Path를 조회합니다.")
+@router.get("/prompts/{prompt_id}", summary="Prompt 상세 조회", description="특정 Prompt를 조회합니다.")
 @handle_http_error
-async def get_prompt_path_detail(
-    prompt_path_id: int,
+async def get_prompt_detail(
+    prompt_id: int,
     current_user: models.User = Depends(get_current_superuser),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = ["public"]
-    stmt = select(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    stmt = select(Prompt).where(Prompt.id == prompt_id)
     result = await db.execute_query(stmt, schemas=schemas)
     row = result.scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt Path를 찾을 수 없습니다")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt를 찾을 수 없습니다")
     return row.to_dict()
 
 
-@router.post("/prompt-paths", summary="Prompt Path 생성", description="새 Prompt Path를 등록합니다.")
+@router.post("/prompts", summary="Prompt 생성", description="새 Prompt를 등록합니다.")
 @handle_http_error
-async def create_prompt_path(
-    body: PromptPathCreateRequest,
+async def create_prompt(
+    body: PromptCreateRequest,
     current_user: models.User = Depends(get_current_superuser),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = ["public"]
-    stmt_dup = select(Prompt_path).where(Prompt_path.path == body.path)
+    hash_prompt = hashlib.sha256(body.prompt.encode("utf-8")).hexdigest()
+    stmt_dup = select(Prompt).where(Prompt.hash == hash_prompt)
     result_dup = await db.execute_query(stmt_dup, schemas=schemas)
     if result_dup.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 Prompt Path입니다")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 Prompt입니다")
 
-    df = pd.DataFrame([body.model_dump()])
-    await db.upsert_dataframe(Prompt_path, df, schemas=schemas)
+    df = pd.DataFrame([{
+        "hash": hash_prompt,
+        "purpose": body.purpose,
+        "type": body.type,
+        "prompt": body.prompt,
+        "note": body.note,
+        "is_active": body.is_active,
+    }])
+    await db.upsert_dataframe(Prompt, df, schemas=schemas)
 
-    stmt = select(Prompt_path).where(Prompt_path.path == body.path)
+    stmt = select(Prompt).where(Prompt.hash == hash_prompt)
     result = await db.execute_query(stmt, schemas=schemas)
     created = result.scalar_one()
-    return {"message": "Prompt Path가 등록되었습니다", "prompt_path": created.to_dict()}
+    return {"message": "Prompt가 등록되었습니다", "prompt": created.to_dict()}
 
 
-@router.put("/prompt-paths/{prompt_path_id}", summary="Prompt Path 수정", description="Prompt Path 정보를 수정합니다.")
+@router.put("/prompts/{prompt_id}", summary="Prompt 수정", description="Prompt 정보를 수정합니다.")
 @handle_http_error
-async def update_prompt_path(
-    prompt_path_id: int,
-    body: PromptPathUpdateRequest,
+async def update_prompt(
+    prompt_id: int,
+    body: PromptUpdateRequest,
     current_user: models.User = Depends(get_current_superuser),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = ["public"]
-    stmt = select(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    stmt = select(Prompt).where(Prompt.id == prompt_id)
     result = await db.execute_query(stmt, schemas=schemas)
     row = result.scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt Path를 찾을 수 없습니다")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt를 찾을 수 없습니다")
 
     update_dict = {k: v for k, v in body.model_dump().items() if v is not None}
     if not update_dict:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="수정할 데이터가 없습니다")
 
-    if "path" in update_dict:
-        stmt_dup = select(Prompt_path).where(
-            Prompt_path.path == update_dict["path"],
-            Prompt_path.id != prompt_path_id,
+    if "prompt" in update_dict:
+        new_hash = hashlib.sha256(update_dict["prompt"].encode("utf-8")).hexdigest()
+        stmt_dup = select(Prompt).where(
+            Prompt.hash == new_hash,
+            Prompt.id != prompt_id,
         )
         result_dup = await db.execute_query(stmt_dup, schemas=schemas)
         if result_dup.scalar_one_or_none():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 Prompt Path입니다")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 Prompt입니다")
+        update_dict["hash"] = new_hash
 
-    stmt_update = update(Prompt_path).where(Prompt_path.id == prompt_path_id).values(**update_dict)
+    stmt_update = update(Prompt).where(Prompt.id == prompt_id).values(**update_dict)
     await db.execute_query(stmt_update, schemas=schemas)
 
-    stmt_after = select(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    stmt_after = select(Prompt).where(Prompt.id == prompt_id)
     result_after = await db.execute_query(stmt_after, schemas=schemas)
     updated_row = result_after.scalar_one()
-    return {"message": "Prompt Path가 수정되었습니다", "prompt_path": updated_row.to_dict()}
+    return {"message": "Prompt가 수정되었습니다", "prompt": updated_row.to_dict()}
 
 
-@router.delete("/prompt-paths/{prompt_path_id}", summary="Prompt Path 삭제", description="Prompt Path를 삭제합니다.")
+@router.delete("/prompts/{prompt_id}", summary="Prompt 삭제", description="Prompt를 삭제합니다.")
 @handle_http_error
-async def delete_prompt_path(
-    prompt_path_id: int,
+async def delete_prompt(
+    prompt_id: int,
     current_user: models.User = Depends(get_current_superuser),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = ["public"]
-    stmt = select(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    stmt = select(Prompt).where(Prompt.id == prompt_id)
     result = await db.execute_query(stmt, schemas=schemas)
     row = result.scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt Path를 찾을 수 없습니다")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt를 찾을 수 없습니다")
 
-    stmt_del = delete(Prompt_path).where(Prompt_path.id == prompt_path_id)
+    stmt_del = delete(Prompt).where(Prompt.id == prompt_id)
     await db.execute_query(stmt_del, schemas=schemas)
-    return {"message": "Prompt Path가 삭제되었습니다", "prompt_path_id": prompt_path_id}
+    return {"message": "Prompt가 삭제되었습니다", "prompt_id": prompt_id}

@@ -12,7 +12,10 @@ import TenantDetailPage from './admin/pages/TenantDetailPage';
 import ServiceAccountListPage from './admin/pages/ServiceAccountListPage';
 import ServiceAccountDetailPage from './admin/pages/ServiceAccountDetailPage';
 import LlmApiKeyListPage from './admin/pages/LlmApiKeyListPage';
-import PromptPathListPage from './admin/pages/PromptPathListPage';
+import LlmApiKeyCreatePage from './admin/pages/LlmApiKeyCreatePage';
+import PromptListPage from './admin/pages/PromptListPage';
+import PromptCreatePage from './admin/pages/PromptCreatePage';
+import PromptDetailPage from './admin/pages/PromptDetailPage';
 import SystemAdminLayout from './admin/components/SystemAdminLayout';
 import ProtectedRoute from './common/components/ProtectedRoute';
 import './App.css';
@@ -161,11 +164,51 @@ function App() {
           }
         />
         <Route
-          path="/admin/prompt-paths"
+          path="/admin/llm-api-keys/new"
           element={
             <ProtectedRoute requireSuperuser>
               <SystemAdminLayout>
-                <PromptPathListPage />
+                <LlmApiKeyCreatePage />
+              </SystemAdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/llm-api-keys/:apiKeyId/edit"
+          element={
+            <ProtectedRoute requireSuperuser>
+              <SystemAdminLayout>
+                <LlmApiKeyCreatePage />
+              </SystemAdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/prompts"
+          element={
+            <ProtectedRoute requireSuperuser>
+              <SystemAdminLayout>
+                <PromptListPage />
+              </SystemAdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/prompts/new"
+          element={
+            <ProtectedRoute requireSuperuser>
+              <SystemAdminLayout>
+                <PromptCreatePage />
+              </SystemAdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/prompts/:promptId"
+          element={
+            <ProtectedRoute requireSuperuser>
+              <SystemAdminLayout>
+                <PromptDetailPage />
               </SystemAdminLayout>
             </ProtectedRoute>
           }

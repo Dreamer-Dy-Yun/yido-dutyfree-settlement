@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getTenantDetail, approveTenant, rejectTenant, activateTenant, deactivateTenant, deleteTenant, updateTenant } from '../services/systemAdminApi';
+import { getTenantDetail, approveTenant, rejectTenant, deleteTenant, updateTenant } from '../services/systemAdminApi';
 import './TenantDetailPage.css';
 
 function TenantDetailPage() {
@@ -219,7 +219,7 @@ function TenantDetailPage() {
               </button>
             </>
           )}
-          {tenant && tenant.is_db_built === true && !isEditing && (
+          {tenant.is_db_built === true && !isEditing && (
             <>
               <button className="common-btn common-btn-primary" onClick={handleEdit}>
                 수정
@@ -229,7 +229,7 @@ function TenantDetailPage() {
               </button>
             </>
           )}
-          {tenant && tenant.is_db_built === true && isEditing && (
+          {tenant.is_db_built === true && isEditing && (
             <>
               <button type="submit" form="tenant-form" className="common-btn common-btn-primary" disabled={saving}>
                 {saving ? '저장 중...' : '수정완료'}
@@ -245,7 +245,7 @@ function TenantDetailPage() {
       {!isEditing ? (
         // 읽기 모드
         <div className="tenant-detail-content">
-          <div className="detail-section">
+          <div className="common-card detail-section">
             <h2>기본 정보</h2>
             <div className="detail-grid">
               <div className="detail-item">
@@ -273,7 +273,7 @@ function TenantDetailPage() {
             </div>
           </div>
 
-          <div className="detail-section">
+          <div className="common-card detail-section">
             <h2>연락처 정보</h2>
             <div className="detail-grid">
               {tenant.contact && (
@@ -297,7 +297,7 @@ function TenantDetailPage() {
             </div>
           </div>
 
-          <div className="detail-section">
+          <div className="common-card detail-section">
             <h2>시스템 정보</h2>
             <div className="detail-grid">
               <div className="detail-item">
@@ -317,7 +317,7 @@ function TenantDetailPage() {
             </div>
           </div>
 
-          <div className="detail-section">
+          <div className="common-card detail-section">
             <h2>등록 정보</h2>
             <div className="detail-grid">
               {tenant.created_at && (
@@ -339,7 +339,7 @@ function TenantDetailPage() {
         // 수정 모드
         <form id="tenant-form" onSubmit={handleSubmit} className="tenant-form">
           <div className="tenant-detail-content">
-            <div className="detail-section">
+            <div className="common-card detail-section">
               <h2>기본 정보</h2>
               <div className="form-grid">
                 <div className="form-item">
@@ -382,7 +382,7 @@ function TenantDetailPage() {
               </div>
             </div>
 
-            <div className="detail-section">
+            <div className="common-card detail-section">
               <h2>연락처 정보</h2>
               <div className="form-grid">
                 <div className="form-item">
@@ -415,7 +415,7 @@ function TenantDetailPage() {
               </div>
             </div>
 
-            <div className="detail-section">
+            <div className="common-card detail-section">
               <h2>시스템 정보</h2>
               <div className="form-grid">
                 <div className="form-item">
@@ -450,7 +450,7 @@ function TenantDetailPage() {
               </div>
             </div>
 
-            <div className="detail-section">
+            <div className="common-card detail-section">
               <h2>등록 정보</h2>
               <div className="form-grid">
                 {tenant.created_at && (
