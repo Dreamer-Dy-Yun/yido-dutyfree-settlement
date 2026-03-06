@@ -22,6 +22,13 @@ function LlmApiKeyListPage() {
     return 'all';
   };
   const [filter, setFilter] = useState(getFilterFromLocation);
+  const formatCreatedAt = (row) => {
+    const raw = row?.created_at || row?.db_created_at;
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('ko-KR');
+  };
+
   const maskApiKey = (value) => {
     if (!value) return '-';
     const raw = String(value);
@@ -120,6 +127,7 @@ function LlmApiKeyListPage() {
               { key: 'provider', label: 'Provider' },
               { key: 'model', label: 'Model' },
               { key: 'api_key', label: 'API KEY', render: (row) => maskApiKey(row.api_key) },
+              { key: 'created_at', label: '등록일', render: (row) => formatCreatedAt(row) },
               { key: 'active', label: 'Active', render: (row) => (row.is_active ? 'Y' : 'N') },
               {
                 key: 'actions',

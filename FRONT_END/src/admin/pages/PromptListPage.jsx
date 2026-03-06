@@ -23,6 +23,13 @@ function PromptListPage() {
   };
   const [filter, setFilter] = useState(getFilterFromLocation);
 
+  const formatCreatedAt = (row) => {
+    const raw = row?.created_at || row?.db_created_at;
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('ko-KR');
+  };
+
   const loadRows = async () => {
     try {
       setLoading(true);
@@ -106,6 +113,7 @@ function PromptListPage() {
               { key: 'purpose', label: 'Purpose' },
               { key: 'type', label: 'Type', render: (row) => row.type || '-' },
               { key: 'note', label: 'Note', render: (row) => row.note || '-' },
+              { key: 'created_at', label: '등록일', render: (row) => formatCreatedAt(row) },
               { key: 'active', label: 'Active', render: (row) => (row.is_active ? 'Y' : 'N') },
               {
                 key: 'actions',

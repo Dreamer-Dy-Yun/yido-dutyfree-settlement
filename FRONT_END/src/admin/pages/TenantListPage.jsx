@@ -102,7 +102,7 @@ function TenantListPage() {
             placeholder="검색..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
           <button className="common-btn common-btn-primary" onClick={handleSearch}>
             검색

@@ -17,7 +17,10 @@
 # 좌표 스케일 : pixel
 # 원점 : top-left
 # x → right, y → down
-# {top : 0, bottom : 0 , left : 0, right : 0}의 형태로 기록한다.
+# {top : 0, bottom : 0, left : 0, right : 0}의 형태로 기록한다.
+
+[hash_img]
+# 유저 프롬프트 최상단에 제공 (반드시 입력받은 해시 값을 그대로 적어서 반환할 것.)
 
 [유의점]
 # 여권
@@ -49,7 +52,8 @@
                 country_code : <국가코드>,
                 passport_no : <구매자 여권 번호,  마스킹 존재시 마스킹 포함. 여권 번호정보만 적시 (국가코드나 하이픈 포함 금지)>,
                 purchaser : <구매자 이름, 마스킹 존재시 마스킹 포함>,
-                coordinate : <이미지 내 좌표> 
+                coordinate : <이미지 내 좌표>, 
+                hash_img : <이미지 해시 값>
             },
             ...
         ]
@@ -68,8 +72,10 @@
                 place_of_issue : <여권 발행처>,
                 date_of_expiry : <여권 만료일>,
                 authority: <발행 기관>,
-                coordinate : <이미지 내 좌표> 
+                coordinate : <이미지 내 좌표>,
+                hash_img : <이미지 해시 값>
             },
             ...
         ]
+    }
 }

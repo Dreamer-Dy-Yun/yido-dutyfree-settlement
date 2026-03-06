@@ -10,47 +10,51 @@
 # Note : 일부 리팩토링. 추후 전반적인 리팩토링 필요
 ############################################
 import os
+import asyncio
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import select, insert, Select
+from sqlalchemy import select, insert, Select, Insert, update, Update
 from sqlalchemy.engine import Result
 
 from CUSTOMIZED.cust_logger import logger
 from DATABASE import models
-from DATABASE.models.public_model import Tenant as PublicTenant, LLM_API_Key, Prompt
+from DATABASE.models.public_model import LLM_API_Key, Prompt
 from WEB_SERVER.routers.settings import get_db_manager
 from LLM.ChatGPT.api import ChatGPT
 from LLM.dto import LLMRequest, LLMResponse
 from LLM_RESULT_PARSER.yido_parser import YidoParser
 from DATABASE.dbms.db_manager import DBManager
-
-OCR_PROVIDER = "OPEN AI"
-OCR_MODEL = "gpt-4o"
-OCR_PURPOSE = "OCR"
+from typing import Self
+from LLM.llm import LLM
 
 
-async def _resolve_active_llm_api_key(db) -> LLM_API_Key:
-    stmt_api_key = (
-        select(LLM_API_Key)
-        .where(
-            LLM_API_Key.is_active == True,
-            LLM_API_Key.llm_provider == OCR_PROVIDER,
-            LLM_API_Key.llm_model == OCR_MODEL,
-        )
-        .order_by(LLM_API_Key.db_updated_at.desc())
-        .limit(1)
-    )
-    result = await db.execute_query(stmt_api_key, schemas=["public"])
+async def run_image_ocr_background(tenant_schema: str, public_schema: str) -> None:
+    db = get_db_manager()
+    llm_api_key = await resolve_active_llm_api_key(db)
+    llm = ChatGPT(api_key=llm_api_key.api_key, model=llm_api_key.llm_model)
+    prompt_system, prompt_user = await resolve_active_ocr_prompts(db)
+    image_ocr_service = ImageOcrService(db, tenant_schema, public_schema)
+    image_ocr_service.set_llm(llm, prompt_system, prompt_user)
+    image_ocr_service.get_unprocessed_images()
+    image_ocr_service.run()
+
+
+async def resolve_active_llm_api_key(db: DBManager, llm_provider: str = "OPEN AI", llm_model: str = "gpt-4o", public_schema: str = "public") -> LLM_API_Key:
+    stmt : Select = select(LLM_API_Key)
+    stmt = stmt.where(LLM_API_Key.is_active == True)
+    stmt = stmt.where(LLM_API_Key.llm_provider == llm_provider)
+    stmt = stmt.where(LLM_API_Key.llm_model == llm_model)
+    stmt = stmt.order_by(LLM_API_Key.db_updated_at.desc())
+    stmt = stmt.limit(1)
+    result = await db.execute_query(stmt, schemas=[public_schema])
     row = result.scalar_one_or_none()
     if row is None:
-        raise RuntimeError(
-            f"[OCR] active llm_api_key not found: provider={OCR_PROVIDER}, model={OCR_MODEL}"
-        )
+        raise RuntimeError(f"[OCR] active llm_api_key not found: provider={llm_provider}, model={llm_model}")
     return row
 
 
-async def _resolve_active_ocr_prompts(db) -> tuple[str, str | None, list[str]]:
+async def resolve_active_ocr_prompts(db) -> tuple[str, str | None, list[str]]:
     stmt_system = (
         select(Prompt)
         .where(
@@ -81,166 +85,141 @@ async def _resolve_active_ocr_prompts(db) -> tuple[str, str | None, list[str]]:
 
     system_text = prompt_system.prompt if prompt_system else ""
     user_text = prompt_user.prompt if prompt_user else None
-    hash_prompts = [p.hash for p in (prompt_system, prompt_user) if p is not None]
-    return system_text, user_text, hash_prompts
+    return system_text, user_text
 
 
-def _build_llm_usage_row(
-    llm_response: LLMResponse | None,
-    hash_img: str,
-    hash_prompts: list[str],
-    llm_model: str,
-) -> dict:
-    usage = llm_response.usage if llm_response else None
-    return {
-        "llm_model": (llm_response.model if llm_response and llm_response.model else llm_model),
-        "hash_prompts": hash_prompts,
-        "ocr_name": "chatgpt",
-        "hash_img": hash_img,
-        "token_input": usage.prompt_tokens if usage else None,
-        "token_output": usage.completion_tokens if usage else None,
-        "token_total": usage.total_tokens if usage else None,
-    }
+class ImageOcrService:
+    def __init__(self, db: DBManager, tenant_schema: str, public_schema: str = "public"):
+        self.db = db
+        self.unprocessed_images : pd.DataFrame | None = None
+        self.llm : LLM | None = None
+        self.prompt_system : str | None = None
+        self.prompt_user : str | None = None
+        self.public_schema : str | None = public_schema
+        self.tenant_schema : str | None = tenant_schema
+        self.schemas : list[str] = [self.tenant_schema, self.public_schema]
+        self.num_of_images : int = 0
+        self.num_of_images_processed : int = 0
+        self.num_of_images_failed : int = 0
 
 
-async def run_image_ocr_background(tenant_schema: str, image_hashes: list[str]) -> None:
-    # image_hashes : 어차피 DB에서 유니크 키로 존재하는 값이라 중복 가능성 없음
-    # AI 가 병신짓 해 둬서 대대적인 리팩토링 필요. 
-    try:
-        if not image_hashes:
-            return
+    def set_llm(self, llm: LLM, prompt_system: str | None = None, prompt_user: str | None = None) -> Self:
+        self.llm = llm
+        self.prompt_system = prompt_system
+        self.prompt_user = prompt_user
+        return self
 
-        db = get_db_manager()
-        tenant_schemas = [tenant_schema, "public"]
 
-        # 대상 이미지들을 먼저 processing 상태로 전환
-        await set_image_processing(db, tenant_schemas, image_hashes, True)
+    async def get_unprocessed_images(self) -> Self:
+        stmt : Update = update(models.Image)
+        stmt = stmt.where(models.Image.is_processing.is_(False))
+        stmt = stmt.where(models.Image.is_processed.is_(False))
+        stmt = stmt.values(is_processing=True)
+        stmt = stmt.returning(models.Image.hash)
+        
+        result: Result[models.Image | None] = await self.db.execute_query(stmt, schemas=[self.tenant_schema])
+        df: pd.DataFrame = result.mappings().all()
+        self.unprocessed_images = df
+        return self
 
-        # 테넌트 베이스 디렉토리 경로 조회 (public 스키마)
-        tenant_root = await get_base_directory(db, Path(os.getenv("ROOT_DIR", "D:\\")), tenant_schema)
-        if tenant_root is None:
-            raise RuntimeError(f"[OCR] tenant not found: schema={tenant_schema}")
 
-        stmt_images = select(models.Image).where(models.Image.hash.in_(image_hashes))
-        image_result = await db.execute_query(stmt_images, schemas=tenant_schemas)
-        images = image_result.scalars().all()
+    async def set_image_processing(self, target_hashes: list[str], is_processing: bool = True) -> None:
+        records : list[dict] = []
+        df : pd.DataFrame = pd.DataFrame()
+        # 난 이게 더 이뻐 보임... 성능 좀 손해봐도..
+        for hash in target_hashes:
+            record : dict = {"hash": hash, "is_processing": is_processing}
+            records.append(record)
+        df = pd.DataFrame(records)
+        await self.db.update_dataframe(models.Image, df, schemas=self.schemas, conflict_cols=["hash"])
 
-        api_key_row = await _resolve_active_llm_api_key(db)
-        prompt_system, prompt_user, hash_prompts = await _resolve_active_ocr_prompts(db)
-    except Exception as e:
-        logger.exception(f"[OCR] failed to resolve key/prompts reason={e}")
-        await set_image_processing(db, tenant_schemas, image_hashes, False)
-        return
 
-    llm_model = str(api_key_row.llm_model or OCR_MODEL)
-    llm = ChatGPT(api_key=str(api_key_row.api_key), model=llm_model)
-    try:
-        # 비동기 처리 해야함. 이건 그냥 직렬처리나 마찬가지.
-        for image in images:
-            image_hash = str(image.hash)
-            llm_response: LLMResponse | None = None
+    async def set_image_processed(self, target_hashes: list[str], is_processed: bool = True) -> None:
+        records : list[dict] = []
+        df : pd.DataFrame = pd.DataFrame()
+        # 난 이게 더 이뻐 보임... 성능 좀 손해봐도..
+        for hash in target_hashes:
+            record : dict = {"hash": hash, "is_processed": is_processed}
+            records.append(record)
+        df = pd.DataFrame(records)
+        await self.db.update_dataframe(models.Image, df, schemas=self.schemas, conflict_cols=["hash"])
+
+
+    async def run(self, semaphore: int = 10, col_name_hash: str = "hash") -> Self:
+
+        if not self.prompt_system and not self.prompt_user:
+            raise ValueError("prompt_system or prompt_user are required")
+        if not self.llm:
+            raise ValueError("llm is required")
+
+        df_images : pd.DataFrame = self.unprocessed_images
+
+        sem = asyncio.Semaphore(semaphore)
+
+        async def _worker(hash_img: str) -> LLMResponse:
+            user_prompt = f"{self.prompt_user}\n" if self.prompt_user else ""
+            user_prompt += f"{col_name_hash} : {hash_img}"
+
+            async with sem:
+                return await self.llm.ask(LLMRequest(self.prompt_system, user_prompt))
+
+        task_map: dict[asyncio.Task[LLMResponse], str] = {}
+        for hash_img in df_images[col_name_hash]:
+            task = asyncio.create_task(_worker(hash_img))
+            task_map[task] = str(hash_img)
+
+        self.num_of_images = len(df_images)
+        self.num_of_images_processed = 0
+        self.num_of_images_failed = 0
+
+        for task_done in asyncio.as_completed(task_map.keys()):
+            hash_img: str = task_map[task_done]
             try:
-                full_path = tenant_root / str(image.path)
-                if not full_path.exists():
-                    raise FileNotFoundError(f"image file not found: {full_path}")
-
-                llm_response = await ask_llm_ocr(llm, full_path, prompt_system, prompt_user)
-
+                llm_response = await task_done
                 parser = YidoParser(llm_response)
-                parser.add_hashed_image(full_path)
-
-                df_passport = parser.df_passport
-                df_receipt = parser.df_receipt
-
-                if not df_passport.empty:
-                    await upsert_ocr_passport(db, tenant_schemas, df_passport)
-                if not df_receipt.empty:
-                    await upsert_ocr_receipt(db, tenant_schemas, df_receipt)
-
-                await write_llm_usage(db, tenant_schemas, llm_response, image_hash, hash_prompts, llm_model)
-
-                await set_image_processed(db, tenant_schemas, [image_hash], True)
                 
+                await self.upsert_ocr_receipt(parser.df_receipt)
+                await self.upsert_ocr_passport(parser.df_passport)
+                hash_prompts = [p for p in [self.prompt_system, self.prompt_user] if p is not None]
+                await self.insert_llm_usage(llm_response, hash_img, hash_prompts, self.llm.model)
+                self.num_of_images_processed += 1
+                await self.set_image_processed([hash_img], True)
             except Exception as e:
-                logger.exception(f"[OCR] failed hash={image_hash} reason={e}")
-                try:
-                    await write_llm_usage(db, tenant_schemas, llm_response, image_hash, hash_prompts, llm_model)
-                except Exception as usage_err:
-                    logger.exception(f"[OCR] failed to write llm_usage hash={image_hash} reason={usage_err}")
+                self.num_of_images_failed += 1
+                logger.exception(f"[OCR] failed hash={hash_img} reason={e}")
+            finally:
+                await self.set_image_processing([hash_img], False)
 
-                await set_image_processing(db, tenant_schemas, [image_hash], False)
-    finally:
-        await llm.close()
+        return self
 
 
+    async def upsert_ocr_receipt(self, df_receipt: pd.DataFrame) -> None:
+        df_receipt = df_receipt[df_receipt["coordinate"].notna()]
+        if not df_receipt.empty:
+            await self.db.batch_upsert_dataframe(models.OcrReceipt, df_receipt, schemas=self.schemas)
 
 
-
-async def get_base_directory(db: DBManager, root_directory: Path, tenant_schema: str, public_schema: str = "public") -> Path | None:
-    stmt : Select = select(PublicTenant).where(PublicTenant.schema_name == tenant_schema)
-    tenant_result: Result[PublicTenant | None] = await db.execute_query(stmt, schemas=[public_schema])
-    tenant: PublicTenant | None = tenant_result.scalar_one_or_none()
-    return None if tenant is None else root_directory / tenant.dir_root
+    async def upsert_ocr_passport(self, df_passport: pd.DataFrame) -> None:
+        df_passport = df_passport[df_passport["coordinate"].notna()]
+        if not df_passport.empty:
+            await self.db.batch_upsert_dataframe(models.OcrPassport, df_passport, schemas=self.schemas)
 
 
-async def ask_llm_ocr(llm: ChatGPT, path_img: Path, prompt_system: str, prompt_user: str) -> LLMResponse:
-    image_bytes = path_img.read_bytes()
-    ext = path_img.suffix.lower()
-    mime_type = get_mime_type(ext)
-    request = LLMRequest(prompt_system, prompt_user, image_bytes, mime_type,)
-    return await llm.ask(request)
+    async def write_ocr_receipt(self, df_receipt: pd.DataFrame) -> None:
+        await self.db.batch_upsert_dataframe(models.OcrReceipt, df_receipt, schemas=self.schemas)
 
 
-def get_mime_type(ext: str) -> str:
-    return {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-    }.get(ext, "application/octet-stream")
+    async def insert_llm_usage(self, llm_response: LLMResponse, hash_img: str, hash_prompts: list[str], llm_model: str) -> None:
+        usage = llm_response.usage if llm_response else None
+        usage_row : dict = {}
+        usage_row["llm_model"] = self.llm.model
+        usage_row["hash_prompts"] = hash_prompts
+        usage_row["ocr_name"] = self.llm.name
+        usage_row["hash_img"] = hash_img
+        usage_row["token_input"] = usage.prompt_tokens if usage else None
+        usage_row["token_output"] = usage.completion_tokens if usage else None
+        usage_row["token_total"] = usage.total_tokens if usage else None
+        stmt : Insert = insert(models.LlmUsage).values(**usage_row)
+        await self.db.execute_query(stmt, schemas=self.schemas)
 
 
-async def upsert_ocr_receipt(db: DBManager, schemas : list[str], df_receipt: pd.DataFrame) -> None:
-    df_receipt = df_receipt[df_receipt["coordinate"].notna()]
-    if not df_receipt.empty:
-        await db.batch_upsert_dataframe(models.OcrReceipt, df_receipt, schemas=schemas)
-
-
-async def upsert_ocr_passport(db: DBManager, schemas : list[str], df_passport: pd.DataFrame) -> None:
-    df_passport = df_passport[df_passport["coordinate"].notna()]
-    if not df_passport.empty:
-        await db.batch_upsert_dataframe(models.OcrPassport, df_passport, schemas=schemas)
-
-
-async def write_ocr_receipt(db: DBManager, schemas : list[str], df_receipt: pd.DataFrame) -> None:
-    await db.batch_upsert_dataframe(models.OcrReceipt, df_receipt, schemas=schemas)
-
-
-async def write_llm_usage(db: DBManager, schemas : list[str], llm_response: LLMResponse, image_hash: str, hash_prompts: list[str], llm_model: str) -> None:
-    usage_row = _build_llm_usage_row(llm_response, image_hash, hash_prompts, llm_model)
-    await db.execute_query(insert(models.LlmUsage).values(**usage_row), schemas=schemas)
-
-
-async def set_image_processing(db: DBManager, schemas : list[str], target_hashes = list[str], is_processing: bool = True) -> None:
-    # 대상 이미지들을 먼저 processing 상태로 전환
-    records : list[dict] = []
-    df : pd.DataFrame = pd.DataFrame()
-    # 난 이게 더 이뻐 보임... 성능 좀 손해봐도..
-    for hash in target_hashes:
-        record : dict = {"hash": hash, "is_processing": is_processing, "is_processed": False}
-        records.append(record)
-    df = pd.DataFrame(records)
-    await db.update_dataframe(models.Image, df, schemas=schemas, conflict_cols=["hash"])
-
-
-async def set_image_processed(db: DBManager, schemas : list[str], target_hashes = list[str], is_processed: bool = True) -> None:
-    # 대상 이미지들을 먼저 processing 상태로 전환
-    records : list[dict] = []
-    df : pd.DataFrame = pd.DataFrame()
-    # 난 이게 더 이뻐 보임... 성능 좀 손해봐도..
-    for hash in target_hashes:
-        record : dict = {"hash": hash, "is_processing": False, "is_processed": is_processed}
-        records.append(record)
-    df = pd.DataFrame(records)
-    await db.update_dataframe(models.Image, df, schemas=schemas, conflict_cols=["hash"])

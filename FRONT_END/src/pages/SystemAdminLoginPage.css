@@ -3,7 +3,13 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: repeating-linear-gradient(
+    -45deg,
+    #d9c24f 0px,
+    #d9c24f 100px,
+    #3a3a3a 100px,
+    #3a3a3a 200px
+  );
   padding: 20px;
 }
 

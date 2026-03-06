@@ -28,6 +28,13 @@ function ServiceAccountListPage() {
   const [filter, setFilter] = useState(getFilterFromLocation);
   const [roleFilter, setRoleFilter] = useState(getRoleFromLocation);
 
+  const formatCreatedAt = (account) => {
+    const raw = account?.created_at || account?.db_created_at;
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('ko-KR');
+  };
+
   useEffect(() => {
     setFilter(getFilterFromLocation());
     setRoleFilter(getRoleFromLocation());
@@ -156,6 +163,7 @@ function ServiceAccountListPage() {
               { key: 'email', label: '이메일', render: (account) => account.e_mail },
               { key: 'role', label: '역할' },
               { key: 'description', label: '설명', render: (account) => account.description || '-' },
+              { key: 'created_at', label: '등록일', render: (account) => formatCreatedAt(account) },
               {
                 key: 'status',
                 label: '상태',
