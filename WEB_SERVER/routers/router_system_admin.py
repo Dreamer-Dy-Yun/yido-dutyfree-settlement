@@ -44,10 +44,6 @@ router = APIRouter(prefix="/api/system-admin", tags=["시스템 어드민"])
 # 요청/응답 스키마
 # ============================================================================
 
-class TenantApprovalRequest(BaseModel):
-    reason: str | None = None
-
-
 class TenantRejectionRequest(BaseModel):
     reason: str
 
@@ -250,89 +246,101 @@ async def get_pending_tenants(
 @handle_http_error
 async def approve_tenant(
     tenant_id: int,
-    approval_data: TenantApprovalRequest | None = None,
     current_user: models.User = Depends(get_current_superuser),
-    tenant_repo: TenantRepository = Depends(get_tenant_repository),
     db: DBManager = Depends(get_db_manager),
 ):
     """테넌트 승인 및 스키마 생성"""
-    # 테넌트 조회
-    tenant = await tenant_repo.get_by_id(tenant_id)
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="테넌트를 찾을 수 없습니다"
+    # DB 변경 단계는 하나의 트랜잭션으로 묶는다.
+    async with db.open_session(schemas=["public"]) as session:
+        tenant_stmt = (
+            select(models.Tenant)
+            .where(models.Tenant.id == tenant_id)
+            .with_for_update()
         )
-    
-    if tenant.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="이미 승인된 테넌트입니다"
+        tenant_result = await session.execute(tenant_stmt)
+        tenant = tenant_result.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="테넌트를 찾을 수 없습니다"
+            )
+
+        if tenant.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="이미 승인된 테넌트입니다"
+            )
+
+        admin_email = tenant.email
+        if not admin_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="관리자 이메일이 등록되지 않았습니다"
+            )
+
+        schema_name = tenant.schema_name
+        tenant_name = tenant.name
+        business_no = tenant.business_no
+
+        # 임시 패스워드 생성 (12자리, 영문+숫자+특수문자)
+        temp_password = "".join(
+            secrets.choice(string.ascii_letters + string.digits + "!@#$%^&*")
+            for _ in range(12)
         )
-    
-    # 1. 스키마 생성
-    schema_name = tenant.schema_name
-    await db.execute_query(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
-    
-    schemas = [schema_name, "public"]
-    
-    # BaseModel의 metadata에 모든 테이블이 등록되어 있으므로 create_all 사용
-    async with db.async_engine.begin() as conn:
-        await conn.execute(text(f'SET search_path TO "{schema_name}", "public"'))
+        hashed_password = get_password_hash(temp_password)
+
+        # 1) 스키마/테이블 생성
+        await session.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+        await session.execute(text(f'SET search_path TO "{schema_name}", "public"'))
+        conn = await session.connection()
         await conn.run_sync(models.BaseModel.metadata.create_all)
-    
-    # 3. 테넌트 관리자 계정 생성 (임시 패스워드)
-    admin_email = tenant.email
-    if not admin_email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="관리자 이메일이 등록되지 않았습니다"
+
+        # 2) 테넌트 관리자 계정 생성
+        admin_user_df = pd.DataFrame([{
+            "name": tenant_name,  # 임시로 회사명 사용
+            "e_mail": admin_email,
+            "password": hashed_password,
+            "role": UserRole.ADMIN.value,
+            "is_active": True,
+        }])
+        await db.upsert_batch(table=User, data=admin_user_df, session=session)
+
+        # 3) 승인 상태 업데이트
+        await session.execute(
+            update(models.Tenant)
+            .where(models.Tenant.id == tenant_id)
+            .values(is_db_built=True, is_active=True)
         )
-    
-    # 임시 패스워드 생성 (12자리, 영문+숫자+특수문자)
-    temp_password = ''.join(secrets.choice(string.ascii_letters + string.digits + "!@#$%^&*") for _ in range(12))
-    hashed_password = get_password_hash(temp_password)
-    
-    # 관리자 계정 생성
-    admin_user_df = pd.DataFrame([{
-        "name": tenant.name,  # 임시로 회사명 사용
-        "e_mail": admin_email,
-        "password": hashed_password,
-        "role": UserRole.ADMIN.value,
-        "is_active": True,
-    }])
-    
-    await db.upsert_dataframe(User, admin_user_df, schemas=schemas)
-    
-    # 4. 스키마와 DB 생성이 완료되었으므로 is_db_built를 True로 업데이트
-    await tenant_repo.update(tenant_id, {"is_db_built": True})
-    
-    # 5. 승인 메일 발송 (회사 대표 이메일로 초기 관리자 계정 안내)
+        await session.flush()
+
+    # 트랜잭션 커밋 이후에 메일 발송
     app_url = os.getenv("APP_URL", "http://localhost:5173")
     login_url = f"{app_url}/login"
+    mail_sent = True
+    try:
+        smtp_service = await get_db_smtp_email_service(db) or email_service
+        smtp_service.set_company_approval_email(
+            receiver_email=admin_email,
+            company_name=tenant_name,
+            login_id=admin_email,
+            login_url=login_url,
+            temp_password=temp_password,
+            business_no=business_no,
+        ).send(
+            log_success=f"테넌트 승인 이메일 발송 완료: {admin_email}",
+            log_error=f"테넌트 승인 이메일 발송 실패: {admin_email}",
+        )
+    except Exception:
+        mail_sent = False
+        logger.exception(f"테넌트 승인 완료 후 메일 발송 실패: tenant_id={tenant_id}, email={admin_email}")
 
-    smtp_service = await get_db_smtp_email_service(db) or email_service
-    smtp_service.set_company_approval_email(
-        receiver_email=admin_email,
-        company_name=tenant.name,
-        login_id=admin_email,
-        login_url=login_url,
-        temp_password=temp_password,
-        business_no=tenant.business_no,
-    ).send(
-        log_success=f"테넌트 승인 이메일 발송 완료: {admin_email}",
-        log_error=f"테넌트 승인 이메일 발송 실패: {admin_email}",
-    )
-    
-    # 6. 테넌트 활성화
-    await tenant_repo.update(tenant_id, {"is_active": True})
-    
     return {
-        "message": "테넌트가 승인되었습니다",
+        "message": "테넌트가 승인되었습니다" if mail_sent else "테넌트는 승인되었으나 승인 메일 발송에 실패했습니다",
         "tenant_id": tenant_id,
-        "schema_name": tenant.schema_name,
+        "schema_name": schema_name,
         "admin_email": admin_email,
         "temp_password": temp_password,  # 실제로는 메일로만 전송해야 함
+        "mail_sent": mail_sent,
         "approved_at": datetime.now().isoformat(),
         "approved_by": current_user.e_mail,
     }
@@ -674,7 +682,7 @@ async def create_service_account(
         "is_active": account_data.is_active,
     }])
     
-    await db.upsert_dataframe(ServiceAccount, account_df, schemas=schemas)
+    await db.upsert_batch(table=ServiceAccount, data=account_df, schemas=schemas)
     
     # 생성된 계정 조회
     stmt = select(ServiceAccount).where(ServiceAccount.e_mail == account_data.e_mail)
@@ -882,7 +890,7 @@ async def create_llm_api_key(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미 등록된 API Key입니다")
 
     df = pd.DataFrame([body.model_dump()])
-    await db.upsert_dataframe(LLM_API_Key, df, schemas=schemas)
+    await db.upsert_batch(table=LLM_API_Key, data=df, schemas=schemas)
 
     stmt = select(LLM_API_Key).where(LLM_API_Key.api_key == body.api_key)
     result = await db.execute_query(stmt, schemas=schemas)
@@ -1019,7 +1027,7 @@ async def create_prompt(
         "note": body.note,
         "is_active": body.is_active,
     }])
-    await db.upsert_dataframe(Prompt, df, schemas=schemas)
+    await db.upsert_batch(table=Prompt, data=df, schemas=schemas)
 
     stmt = select(Prompt).where(Prompt.hash == hash_prompt)
     result = await db.execute_query(stmt, schemas=schemas)

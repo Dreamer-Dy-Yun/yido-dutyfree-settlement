@@ -44,7 +44,8 @@ class TenantRepository(BaseRepository):
 
     async def create(self, df: pd.DataFrame) -> int:
         """테넌트 생성"""
-        return await self.db.batch_upsert_dataframe(models.Tenant, df)
+        result = await self.db.upsert_batch(table=models.Tenant, data=df)
+        return int(result["cnt_success_rows"])
 
     async def update(self, tenant_id: int, update_data: dict[str, Any]) -> int:
         """테넌트 정보 업데이트"""

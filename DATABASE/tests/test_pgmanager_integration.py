@@ -130,7 +130,7 @@ async def test_upsert_tenant_and_query(pg_manager: PGDBManager):
                 "name": "통합테스트 회사",
                 "business_no": biz_no,
                 "schema_name": schema_name,
-                "dir_root": "/test/integration",
+                "dir_base": "/test/integration",
                 "is_active": True,
             }
         ]
@@ -138,7 +138,7 @@ async def test_upsert_tenant_and_query(pg_manager: PGDBManager):
 
     # 1차 upsert (INSERT)
     print(f"[test] 1차 upsert (INSERT) 실행: biz_no={biz_no}, schema_name={schema_name}")
-    count = await pg_manager.upsert_dataframe(Tenant, df)
+    count = await pg_manager._upsert_dataframe(Tenant, df)
     print(f"[test] 1차 upsert 처리 행 수: {count}")
     assert count == 1
 
@@ -162,14 +162,14 @@ async def test_upsert_tenant_and_query(pg_manager: PGDBManager):
                 "name": "통합테스트 회사(수정)",
                 "business_no": biz_no,
                 "schema_name": schema_name,
-                "dir_root": "/test/integration",
+                "dir_base": "/test/integration",
                 "is_active": False,
             }
         ]
     )
 
     print(f"[test] 2차 upsert (UPDATE) 실행: biz_no={biz_no}, is_active=False")
-    count2 = await pg_manager.upsert_dataframe(Tenant, df_update)
+    count2 = await pg_manager._upsert_dataframe(Tenant, df_update)
     print(f"[test] 2차 upsert 처리 행 수: {count2}")
     assert count2 == 1
 

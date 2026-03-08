@@ -1,5 +1,7 @@
 # import main_logger  # 코드에서 참조 안해도 자동으로 로그 세팅되므로 삭제하지 말 것
+import argparse
 import asyncio
+import os
 from dotenv import load_dotenv
 from DATABASE.setup_db import setup_db
 from WEB_SERVER.main_web import start_web_server

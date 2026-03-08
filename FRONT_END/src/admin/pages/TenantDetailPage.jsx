@@ -306,7 +306,7 @@ function TenantDetailPage() {
               </div>
               <div className="detail-item">
                 <span className="label">루트 경로</span>
-                <span className="value">{tenant.dir_root}</span>
+                <span className="value">{tenant.dir_base}</span>
               </div>
               <div className="detail-item">
                 <span className="label">활성화 여부</span>
@@ -431,7 +431,7 @@ function TenantDetailPage() {
                   <label>루트 경로</label>
                   <input
                     type="text"
-                    value={tenant.dir_root || ''}
+                    value={tenant.dir_base || ''}
                     disabled
                     className="disabled-input"
                   />

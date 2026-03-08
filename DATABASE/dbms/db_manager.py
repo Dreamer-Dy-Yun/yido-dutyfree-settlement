@@ -35,8 +35,8 @@ class DBManager(ABC):
         None (추상 클래스이므로 인스턴스 변수는 구현체에서 정의)
     
     Methods (구현체에서 공통 제공해야 하는 인터페이스):
-        batch_upsert_dataframe: DataFrame을 배치 업서트합니다.
-        upsert_dataframe: DataFrame을 업서트합니다.
+        upsert_batch: DataFrame 배치 업서트
+        update_batch: DataFrame 배치 업데이트
         execute_query: SQL 쿼리 실행
         create_tables: 테이블 생성 (옵션: 특정 스키마만)
         drop_tables: 테이블 삭제 (옵션: 특정 스키마만)
@@ -44,6 +44,106 @@ class DBManager(ABC):
 
 
     @abstractmethod
+    async def upsert_batch(
+        self,
+        table: DeclarativeBase,
+        data: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        params_per_chunk: int = 10000,
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+        session: AsyncSession | None = None,
+    ) -> dict[str, int | pd.DataFrame]:
+        """
+        DataFrame을 배치 업서트합니다.
+        
+        Args:
+            table: SQLAlchemy DeclarativeBase 모델 클래스
+            data: pandas DataFrame
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
+            conflict_cols: upsert 충돌 기준 컬럼 (None이면 자동 선택)
+            try_convert: 날짜/숫자 정규화 수행 여부
+            params_per_chunk: 청크 단위 파라미터 개수 기준
+            allow_infinity: numeric 변환시 무한대 허용 여부
+            partial_commit: True면 배치별 커밋, False면 전체 커밋
+            session: 외부 주입 세션 (주입 시 커밋/롤백은 호출부에서 관리)
+        
+        Returns:
+            처리 결과 요약 딕셔너리
+        """
+        ...
+
+    @abstractmethod
+    async def update_batch(
+        self,
+        table: DeclarativeBase,
+        data_to_update: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        params_per_chunk: int = 10000,
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+        session: AsyncSession | None = None,
+    ) -> dict[str, int | pd.DataFrame]:
+        """
+        DataFrame을 배치 업데이트합니다. (UPDATE only)
+
+        Args:
+            table: SQLAlchemy DeclarativeBase 모델 클래스
+            data_to_update: pandas DataFrame
+            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
+            conflict_cols: 업데이트 매칭 기준 컬럼 (None이면 자동 선택)
+            try_convert: 날짜/숫자 정규화 수행 여부
+            params_per_chunk: 청크 단위 파라미터 개수 기준
+            allow_infinity: numeric 변환시 무한대 허용 여부
+            partial_commit: True면 배치별 커밋, False면 전체 커밋
+            session: 외부 주입 세션 (주입 시 커밋/롤백은 호출부에서 관리)
+
+        Returns:
+            처리 결과 요약 딕셔너리
+        """
+        ...
+
+    # -------------------------------------------------------------------------
+    # Backward-compatible wrappers
+    # -------------------------------------------------------------------------
+    async def upsert_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+    ) -> int:
+        result = await self.upsert_batch(
+            table=table,
+            data=df,
+            schemas=schemas,
+            conflict_cols=conflict_cols,
+            try_convert=try_convert,
+        )
+        return int(result["cnt_success_rows"])
+
+    async def update_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+    ) -> int:
+        result = await self.update_batch(
+            table=table,
+            data_to_update=df,
+            schemas=schemas,
+            conflict_cols=conflict_cols,
+            try_convert=try_convert,
+        )
+        return int(result["cnt_success_rows"])
+
     async def batch_upsert_dataframe(
         self,
         table: DeclarativeBase,
@@ -53,23 +153,16 @@ class DBManager(ABC):
         conflict_cols: list[str] | None = None,
         try_convert: bool = True,
     ) -> int:
-        """
-        DataFrame을 데이터베이스에 업데이트합니다.
-        
-        Args:
-            table: SQLAlchemy DeclarativeBase 모델 클래스
-            df: pandas DataFrame
-            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
-            allowed_param_size: 파라미터 개수
-            conflict_cols: upsert 충돌 기준 컬럼 (None이면 자동 선택)
-            try_convert: 날짜/숫자 정규화 수행 여부
-        
-        Returns:
-            업데이트 된 행 수
-        """
-        pass
+        result = await self.upsert_batch(
+            table=table,
+            data=df,
+            schemas=schemas,
+            conflict_cols=conflict_cols,
+            try_convert=try_convert,
+            params_per_chunk=allowed_param_size,
+        )
+        return int(result["cnt_success_rows"])
 
-    @abstractmethod
     async def batch_update_dataframe(
         self,
         table: DeclarativeBase,
@@ -79,69 +172,15 @@ class DBManager(ABC):
         conflict_cols: list[str] | None = None,
         try_convert: bool = True,
     ) -> int:
-        """
-        DataFrame을 배치 업데이트합니다. (UPDATE only)
-
-        Args:
-            table: SQLAlchemy DeclarativeBase 모델 클래스
-            df: pandas DataFrame
-            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
-            allowed_param_size: 파라미터 개수
-            conflict_cols: 업데이트 매칭 기준 컬럼 (None이면 자동 선택)
-            try_convert: 날짜/숫자 정규화 수행 여부
-
-        Returns:
-            업데이트 된 행 수
-        """
-        pass
-
-    @abstractmethod
-    async def upsert_dataframe(
-        self,
-        table: DeclarativeBase,
-        df: pd.DataFrame,
-        schemas: list[str] | None = None,
-        conflict_cols: list[str] | None = None,
-        try_convert: bool = True,
-    ) -> int:
-        """
-        DataFrame을 데이터베이스에 업데이트합니다.
-        
-        Args:
-            table: SQLAlchemy DeclarativeBase 모델 클래스
-            df: pandas DataFrame
-            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
-            conflict_cols: upsert 충돌 기준 컬럼
-            try_convert: 날짜/숫자 정규화 수행 여부
-        
-        Returns:
-            업데이트 된 행 수
-        """
-        pass
-
-    @abstractmethod
-    async def update_dataframe(
-        self,
-        table: DeclarativeBase,
-        df: pd.DataFrame,
-        schemas: list[str] | None = None,
-        conflict_cols: list[str] | None = None,
-        try_convert: bool = True,
-    ) -> int:
-        """
-        DataFrame을 업데이트합니다. (UPDATE only)
-
-        Args:
-            table: SQLAlchemy DeclarativeBase 모델 클래스
-            df: pandas DataFrame
-            schemas: search_path로 설정할 스키마 리스트 (예: ["tenant_xxx", "public"])
-            conflict_cols: 업데이트 매칭 기준 컬럼
-            try_convert: 날짜/숫자 정규화 수행 여부
-
-        Returns:
-            업데이트 된 행 수
-        """
-        pass
+        result = await self.update_batch(
+            table=table,
+            data_to_update=df,
+            schemas=schemas,
+            conflict_cols=conflict_cols,
+            try_convert=try_convert,
+            params_per_chunk=allowed_param_size,
+        )
+        return int(result["cnt_success_rows"])
 
     @abstractmethod
     async def execute_query(
@@ -218,8 +257,9 @@ class DBManager(ABC):
     @abstractmethod
     def convert_numeric_for_db(
         df: pd.DataFrame,
-        set_none_as: float | int | None = 0,
+        set_none_as: float | int | None = None,
         allow_infinity: bool = True,
+        deep_copy: bool = True,
     ) -> pd.DataFrame:
         """numeric 컬럼만 NaN/None 처리 (DB insert 직전용)."""
         ...

@@ -4,14 +4,12 @@ from dotenv import load_dotenv
 from uvicorn import Config, Server
 from DATABASE.setup_db import setup_db
 from DATABASE.config import db_manager
-from WEB_SERVER.routers.settings import set_dir_base
-from pathlib import Path
 
 async def start_web_server() -> None:
     config = Config(
         "WEB_SERVER.app:app",
         host=os.getenv("WEB_SERVER_HOST", "0.0.0.0"),
-        port=int(os.getenv("WEB_SERVER_PORT", "8000")),
+        port=int(os.getenv("WEB_SERVER_PORT", "10000")),
         reload=os.getenv("WEB_SERVER_RELOAD", "false").lower() == "true", # 한글 경로 때문에 사용
         # reload=os.getenv("WEB_SERVER_RELOAD", "true").lower() == "true",
         log_level=os.getenv("WEB_SERVER_LOG_LEVEL", "info")

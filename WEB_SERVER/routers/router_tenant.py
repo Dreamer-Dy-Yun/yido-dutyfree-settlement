@@ -206,7 +206,8 @@ async def upload_edi_data(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="파싱 결과가 비어 있습니다.")
 
     try:
-        rows_upserted = await db.batch_upsert_dataframe(table, df_parsed, schemas=schemas)
+        upsert_result = await db.upsert_batch(table=table, data=df_parsed, schemas=schemas)
+        rows_upserted = int(upsert_result["cnt_success_rows"])
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -237,7 +238,7 @@ async def upload_image_zip(
     이미지 ZIP 업로드용 엔드포인트입니다.
     - 확장자가 .zip 인지 검증
     - 토큰에서 tenant_schema를 읽어 해당 테넌트의 루트 디렉터리 조회
-    - .env 의 ROOT_DIR + 테넌트 전용 dir_root + \"zip\" 하위에 ZIP 파일 저장
+    - .env 의 ROOT_DIR + 테넌트 전용 dir_base + \"zip\" 하위에 ZIP 파일 저장
     - 같은 루트의 \"img\" 하위에 ZipProcessor로 이미지 파일들만 풀어놓음
     실제 이미지 처리/DB 반영은 추후 구현.
     """
@@ -250,7 +251,7 @@ async def upload_image_zip(
 
     tenant_schema = _get_current_tenant_schema_from_user(current_user)
 
-    # public.tenant 에서 현재 테넌트의 dir_root 조회
+    # public.tenant 에서 현재 테넌트의 dir_base 조회
     stmt = select(PublicTenant).where(PublicTenant.schema_name == tenant_schema)
     result = await db.execute_query(stmt, schemas=["public"])
     tenant = result.scalar_one_or_none()
@@ -266,8 +267,8 @@ async def upload_image_zip(
     img_dir_name = os.getenv("IMG_ROOT", "img")
     base_root = Path(root_dir)
 
-    # dir_root 는 테넌트별 루트 (상대/절대 여부는 설정에 따름)
-    tenant_root = base_root / tenant.dir_root
+    # dir_base 는 테넌트별 베이스 경로 (상대/절대 여부는 설정에 따름)
+    tenant_root = base_root / tenant.dir_base
     zip_root = tenant_root / zip_dir_name
     img_root = tenant_root / img_dir_name
 
@@ -333,9 +334,13 @@ async def upload_image_zip(
         )
 
     df_images = pd.DataFrame(image_rows).drop_duplicates(subset=["hash"], keep="last")
-    image_hashes = df_images["hash"].astype(str).tolist()
     try:
-        rows_upserted = await db.batch_upsert_dataframe(models.Image, df_images, schemas=_get_current_tenant_schemas(current_user))
+        upsert_result = await db.upsert_batch(
+            table=models.Image,
+            data=df_images,
+            schemas=_get_current_tenant_schemas(current_user),
+        )
+        rows_upserted = int(upsert_result["cnt_success_rows"])
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -343,11 +348,7 @@ async def upload_image_zip(
         ) from e
 
     # OCR 비동기 백그라운드 작업 시작 (재시도 없음, 상태는 DB 컬럼으로 관리)
-    background_tasks.add_task(
-        run_image_ocr_background,
-        tenant_schema,
-        image_hashes,
-    )
+    background_tasks.add_task(run_image_ocr_background, tenant_schema, "public")
 
     return {
         "message": "이미지 ZIP 업로드/압축 해제 및 image 테이블 업서트가 완료되었습니다. OCR 백그라운드 처리를 시작했습니다.",
@@ -430,7 +431,7 @@ async def create_user(
         "is_active": False,  # 이메일 인증 전까지 비활성화
     }])
     
-    await db.upsert_dataframe(models.User, user_df, schemas=schemas)
+    await db.upsert_batch(table=models.User, data=user_df, schemas=schemas)
     
     # 생성된 유저 조회
     stmt = select(models.User).where(models.User.e_mail == user_data.e_mail)

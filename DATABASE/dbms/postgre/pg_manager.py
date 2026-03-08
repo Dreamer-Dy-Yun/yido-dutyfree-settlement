@@ -32,21 +32,27 @@
 #       2026.03.04 : 싱글톤 호환을 위해, 주요 메서드들에 스키마 설정 옵션 추가, 매서드 레벨에서 스키마 선택(인젝션) 가능하도록 변경
 #                    PGDBManager.open_session() 추가 (세션 컨트롤 필요시 사용), 레거시 컨텍스트 매니저 삭제
 #       2026.03.05 : PGDBManager.update_dataframe() 추가, PGDBManager.batch_update_dataframe() 추가
+#       2026.03.08 : PGDBManager.batch_upsert_dataframe() / PGDBManager.upsert_dataframe() -> PGDBManager.upsert_batch() 로 통합/수정
+#                    PGDBManager.upsert_batch() 에서 스키마 설정 옵션 추가, 매서드 레벨에서 스키마 선택(인젝션) 가능하도록 변경
+#                    PGDBManager.upsert_batch() : 세션 주입 가능한 옵션 추가
+#                    ※ PGDBManager.update_batch()도 동일 수정
+# TODO : key 기반 중복 체크 로직 추가 (upsert_batch(), update_batch() 용)
 # TODO : Steaming용 모듈 작성 고려
 ############################################
 import urllib
 
+
 from DATABASE.dbms import DBManager
+from sqlalchemy import Table, text, Column, and_, values, update, UniqueConstraint, PrimaryKeyConstraint, ForeignKeyConstraint
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
-from sqlalchemy import Table, text, UniqueConstraint, Column, PrimaryKeyConstraint, ForeignKeyConstraint, and_, values, update
 from sqlalchemy.sql import quoted_name
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from sqlalchemy.schema import AddConstraint
-from typing import Type, TypeVar, Optional, AsyncContextManager, Self, AsyncIterator
-from pandas import DataFrame
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ColumnElement, Executable
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.schema import AddConstraint
+from typing import Type, TypeVar, Optional, AsyncContextManager, Self, AsyncIterator, overload
+from pandas import DataFrame
 import asyncpg
 import asyncio
 import numpy as np
@@ -207,7 +213,7 @@ class PGDBManager(DBManager):
             {"schema": schema}
         )
         return bool(result.scalar())
-    
+
 
     async def create_schema(self, schema: str) -> bool:
         """스키마 생성"""
@@ -282,6 +288,7 @@ class PGDBManager(DBManager):
             await self._set_session_schemas(session, schemas)
             try:
                 yield session
+                await session.commit()
             except Exception:
                 await session.rollback()
                 raise
@@ -368,6 +375,58 @@ class PGDBManager(DBManager):
             return len(tables_to_drop)
 
 
+    async def copy_tables_of_schema(self, schema_to_make: str, schemas_for_fk: list[str] | None = None) -> int:
+        """
+        schema가 지정되지 않은 테이블을 대상으로 DB에 새로운 스키마를 생성하고, 테이블을 복사.
+
+        정책:
+        - schema_to_make 존재하면 raise
+        - tenant 대상은 schema=None 모델만
+        """
+
+        # tenant 대상: schema=None
+        tenant_tables: list[Table] = [
+            t for t in self.base_model.metadata.tables.values()
+            if t.schema is None
+        ]
+
+        if not tenant_tables:
+            raise RuntimeError("No tenant tables (schema=None).")
+
+        async with self.async_engine.begin() as conn:
+            # 1) schema 존재하면 실패
+            if await self.exists_schema(schema_to_make):
+                raise RuntimeError(f"Schema '{schema_to_make}' already exists.")
+
+            # 2) schema 생성 + search_path
+            to_schema: str = str(quoted_name(schema_to_make, quote=True))
+            await conn.execute(text(f"CREATE SCHEMA {to_schema}"))
+
+            query: str = f"SET search_path TO {to_schema}"
+            if schemas_for_fk:
+                query += ", " + ", ".join([str(quoted_name(s, quote=True)) for s in schemas_for_fk])
+            await conn.execute(text(query))
+
+            # 3) 1-pass: FK 없이 테이블 생성
+            for t in tenant_tables:
+                await conn.run_sync(
+                    lambda sync_conn, table=t: table.create(
+                        bind=sync_conn,
+                        checkfirst=False,
+                        include_foreign_key_constraints=[],
+                    )
+                )
+
+            # 4) 2-pass: FK 추가 (순환 포함 안전)
+            for t in tenant_tables:
+                for fk in t.foreign_key_constraints:
+                    await conn.run_sync(
+                        lambda sync_conn, c=fk: sync_conn.execute(AddConstraint(c))
+                    )
+
+        return len(tenant_tables)
+
+
     async def dispose_pool(self) -> None:
         """연결 풀 해제."""
         if self.async_engine:
@@ -428,90 +487,6 @@ class PGDBManager(DBManager):
         except Exception as e:
             logger.exception(f"❌ TRUNCATE 실패 @ {table.__tablename__} | 이유: {str(e)}")
             return False
-
-
-    async def batch_upsert_dataframe(
-        self,
-        table: DeclarativeBase,
-        df: DataFrame,
-        schemas: list[str] | None = None,
-        allowed_param_size: int = 10000,
-        conflict_cols: list[str] | None = None,
-        try_convert: bool = True,
-    ) -> int:
-        # TODO : Copy / executemany 등을 이용한 최적화 시도 (필요시)
-        # TODO : 배치 크기 최적화 시도 (바인딩 개수 계산 방법 확인 필요)
-        
-        cnt_rows: int = len(df)
-        cnt_cols: int = len(df.columns)
-
-        if cnt_rows == 0:
-            return 0
-        if cnt_cols == 0:
-            raise ValueError("DataFrame has no columns.")
-
-        if try_convert:
-            df = df.copy()
-            df = self.convert_datetime_for_db(df, deep_copy=False)
-            df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
-
-        number_of_rows_for_one_request: int = max(1, allowed_param_size // cnt_cols)
-
-        cnt_upserted: int = 0
-
-        for i in range(0, cnt_rows, number_of_rows_for_one_request):
-            df_batch: DataFrame = df.iloc[i:i+number_of_rows_for_one_request]
-            cnt_upserted += await self.upsert_dataframe(
-                table,
-                df_batch,
-                schemas=schemas,
-                conflict_cols=conflict_cols,
-                try_convert=False,
-            )
-
-        return cnt_upserted
-
-
-    async def batch_update_dataframe(
-        self,
-        table: DeclarativeBase,
-        df: DataFrame,
-        schemas: list[str] | None = None,
-        allowed_param_size: int = 10000,
-        conflict_cols: list[str] | None = None,
-        try_convert: bool = True,
-    ) -> int:
-        # TODO : Copy / executemany 등을 이용한 최적화 시도 (필요시)
-        # TODO : 배치 크기 최적화 시도 (바인딩 개수 계산 방법 확인 필요)
-        
-        cnt_rows: int = len(df)
-        cnt_cols: int = len(df.columns)
-
-        if cnt_rows == 0:
-            return 0
-        if cnt_cols == 0:
-            raise ValueError("DataFrame has no columns.")
-
-        if try_convert:
-            df = df.copy()
-            df = self.convert_datetime_for_db(df, deep_copy=False)
-            df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
-
-        number_of_rows_for_one_request: int = max(1, allowed_param_size // cnt_cols)
-
-        cnt_updated: int = 0
-
-        for i in range(0, cnt_rows, number_of_rows_for_one_request):
-            df_batch: DataFrame = df.iloc[i:i+number_of_rows_for_one_request]
-            cnt_updated += await self.update_dataframe(
-                table,
-                df_batch,
-                schemas=schemas,
-                conflict_cols=conflict_cols,
-                try_convert=False,
-            )
-
-        return cnt_updated
         
 
     @staticmethod
@@ -546,7 +521,7 @@ class PGDBManager(DBManager):
 
 
     @staticmethod
-    def convert_numeric_for_db(df: pd.DataFrame, set_none_as: float | int | None = 0, allow_infinity: bool = True, deep_copy: bool = True) -> pd.DataFrame:
+    def convert_numeric_for_db(df: pd.DataFrame, set_none_as: float | int | None = None, allow_infinity: bool = True, deep_copy: bool = True) -> pd.DataFrame:
         """numeric 컬럼만: NaN 처리 + (옵션) inf 처리."""
         result = df.copy() if deep_copy else df
         numeric_cols = result.select_dtypes(include=["integer", "floating"]).columns
@@ -632,10 +607,120 @@ class PGDBManager(DBManager):
             f"Available columns: {list(df.columns)}"
         )
 
+    @overload
+    async def upsert_batch(
+        self, 
+        table: DeclarativeBase, 
+        data: pd.DataFrame, 
+        schemas: list[str] | None = None, 
+        conflict_cols: list[str] | None = None, 
+        try_convert: bool = True, 
+        params_per_chunk: int = 10000, 
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+        ) -> dict[str, int | DataFrame]:
+        
+        """
+        Session 생성 후 작업 수행
+        이 경우 
+            - 스키마 이름 주입 필요(필요시)
+            - 부분 커밋/ 전체커밋 여부 지정 가능 (전체커밋 : partial_commit=False, 부분커밋 : partial_commit=True)
+            - 반환값: dict[str, int | DataFrame]
+                - "cnt_success_rows": 성공한 행 수
+                - "cnt_failed_rows": 실패한 행 수
+                - "df_failed": 실패한 행들의 DataFrame
+        """
+        ...
 
-    async def upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, schemas: list[str] | None = None, conflict_cols: list[str] | None = None, try_convert: bool = True) -> int:
+    @overload
+    async def upsert_batch(
+        self, 
+        table: DeclarativeBase, 
+        data: pd.DataFrame, 
+        schemas: list[str] | None = None, 
+        conflict_cols: list[str] | None = None, 
+        try_convert: bool = True, 
+        session: AsyncSession | None = None, 
+        params_per_chunk: int = 10000, 
+        allow_infinity: bool = True,
+        ) -> dict[str, int | DataFrame]:
+        """
+        Session 주입하여 작업 수행
+        이 경우 
+            - 해당 세션에서 스키마 변경 후 작업 수행(필요시)
+            - 커밋/롤백은 호출부에서 처리
+        """
+        ...
+
+
+    async def upsert_batch(
+        self, 
+        table: DeclarativeBase, 
+        data: pd.DataFrame, 
+        schemas: list[str] | None = None, 
+        conflict_cols: list[str] | None = None, 
+        try_convert: bool = True, 
+        session: AsyncSession | None = None, 
+        params_per_chunk: int = 10000, 
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+        ) -> dict[str, int | DataFrame]:
+        if not isinstance(data, DataFrame):
+            raise ValueError(f"Invalid data type: {type(data)}")
+
+        # 항상 그렇듯 극한 성능 필요하면 언어 변경 및 SQL 수기 작성 필요
+        df = self._convert_df_for_db(data, try_convert, allow_infinity)
+
+        if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
+            raise ValueError(f"Invalid conflict columns: {conflict_cols}")
+
+        cnt_rows: int = len(df)
+        cnt_cols: int = len(df.columns)
+
+        if cnt_rows == 0:
+            return {"cnt_success_rows": 0, "cnt_failed_rows": 0, "df_failed": DataFrame()}
+        if cnt_cols == 0:
+            raise ValueError("DataFrame has no columns.")
+
+        rows_per_batch: int = max(1, params_per_chunk // cnt_cols)
+
+        if session is not None:
+            # 세션 주입시 커밋 허용하지 않음. 이 경우 커밋/롤백은 호출부에서 처리
+            return await self._upsert_dataframe_core(table, df, session, rows_per_batch, conflict_cols, partial_commit=False)
+        else:
+            async with self.session_maker() as session:
+                await self._set_session_schemas(session, schemas)
+                try:
+                    result = await self._upsert_dataframe_core(table, df, session, rows_per_batch, conflict_cols, partial_commit=partial_commit)
+                    if not partial_commit:
+                        # 부분 커밋 안하면 전체 커밋
+                        await session.commit()
+                    return result
+                except Exception:
+                    if not partial_commit:
+                        await session.rollback()
+                    raise 
+
+
+    def _convert_df_for_db(self, df: pd.DataFrame, try_convert: bool = True, allow_infinity: bool = True) -> pd.DataFrame:
+        if try_convert:
+            df = df.copy()
+            df = self.convert_datetime_for_db(df, deep_copy=False)
+            df = self.convert_numeric_for_db(df, set_none_as=None, allow_infinity=allow_infinity, deep_copy=False)
+        return df
+
+
+    async def _upsert_dataframe_core(
+        self, 
+        table: DeclarativeBase, 
+        df: pd.DataFrame, 
+        session: AsyncSession,
+        rows_per_batch : int,
+        conflict_cols: list[str] | None = None,
+        partial_commit: bool = True,
+        ) -> dict[str, int | DataFrame]:
         '''
-        자동 Upserter.
+        자동 Upserter. batch단위 커밋.
         가용한 모든 df(DataFrame)컬럼 업데이트.
             - df(DataFrame)에는 table 의 아래 중 하나를 만족하는 컬럼이 존재하여야 함 (유니크 제약이 우선임에 유의)
               - UniqueConstraint 
@@ -656,123 +741,210 @@ class PGDBManager(DBManager):
         이를 방지하기 위해, "df[col_name].where(df[col_name].notna(), None)"으로 None으로 변환한 뒤 입력할 것.
         여기서 처리 할 수 있으나, 이 이상 범용화하면 성능저하가 우려되므로 필요한 경우에만 먼저 처리하여 입력 할 것.   
         '''
-        # 항상 그렇듯 극한 성능 필요하면 언어 변경 및 SQL 수기 작성 필요
+        cnt_success_rows: int = 0
+        cnt_failed_rows: int = 0
+        dfs_failed_batch: list[DataFrame] = []
+        df_failed: DataFrame = DataFrame()
 
-        if try_convert:
-            df = df.copy()
-            df = self.convert_datetime_for_db(df, deep_copy=False)
-            df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
-
-        if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
-            raise ValueError(f"Invalid conflict columns: {conflict_cols}")
-
-        async with self.session_maker() as session:
-            await self._set_session_schemas(session, schemas)
+        for i in range(0, len(df), rows_per_batch):
+            df_batch: DataFrame = df.iloc[i:i+rows_per_batch]
             try:
-                # logger.info(f"🚀 START [upsert_dataframe]")
-                
-                uniqs: list[str] = conflict_cols or self._get_most_suitable_unique_keys(table, df)
-
-                # 모델에 정의된 컬럼만 선택 (불필요한 컬럼 제거)
-                model_columns = [col.name for col in table.__table__.columns]
-                df_filtered = df[[col for col in model_columns if col in df.columns]]
-                
-                rows: list[dict] = df_filtered.to_dict(orient="records")
-
-                stmt: Insert = insert(table).values(rows)
-                ce: ColumnElement = stmt.excluded
-
-                update_cols = {c: getattr(ce, c) for c in df_filtered.columns if hasattr(ce, c)}
-
-                # 키/유니크 값만 있는 경우: conflict 시 아무것도 하지 않음 (insert만 수행)
-                if not update_cols:
-                    stmt = stmt.on_conflict_do_nothing(index_elements=uniqs)
-                else:
-                    stmt = stmt.on_conflict_do_update(index_elements=uniqs, set_=update_cols)
-
-                # if update_cols:
-                #     logger.info(f"⏫ UPSERT {table_name} rows={len(rows)} keys={uniqs} set={list(update_cols.keys())}")
-                # else:
-                #     logger.info(f"⏫ INSERT {table_name} rows={len(rows)} keys={uniqs} (no update columns)")
+                stmt: Insert = self._stmt_upsert_dataframe(table, df_batch, conflict_cols)
                 await session.execute(stmt)
-                await session.commit()
-
-                return len(rows)
-
+                if partial_commit:
+                    await session.commit()
+                cnt_success_rows += len(df_batch)
             except Exception as e:
-                await session.rollback()
-                logger.exception(f"❌ UPSERT 실패 @ {table.__tablename__} | 이유: {str(e)}")
-                raise
+                logger.error(f"Error upserting dataframe: {e}")
+                if partial_commit:
+                    cnt_failed_rows += len(df_batch)
+                    dfs_failed_batch.append(df_batch)
+                    await session.rollback()
+                else:
+                    raise
+            finally:
+                pass
+        if dfs_failed_batch:
+            df_failed: DataFrame = pd.concat(dfs_failed_batch, ignore_index=False)
+        return {"cnt_success_rows": cnt_success_rows, "cnt_failed_rows": cnt_failed_rows, "df_failed": df_failed}
 
 
-    async def update_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, schemas: Optional[list[str]] = None, conflict_cols: Optional[list[str]] = None, try_convert: bool = True) -> int:
-        """
-        자동 Updater (UPDATE only, PostgreSQL).(Upserter 참조한한 ChatGPT-5.2 생성분)
-        - upsert_dataframe의 데이터 준비 로직 재사용
-        - 매칭되는 row만 UPDATE (없으면 아무것도 하지 않음)
-        """
+    def _stmt_upsert_dataframe(self, table: DeclarativeBase, df: pd.DataFrame, conflict_cols: list[str] | None = None) -> Executable :
 
-        if try_convert:
-            df = df.copy()
-            df = self.convert_datetime_for_db(df, deep_copy=False)
-            df = self.convert_numeric_for_db(df, set_none_as=0, allow_infinity=True, deep_copy=False)
+        uniqs: list[str] = conflict_cols or self._get_most_suitable_unique_keys(table, df)
+
+        # 모델에 정의된 컬럼만 선택 (불필요한 컬럼 제거)
+        model_columns : list[str] = [col.name for col in table.__table__.columns]
+        df_filtered : DataFrame = df[[col for col in model_columns if col in df.columns]]
+        
+        rows: list[dict] = df_filtered.to_dict(orient="records")
+
+        stmt: Insert = insert(table).values(rows)
+        ce: ColumnElement = stmt.excluded
+
+        update_cols = {c: getattr(ce, c) for c in df_filtered.columns if c not in uniqs and hasattr(ce, c)}
+
+        # 키/유니크 값만 있는 경우: conflict 시 아무것도 하지 않음 (insert만 수행)
+        if not update_cols:
+            stmt = stmt.on_conflict_do_nothing(index_elements=uniqs)
+        else:
+            stmt = stmt.on_conflict_do_update(index_elements=uniqs, set_=update_cols)
+
+        return stmt
+
+
+    @overload
+    async def update_batch(
+        self,
+        table: DeclarativeBase,
+        data_to_update: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        params_per_chunk: int = 10000,
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+    ) -> dict[str, int | DataFrame]:
+        ...
+
+    @overload
+    async def update_batch(
+        self,
+        table: DeclarativeBase,
+        data_to_update: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        session: AsyncSession | None = None,
+        params_per_chunk: int = 10000,
+        allow_infinity: bool = True,
+    ) -> dict[str, int | DataFrame]:
+        ...
+
+    async def update_batch(
+        self,
+        table: DeclarativeBase,
+        data_to_update: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        session: AsyncSession | None = None,
+        params_per_chunk: int = 10000,
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+    ) -> dict[str, int | DataFrame]:
+        if not isinstance(data_to_update, DataFrame):
+            raise ValueError(f"Invalid data_to_update type: {type(data_to_update)}")
+
+        df = self._convert_df_for_db(data_to_update, try_convert, allow_infinity)
 
         if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
             raise ValueError(f"Invalid conflict columns: {conflict_cols}")
 
+        cnt_rows: int = len(df)
+        cnt_cols: int = len(df.columns)
+        if cnt_rows == 0:
+            return {"cnt_success_rows": 0, "cnt_failed_rows": 0, "df_failed": DataFrame()}
+        if cnt_cols == 0:
+            raise ValueError("DataFrame has no columns.")
+
+        rows_per_batch: int = max(1, params_per_chunk // cnt_cols)
+
+        if session is not None:
+            # 세션 주입시 커밋 허용하지 않음. 이 경우 커밋은 호출부에서
+            return await self._update_dataframe_core(table, df, session, rows_per_batch, conflict_cols, partial_commit=False)
+
         async with self.session_maker() as session:
             await self._set_session_schemas(session, schemas)
             try:
-                uniqs: list[str] = conflict_cols or self._get_most_suitable_unique_keys(table, df)
-
-                # 모델에 정의된 컬럼만 선택
-                model_columns = [col.name for col in table.__table__.columns]
-                df_filtered = df[[col for col in model_columns if col in df.columns]]
-
-                # 키 컬럼 누락은 UPDATE 성립 불가
-                missing_keys = [k for k in uniqs if k not in df_filtered.columns]
-                if missing_keys:
-                    raise ValueError(f"Missing key columns in df: {missing_keys} (keys={uniqs})")
-
-                rows: list[dict] = df_filtered.to_dict(orient="records")
-
-                # 키 제외 업데이트 컬럼
-                update_col_names = [c for c in df_filtered.columns if c not in uniqs]
-
-                if not update_col_names:
+                result = await self._update_dataframe_core(table, df, session, rows_per_batch, conflict_cols, partial_commit=partial_commit)
+                if not partial_commit:
                     await session.commit()
-                    return 0
-
-                v_cols = uniqs + update_col_names
-
-                t = table.__table__
-                v = (
-                    values(*[t.c[c] for c in v_cols], name="v")
-                    .data([tuple(r.get(c) for c in v_cols) for r in rows])
-                    .alias("v")
-                )
-
-                where_clause = and_(*[t.c[k] == v.c[k] for k in uniqs])
-                set_clause = {c: v.c[c] for c in update_col_names}
-
-                # ✅ 핵심: v.c 를 참조하면 PostgreSQL에서 UPDATE ... FROM v 로 렌더링됨
-                stmt = (
-                    update(t)
-                    .where(where_clause)
-                    .values(**set_clause)
-                    .execution_options(synchronize_session=False)
-                )
-
-                result = await session.execute(stmt)
-                await session.commit()
-
-                rc = result.rowcount
-                return int(rc) if rc is not None and rc >= 0 else 0
-
-            except Exception as e:
-                await session.rollback()
-                logger.exception(f"❌ UPDATE 실패 @ {table.__tablename__} | 이유: {str(e)}")
+                return result
+            except Exception:
+                if not partial_commit:
+                    await session.rollback()
                 raise
+
+
+    async def _update_dataframe_core(
+        self,
+        table: DeclarativeBase,
+        df: pd.DataFrame,
+        session: AsyncSession,
+        rows_per_batch: int,
+        conflict_cols: list[str] | None = None,
+        partial_commit: bool = True,
+    ) -> dict[str, int | DataFrame]:
+        cnt_success_rows: int = 0
+        cnt_failed_rows: int = 0
+        dfs_failed_batch: list[DataFrame] = []
+        df_failed: DataFrame = DataFrame()
+
+        for i in range(0, len(df), rows_per_batch):
+            df_batch: DataFrame = df.iloc[i:i + rows_per_batch]
+            try:
+                stmt = self._stmt_update_dataframe(table, df_batch, conflict_cols)
+                if stmt is None:
+                    cnt_success_rows += len(df_batch)
+                    continue
+
+                await session.execute(stmt)
+                
+                if partial_commit:
+                    await session.commit()
+                cnt_success_rows += len(df_batch)
+
+            except Exception:
+                if partial_commit:
+                    cnt_failed_rows += len(df_batch)
+                    dfs_failed_batch.append(df_batch)
+                    await session.rollback()
+                else:
+                    raise
+
+        if dfs_failed_batch:
+            df_failed = pd.concat(dfs_failed_batch, ignore_index=False)
+        return {"cnt_success_rows": cnt_success_rows, "cnt_failed_rows": cnt_failed_rows, "df_failed": df_failed}
+
+
+    def _stmt_update_dataframe(
+        self,
+        table: DeclarativeBase,
+        df: pd.DataFrame,
+        conflict_cols: list[str] | None = None,
+    ) -> Executable | None:
+        uniqs: list[str] = conflict_cols or self._get_most_suitable_unique_keys(table, df)
+
+        model_columns = [col.name for col in table.__table__.columns]
+        df_filtered = df[[col for col in model_columns if col in df.columns]]
+
+        missing_keys = [k for k in uniqs if k not in df_filtered.columns]
+        if missing_keys:
+            raise ValueError(f"Missing key columns in df: {missing_keys} (keys={uniqs})")
+
+        rows: list[dict] = df_filtered.to_dict(orient="records")
+        update_col_names = [c for c in df_filtered.columns if c not in uniqs]
+        if not update_col_names:
+            return None
+
+        v_cols = uniqs + update_col_names
+        t = table.__table__
+        v = (
+            values(*[t.c[c] for c in v_cols], name="v")
+            .data([tuple(r.get(c) for c in v_cols) for r in rows])
+            .alias("v")
+        )
+
+        where_clause = and_(*[t.c[k] == v.c[k] for k in uniqs])
+        set_clause = {c: v.c[c] for c in update_col_names}
+
+        return (
+            update(t)
+            .where(where_clause)
+            .values(**set_clause)
+            .execution_options(synchronize_session=False)
+        )
 
 
     def _get_uniqueness(self, base_model: Type[DeclarativeBase]) -> None:
@@ -806,6 +978,7 @@ class PGDBManager(DBManager):
         self.primary_constraints[table.name] = primary_constraints
         self.foreign_key_constraints[table.name] = foreign_key_constraints
 
+
     def _get_keys(self, table: Table) -> None:
         unique_keys: list[str] = []
         primary_keys: list[str] = []
@@ -826,53 +999,3 @@ class PGDBManager(DBManager):
         self.not_null_columns[table.name] = not_null_columns
 
 
-    async def copy_tables_of_schema(self, schema_to_make: str, schemas_for_fk: list[str] | None = None) -> int:
-        """
-        schema가 지정되지 않은 테이블을 대상으로 DB에 새로운 스키마를 생성하고, 테이블을 복사.
-
-        정책:
-        - schema_to_make 존재하면 raise
-        - tenant 대상은 schema=None 모델만
-        """
-
-        # tenant 대상: schema=None
-        tenant_tables: list[Table] = [
-            t for t in self.base_model.metadata.tables.values()
-            if t.schema is None
-        ]
-
-        if not tenant_tables:
-            raise RuntimeError("No tenant tables (schema=None).")
-
-        async with self.async_engine.begin() as conn:
-            # 1) schema 존재하면 실패
-            if await self.exists_schema(schema_to_make):
-                raise RuntimeError(f"Schema '{schema_to_make}' already exists.")
-
-            # 2) schema 생성 + search_path 
-            to_schema : str = str(quoted_name(schema_to_make, quote=True))
-            await conn.execute(text(f"CREATE SCHEMA {to_schema}"))
-
-            query : str = f"SET search_path TO {to_schema}"
-            if schemas_for_fk:
-                query += ", " + ", ".join([str(quoted_name(s, quote=True)) for s in schemas_for_fk])
-            await conn.execute(text(query))
-
-            # 3) 1-pass: FK 없이 테이블 생성
-            for t in tenant_tables:
-                await conn.run_sync(
-                    lambda sync_conn, table=t: table.create(
-                        bind=sync_conn,
-                        checkfirst=False,
-                        include_foreign_key_constraints=[],
-                    )
-                )
-
-            # 4) 2-pass: FK 추가 (순환 포함 안전)
-            for t in tenant_tables:
-                for fk in t.foreign_key_constraints:
-                    await conn.run_sync(
-                        lambda sync_conn, c=fk: sync_conn.execute(AddConstraint(c))
-                    )
-
-        return len(tenant_tables)

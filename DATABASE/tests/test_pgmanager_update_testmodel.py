@@ -3,7 +3,7 @@ TestModel updater 통합 테스트.
 
 목적:
 - DB에 이미 존재하는 유니크 키(a)를 가진 레코드가 있을 때,
-- nullable=False 컬럼(b)을 입력하지 않고 update_dataframe()을 수행해도
+- nullable=False 컬럼(b)을 입력하지 않고 update_batch()를 수행해도
   정상 업데이트되는지 검증.
 """
 
@@ -81,7 +81,7 @@ async def test_update_without_non_nullable_column(pg_manager: PGDBManager) -> No
             }
         ]
     )
-    inserted = await pg_manager.upsert_dataframe(DBTestModel, df_seed)
+    inserted = await pg_manager._upsert_dataframe(DBTestModel, df_seed)
     assert inserted == 1
 
     # non-nullable(b) 제외하고 UPDATE
@@ -94,8 +94,12 @@ async def test_update_without_non_nullable_column(pg_manager: PGDBManager) -> No
             }
         ]
     )
-    updated = await pg_manager.update_dataframe(DBTestModel, df_update, conflict_cols=["a"])
-    assert updated == 1
+    update_result = await pg_manager.update_batch(
+        table=DBTestModel,
+        data=df_update,
+        conflict_cols=["a"],
+    )
+    assert int(update_result["cnt_success_rows"]) == 1
 
     # 결과 검증
     result = await pg_manager.execute_query(

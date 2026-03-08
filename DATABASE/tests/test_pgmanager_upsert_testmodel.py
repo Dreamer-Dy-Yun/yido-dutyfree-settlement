@@ -85,7 +85,7 @@ async def test_upsert_without_non_nullable_column(pg_manager: PGDBManager) -> No
             }
         ]
     )
-    inserted = await pg_manager.upsert_dataframe(TestModel, df_seed)
+    inserted = await pg_manager._upsert_dataframe(TestModel, df_seed)
     assert inserted == 1
 
     # 2) non-nullable(b) 제외하고 upsert
@@ -98,7 +98,7 @@ async def test_upsert_without_non_nullable_column(pg_manager: PGDBManager) -> No
             }
         ]
     )
-    upserted = await pg_manager.upsert_dataframe(TestModel, df_upsert_min)
+    upserted = await pg_manager._upsert_dataframe(TestModel, df_upsert_min)
     assert upserted == 1
 
     # 3) 결과 검증

@@ -75,7 +75,7 @@ class Tenant(BaseModelPublic):
     contact: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 대표번호
     email: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 대표 이메일
     address: Mapped[str | None] = mapped_column(Text, nullable=True)  # 소재지
-    dir_root: Mapped[str] = mapped_column(Text, nullable=False)  # 테넌트 루트 디렉토리 경로
+    dir_base: Mapped[str] = mapped_column(Text, nullable=False)  # 테넌트 베이스 디렉토리 경로
     schema_name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)  # 스키마 이름
     is_db_built: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 스키마/테이블 생성 여부
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 활성화 여부

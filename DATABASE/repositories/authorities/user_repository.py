@@ -53,7 +53,8 @@ class UserRepository(BaseRepository):
 
     async def create(self, df: pd.DataFrame) -> int:
         """사용자 생성"""
-        return await self.db.upsert_dataframe(models.User, df)
+        result = await self.db.upsert_batch(table=models.User, data=df)
+        return int(result["cnt_success_rows"])
 
     async def update(self, user_id: uuid.UUID, update_data: dict[str, Any]) -> int:
         """사용자 정보 업데이트"""
