@@ -8,6 +8,7 @@ function LlmApiKeyCreatePage() {
   const { apiKeyId } = useParams();
   const isEdit = Boolean(apiKeyId);
   const [formData, setFormData] = useState({
+    purpose: 'OCR',
     llm_provider: 'OPEN AI',
     llm_model: 'gpt-4o',
     api_key: '',
@@ -28,6 +29,7 @@ function LlmApiKeyCreatePage() {
       setError('');
       const data = await getLlmApiKeyDetail(apiKeyId);
       setFormData({
+        purpose: data.purpose || 'OCR',
         llm_provider: String(data.llm_provider || 'OPEN AI').toUpperCase(),
         llm_model: data.llm_model || '',
         api_key: '',
@@ -52,8 +54,8 @@ function LlmApiKeyCreatePage() {
     e.preventDefault();
     setError('');
 
-    if (!formData.llm_provider.trim() || !formData.llm_model.trim()) {
-      setError('제공사와 모델을 모두 입력해주세요.');
+    if (!formData.purpose.trim() || !formData.llm_provider.trim() || !formData.llm_model.trim()) {
+      setError('용도, 제공사, 모델을 모두 입력해주세요.');
       return;
     }
     if (!isEdit && !formData.api_key.trim()) {
@@ -65,6 +67,7 @@ function LlmApiKeyCreatePage() {
       setSaving(true);
       if (isEdit) {
         const payload = {
+          purpose: formData.purpose.trim(),
           llm_provider: formData.llm_provider.trim().toUpperCase(),
           llm_model: formData.llm_model.trim(),
           is_active: formData.is_active,
@@ -76,6 +79,7 @@ function LlmApiKeyCreatePage() {
         alert('API KEY가 수정되었습니다.');
       } else {
         await createLlmApiKey({
+          purpose: formData.purpose.trim(),
           llm_provider: formData.llm_provider.trim().toUpperCase(),
           llm_model: formData.llm_model.trim(),
           api_key: formData.api_key.trim(),
@@ -113,6 +117,19 @@ function LlmApiKeyCreatePage() {
       <form className="common-card llm-api-key-create-form" onSubmit={handleSubmit}>
         <div className="llm-api-key-form-grid">
           <div className="llm-api-key-form-item">
+            <label htmlFor="purpose">용도 (Purpose)</label>
+            <select
+              id="purpose"
+              name="purpose"
+              value={formData.purpose}
+              onChange={handleChange}
+              required
+            >
+              <option value="OCR">OCR</option>
+            </select>
+          </div>
+
+          <div className="llm-api-key-form-item">
             <label htmlFor="llm_provider">LLM 제공사</label>
             <select
               id="llm_provider"
@@ -127,15 +144,25 @@ function LlmApiKeyCreatePage() {
 
           <div className="llm-api-key-form-item">
             <label htmlFor="llm_model">LLM 모델</label>
-            <input
+            <select
               id="llm_model"
               name="llm_model"
-              type="text"
               value={formData.llm_model}
               onChange={handleChange}
-              placeholder="예: gpt-4o"
               required
-            />
+            >
+              <option value="">모델을 선택하세요</option>
+              {/* GPT-5 계열 */}
+              <option value="gpt-5.4">GPT-5.4</option>
+              <option value="gpt-5.4-pro">GPT-5.4 pro</option>
+              <option value="gpt-5-mini">GPT-5 mini</option>
+              <option value="gpt-5-nano">GPT-5 nano</option>
+              <option value="gpt-5">GPT-5</option>
+
+              {/* GPT-4 계열 (기존 기본값 포함) */}
+              <option value="gpt-4.1">GPT-4.1</option>
+              {/* <option value="gpt-4o">GPT-4o</option> API 및 매개변수 상이 */}
+            </select>
           </div>
 
           <div className="llm-api-key-form-item llm-api-key-full-width">

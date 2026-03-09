@@ -54,18 +54,19 @@ class OcrPassport(BaseModel):
     """구매자 여권 정보 (OCR 결과). ICAO Doc 9303 Part 4 Section 4.2.2 근거."""
     __tablename__ = "ocr_passport"
 
-    country_code: Mapped[str | None] = mapped_column(String(3), nullable=True)  # 국가코드
-    passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 여권번호
+    country_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 국가코드
+    passport_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 여권번호
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 이름
-    gender: Mapped[str | None] = mapped_column(String(1), nullable=True)  # 성별 [M|F]
+    gender: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 성별 [M|F]
     place_of_birth: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 출생지
     date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)  # 생년월일
     place_of_issue: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발행지
     date_of_issue: Mapped[date | None] = mapped_column(Date, nullable=True)  # 발행일
     authority: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발급기관
     date_of_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)  # 만료일
-    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=False, index=True)  # 이미지 좌표 (COMPOSITE)
+    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=False, index=True)  # 이미지 좌표 
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (SHA-256, COMPOSITE)
+    hash_ocr_result: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (COMPOSITE)
 
     __table_args__ = (
         UniqueConstraint("hash_img", "coordinate", name="uq_ocr_passport_hash_coordinate"),
@@ -82,14 +83,15 @@ class OcrReceipt(BaseModel):
     """구매자 영수증 정보 (OCR 결과). 영수증 상 데이터 OCR 인식값."""
     __tablename__ = "ocr_receipt"
 
-    dutyfree_company: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 면세점 구분
-    group_no: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 그룹 번호
-    receipt_no: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 영수증 번호(교환권)
-    country_code: Mapped[str | None] = mapped_column(String(3), nullable=True)  # 국가코드
-    passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 구매자 여권 번호
+    dutyfree_company: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 면세점 구분
+    group_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 그룹 번호
+    receipt_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 영수증 번호(교환권)
+    country_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 국가코드
+    passport_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 구매자 여권 번호
     purchaser: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 구매자 이름
-    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=False, index=True)  # 이미지 좌표 (COMPOSITE)
+    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=False, index=True)  # 이미지 좌표 
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (COMPOSITE)
+    hash_ocr_result: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (COMPOSITE)
 
     __table_args__ = (
         UniqueConstraint("hash_img", "coordinate", name="uq_ocr_receipt_hash_coordinate"),
@@ -173,8 +175,8 @@ class Image(BaseModel):
     exists: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 파일 존재 여부
     is_processing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 작업 진행 중 여부 (논리 LOCK 역할)
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 이미지 작업 완료 여부
-
-
+    is_classified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 이미지 분류 여부
+    note: Mapped[str] = mapped_column(Text, nullable=True)  # 비고고
 
 # ---------------------------------------------------------------------------
 # MATCHED: EDI 정보 (여권-영수증 매칭과 그 이후의 매칭으로 테이블 분리 고려중) 

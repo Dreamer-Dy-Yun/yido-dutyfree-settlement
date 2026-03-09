@@ -16,6 +16,7 @@ from enum import Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, UniqueConstraint, BigInteger, Numeric, Enum as SQLEnum
 from .base_model import BaseModel
+from CUSTOMIZED.cust_logger import logger
 
 
 class ServiceAccountRole(Enum):
@@ -87,6 +88,7 @@ class Tenant(BaseModelPublic):
 class LLM_API_Key(BaseModelPublic):
     __tablename__ = "llm_api_key"
     
+    purpose : Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # LLM 용도, 현재 OCR전용
     llm_provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # LLM 제공사
     llm_model: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # LLM 모델
     api_key: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)  # API 키

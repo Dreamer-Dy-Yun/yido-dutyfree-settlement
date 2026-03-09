@@ -853,7 +853,19 @@ async def get_llm_api_keys(
     result = await db.execute_query(stmt, schemas=schemas)
     rows = result.scalars().all()
     return {
-        "llm_api_keys": [row.to_dict() for row in rows],
+        "llm_api_keys": [
+            {
+                "id": row.id,
+                "purpose": row.purpose,
+                "llm_provider": row.llm_provider,
+                "llm_model": row.llm_model,
+                "api_key": f"{row.api_key[:8]}******...******{row.api_key[-4:]}",
+                "is_active": row.is_active,
+                "db_created_at": row.db_created_at,
+                "db_updated_at": row.db_updated_at,
+            }
+            for row in rows
+        ],
         "total": len(rows),
         "skip": skip,
         "limit": limit,

@@ -124,9 +124,10 @@ function LlmApiKeyListPage() {
           <CommonDataTable
             columns={[
               { key: 'id', label: 'ID' },
-              { key: 'provider', label: 'Provider' },
-              { key: 'model', label: 'Model' },
-              { key: 'api_key', label: 'API KEY', render: (row) => maskApiKey(row.api_key) },
+              { key: 'purpose', label: 'Purpose' },
+              { key: 'llm_provider', label: 'Provider' },
+              { key: 'llm_model', label: 'Model' },
+              { key: 'api_key', label: 'API KEY', render: (row) => row.api_key },
               { key: 'created_at', label: '등록일', render: (row) => formatCreatedAt(row) },
               { key: 'active', label: 'Active', render: (row) => (row.is_active ? 'Y' : 'N') },
               {

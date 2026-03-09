@@ -28,8 +28,9 @@ class BaseModel(DeclarativeBase):
     # 감사 필드
     db_created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     db_updated_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    db_created_at: Mapped[DateTime] = mapped_column(DateTime, nullable=False, server_default=func.now())
-    db_updated_at: Mapped[DateTime] = mapped_column(DateTime, default=func.now(), server_default=func.now(), onupdate=func.now(), nullable=False)
+    db_created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    db_updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), default=func.now(), server_default=func.now(), onupdate=func.now(), nullable=False)
+
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}(id={self.id}, updated={self.db_updated_at})>"

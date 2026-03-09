@@ -38,6 +38,9 @@
 #                    ※ PGDBManager.update_batch()도 동일 수정
 # TODO : key 기반 중복 체크 로직 추가 (upsert_batch(), update_batch() 용)
 # TODO : Steaming용 모듈 작성 고려
+# TODO : df->db를 위한 내부 타입 안정화 용 df 래퍼 작성
+# TODO : 임의의 스키마 내 테이블 일괄 작성 기능 추가 (퍼블릭, 테넌트 스키마(스키마 미지정) 모두 가능)
+# TODO : 임의의 스키마 내 테이블 일괄 변경 (퍼블릭, 테넌트 스키마(스키마 미지정) 모두 가능)
 ############################################
 import urllib
 
