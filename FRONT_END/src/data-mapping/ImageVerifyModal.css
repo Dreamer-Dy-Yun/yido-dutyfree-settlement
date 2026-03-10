@@ -1,0 +1,265 @@
+.image-verify-modal {
+  max-width: 1320px;
+  width: 95%;
+  height: min(88vh, 820px);
+  min-height: 420px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.image-verify-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.image-verify-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.image-verify-close {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  cursor: pointer;
+}
+
+.image-verify-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 20px;
+  padding: 20px 24px 24px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.image-verify-left {
+  min-height: 0;
+  height: 100%;
+}
+
+.image-verify-left .image-viewer-container {
+  height: 100%;
+  min-height: 380px;
+}
+
+.image-verify-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.image-verify-type-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.image-verify-type-btn {
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  background: #f6f8fa;
+  cursor: pointer;
+}
+
+.image-verify-type-btn-active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.image-verify-type-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.image-verify-region-btn {
+  margin-left: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  background: #fff;
+  cursor: pointer;
+}
+
+.image-verify-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.image-verify-field label {
+  flex: 0 0 110px;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.image-verify-field input,
+.image-verify-field select {
+  flex: 1 1 auto;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+}
+
+.image-verify-list-section {
+  margin-top: 12px;
+}
+
+.image-verify-list-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin: 4px 0 6px;
+  color: #374151;
+}
+
+.image-verify-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.image-verify-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.image-verify-card-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+}
+
+.image-verify-card-main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.image-verify-card-label {
+  color: #111827;
+  font-weight: 500;
+}
+
+.image-verify-card-meta {
+  color: #4b5563;
+}
+
+.image-verify-card-verified {
+  background: #22c55e;
+  color: #ecfdf5;
+}
+
+.image-verify-card-verified .image-verify-card-icon {
+  background: rgba(15, 118, 110, 0.9);
+  color: #ecfdf5;
+}
+
+.image-verify-card-verified .image-verify-card-label,
+.image-verify-card-verified .image-verify-card-meta {
+  color: #ecfdf5;
+}
+
+.image-verify-card-unverified {
+  background: #fb923c;
+  color: #111827;
+}
+
+.image-verify-card-unverified .image-verify-card-icon {
+  background: rgba(124, 45, 18, 0.9);
+  color: #fff7ed;
+}
+
+.image-verify-card-unverified .image-verify-card-label {
+  color: #111827;
+}
+
+.image-verify-card-unverified .image-verify-card-meta {
+  color: #7c2d12;
+}
+
+.image-verify-error {
+  margin-top: 4px;
+  margin-bottom: 8px;
+  color: #b3261e;
+  font-size: 0.85rem;
+}
+
+.image-verify-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.image-verify-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.image-verify-nav-btn {
+  border: 1px solid #d0d7de;
+  background: #f6f8fa;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.image-verify-confirm-button {
+  margin-left: 8px;
+}
+
+.image-verify-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-verify-confirm-dialog {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-width: 260px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.image-verify-confirm-dialog p {
+  margin: 0 0 12px;
+}
+
+.image-verify-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+

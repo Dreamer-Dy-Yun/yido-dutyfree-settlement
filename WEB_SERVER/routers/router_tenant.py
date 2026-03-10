@@ -15,8 +15,10 @@ import secrets
 import string
 import uuid
 from pathlib import Path
+import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, func, and_, update as sql_update
 from sqlalchemy.sql import Select
@@ -105,6 +107,31 @@ class UsageResponse(BaseModel):
     total_llm_tokens: int
     period_start: datetime | None
     period_end: datetime | None
+
+
+class ReceiptVerifyRequest(BaseModel):
+    """영수증 검수/수정 요청 스키마"""
+    source: str  # "ocr" | "verified"
+    id: int
+    dutyfree_company: str
+    group_no: str | None = None
+    receipt_no: str
+    country_code: str | None = None
+    passport_no: str | None = None
+    purchaser: str | None = None
+    coordinate: dict[str, float] | None = None
+    rotation: float | None = None
+
+
+class PassportVerifyRequest(BaseModel):
+    """여권 검수/수정 요청 스키마"""
+    source: str  # "ocr" | "verified"
+    id: int
+    country_code: str
+    passport_no: str
+    name: str | None = None
+    coordinate: dict[str, float] | None = None
+    rotation: float | None = None
 
 
 # 유저 관리 API
@@ -393,6 +420,411 @@ async def get_image_ocr_progress(
         "done": int(done),
         "pending": int(pending),
         "progress_percent": progress_percent,
+    }
+
+
+# ============================================================================
+# 데이터 매핑 / 이미지 확인용 리스트 API
+# ============================================================================
+
+
+@router.get(
+    "/data-mapping/receipts",
+    summary="영수증 OCR/검증 리스트 조회",
+    description="이미지 기반 영수증 OCR/검증 데이터를 조회합니다. 기본은 미완료(OCR 원본, is_processed=False)만 반환합니다.",
+)
+@handle_http_error
+async def list_receipts_for_review(
+    is_completed: bool = Query(
+        False,
+        description="작업 완료 여부. false=OCR 미처리(OcrReceipt.is_processed=False), true=검증 완료(VerifiedReceipt.is_verified=True)",
+    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    """
+    이미지 기반 영수증 OCR/검증 리스트를 조회한다.
+    - is_completed=False: OcrReceipt 기준, is_processed=False 인 행만 반환
+    - is_completed=True: VerifiedReceipt 기준, is_verified=True 인 행만 반환
+    """
+    schemas = _get_current_tenant_schemas(current_user)
+
+    if not is_completed:
+        # 미완료: OCR 원본 기준 (is_processed=False)
+        stmt = (
+            select(
+                models.OcrReceipt.id.label("id"),
+                models.OcrReceipt.dutyfree_company.label("dutyfree_company"),
+                models.OcrReceipt.group_no.label("group_no"),
+                models.OcrReceipt.receipt_no.label("receipt_no"),
+                models.OcrReceipt.country_code.label("country_code"),
+                models.OcrReceipt.passport_no.label("passport_no"),
+                models.OcrReceipt.purchaser.label("purchaser"),
+                models.OcrReceipt.coordinate.label("coordinate_ocr"),
+                models.OcrReceipt.hash_img.label("hash_img"),
+                models.Image.path.label("image_path"),
+            )
+            .join(
+                models.Image,
+                models.Image.hash == models.OcrReceipt.hash_img,
+                isouter=True,
+            )
+            .where(models.OcrReceipt.is_processed.is_(False))
+            .order_by(models.OcrReceipt.id.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+    else:
+        # 완료: 검증 결과 기준
+        stmt = (
+            select(
+                models.VerifiedReceipt.id.label("id"),
+                models.VerifiedReceipt.dutyfree_company.label("dutyfree_company"),
+                models.VerifiedReceipt.group_no.label("group_no"),
+                models.VerifiedReceipt.receipt_no.label("receipt_no"),
+                # 검증 테이블에는 국적 필드가 없으므로, 필요 시 확장 고려
+                models.VerifiedReceipt.passport_no.label("passport_no"),
+                models.VerifiedReceipt.name.label("purchaser"),
+                models.VerifiedReceipt.hash_img.label("hash_img"),
+                models.Image.path.label("image_path"),
+                models.VerifiedReceipt.coordinate.label("coordinate_verified"),
+                models.OcrReceipt.coordinate.label("coordinate_ocr"),
+            )
+            .join(
+                models.Image,
+                models.Image.hash == models.VerifiedReceipt.hash_img,
+                isouter=True,
+            )
+            .join(
+                models.OcrReceipt,
+                models.OcrReceipt.hash_img == models.VerifiedReceipt.hash_img,
+                isouter=True,
+            )
+            .where(models.VerifiedReceipt.is_verified.is_(True))
+            .order_by(models.VerifiedReceipt.id.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+
+    result = await db.execute_query(stmt, schemas=schemas)
+    rows = result.mappings().all()
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        coord = row.get("coordinate_verified") or row.get("coordinate_ocr") or {}
+        image = {
+            "hash_img": row.get("hash_img"),
+            "path": row.get("image_path"),
+            "coordinate": {
+                "top": coord.get("top", 0),
+                "bottom": coord.get("bottom", 0),
+                "left": coord.get("left", 0),
+                "right": coord.get("right", 0),
+            }
+            if isinstance(coord, dict)
+            else None,
+        }
+        items.append(
+            {
+                "id": row.get("id"),
+                "source": "verified" if is_completed else "ocr",
+                "dutyfree_company": row.get("dutyfree_company"),
+                "group_no": row.get("group_no"),
+                "receipt_no": row.get("receipt_no"),
+                "country_code": row.get("country_code"),
+                "passport_no": row.get("passport_no"),
+                "purchaser": row.get("purchaser"),
+                "is_completed": is_completed,
+                "image": image,
+            }
+        )
+
+    return items
+
+
+@router.get(
+    "/data-mapping/passports",
+    summary="여권 OCR/검증 리스트 조회",
+    description="이미지 기반 여권 OCR/검증 데이터를 조회합니다. 기본은 미완료(OcrPassport.is_processed=False)만 반환합니다.",
+)
+@handle_http_error
+async def list_passports_for_review(
+    is_completed: bool = Query(
+        False,
+        description="작업 완료 여부. false=OCR 미처리(OcrPassport.is_processed=False), true=검증 완료(VerifiedPassport.is_verified=True)",
+    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    """
+    이미지 기반 여권 OCR/검증 리스트를 조회한다.
+    - is_completed=False: OcrPassport 기준, is_processed=False 인 행만 반환
+    - is_completed=True: VerifiedPassport 기준, is_verified=True 인 행만 반환
+    """
+    schemas = _get_current_tenant_schemas(current_user)
+
+    if not is_completed:
+        # 미완료: OCR 원본 기준 (is_processed=False)
+        stmt = (
+            select(
+                models.OcrPassport.id.label("id"),
+                models.OcrPassport.country_code.label("country_code"),
+                models.OcrPassport.passport_no.label("passport_no"),
+                models.OcrPassport.name.label("name"),
+                models.OcrPassport.coordinate.label("coordinate_ocr"),
+                models.OcrPassport.hash_img.label("hash_img"),
+                models.Image.path.label("image_path"),
+            )
+            .join(
+                models.Image,
+                models.Image.hash == models.OcrPassport.hash_img,
+                isouter=True,
+            )
+            .where(models.OcrPassport.is_processed.is_(False))
+            .order_by(models.OcrPassport.id.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+    else:
+        # 완료: 검증 결과 기준
+        stmt = (
+            select(
+                models.VerifiedPassport.id.label("id"),
+                models.VerifiedPassport.country_code.label("country_code"),
+                models.VerifiedPassport.passport_no.label("passport_no"),
+                models.VerifiedPassport.name.label("name"),
+                models.VerifiedPassport.hash_img.label("hash_img"),
+                models.Image.path.label("image_path"),
+                models.VerifiedPassport.coordinate.label("coordinate_verified"),
+                models.OcrPassport.coordinate.label("coordinate_ocr"),
+            )
+            .join(
+                models.Image,
+                models.Image.hash == models.VerifiedPassport.hash_img,
+                isouter=True,
+            )
+            .join(
+                models.OcrPassport,
+                models.OcrPassport.hash_img == models.VerifiedPassport.hash_img,
+                isouter=True,
+            )
+            .where(models.VerifiedPassport.is_verified.is_(True))
+            .order_by(models.VerifiedPassport.id.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+
+    result = await db.execute_query(stmt, schemas=schemas)
+    rows = result.mappings().all()
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        coord = row.get("coordinate_verified") or row.get("coordinate_ocr") or {}
+        image = {
+            "hash_img": row.get("hash_img"),
+            "path": row.get("image_path"),
+            "coordinate": {
+                "top": coord.get("top", 0),
+                "bottom": coord.get("bottom", 0),
+                "left": coord.get("left", 0),
+                "right": coord.get("right", 0),
+            }
+            if isinstance(coord, dict)
+            else None,
+        }
+        items.append(
+            {
+                "id": row.get("id"),
+                "source": "verified" if is_completed else "ocr",
+                "country_code": row.get("country_code"),
+                "passport_no": row.get("passport_no"),
+                "name": row.get("name"),
+                "is_completed": is_completed,
+                "image": image,
+            }
+        )
+
+    return items
+
+
+@router.get(
+    "/data-mapping/image/{hash_img}",
+    summary="데이터 매핑용 이미지 다운로드",
+    description="현재 테넌트의 image 테이블과 테넌트 디렉터리를 기준으로 실제 이미지 파일을 찾아 반환합니다.",
+)
+@handle_http_error
+async def get_data_mapping_image(
+    hash_img: str,
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    """
+    이미지 해시(hash_img)를 기준으로 테넌트 전용 이미지 파일을 찾아 반환한다.
+    - 인증/테넌트 스키마는 get_current_tenant_admin 에서 보장
+    - 파일 경로 구성:
+      ROOT_DIR + tenant.dir_base + image.path
+    """
+    tenant_schema = _get_current_tenant_schema_from_user(current_user)
+
+    # public.tenant 에서 현재 테넌트의 dir_base 조회
+    stmt_tenant = select(PublicTenant).where(PublicTenant.schema_name == tenant_schema)
+    result_tenant = await db.execute_query(stmt_tenant, schemas=["public"])
+    tenant = result_tenant.scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="테넌트 정보를 찾을 수 없습니다.",
+        )
+
+    # 테넌트 스키마에서 이미지 메타 조회
+    schemas = [tenant_schema, "public"]
+    stmt_image = select(models.Image).where(models.Image.hash == hash_img)
+    result_image = await db.execute_query(stmt_image, schemas=schemas)
+    image_row = result_image.scalar_one_or_none()
+    if image_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="이미지 메타데이터를 찾을 수 없습니다.",
+        )
+
+    root_dir = os.getenv("ROOT_DIR", "D:\\")
+    base_root = Path(root_dir)
+    tenant_root = base_root / tenant.dir_base
+
+    relative_path = Path(getattr(image_row, "path", ""))
+    file_path = tenant_root / relative_path
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="이미지 파일을 찾을 수 없습니다.",
+        )
+
+    mime_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    return FileResponse(path=str(file_path), media_type=mime_type)
+
+
+@router.get(
+    "/data-mapping/image-details",
+    summary="이미지 기반 영수증/여권 상세 조회",
+    description="hash_img 를 기준으로 OCR/검증 영수증/여권 데이터를 조회합니다.",
+)
+@handle_http_error
+async def get_data_mapping_details_by_image(
+    hash_img: str,
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    """
+    하나의 이미지(hash_img)에 연결된 영수증/여권 OCR 및 검증 데이터를 조회한다.
+    - receipt: VerifiedReceipt 가 있으면 우선, 없으면 OcrReceipt
+    - passport: VerifiedPassport 가 있으면 우선, 없으면 OcrPassport
+    """
+    schemas = _get_current_tenant_schemas(current_user)
+
+    # Receipt 쪽
+    receipt_data: dict[str, Any] | None = None
+
+    stmt_vr = (
+        select(models.VerifiedReceipt)
+        .where(
+            models.VerifiedReceipt.hash_img == hash_img,
+            models.VerifiedReceipt.is_verified.is_(True),
+        )
+        .order_by(models.VerifiedReceipt.db_updated_at.desc())
+        .limit(1)
+    )
+    result_vr = await db.execute_query(stmt_vr, schemas=schemas)
+    vr = result_vr.scalar_one_or_none()
+
+    if vr is not None:
+        receipt_data = {
+            "source": "verified",
+            "id": vr.id,
+            "dutyfree_company": vr.dutyfree_company,
+            "group_no": vr.group_no,
+            "receipt_no": vr.receipt_no,
+            "country_code": getattr(vr, "country_code", None),
+            "passport_no": vr.passport_no,
+            "purchaser": vr.name,
+            "coordinate": vr.coordinate,
+            "rotation": getattr(vr, "rotation", None),
+        }
+    else:
+        stmt_or = (
+            select(models.OcrReceipt)
+            .where(models.OcrReceipt.hash_img == hash_img)
+            .order_by(models.OcrReceipt.db_created_at.asc())
+            .limit(1)
+        )
+        result_or = await db.execute_query(stmt_or, schemas=schemas)
+        orow = result_or.scalar_one_or_none()
+        if orow is not None:
+            receipt_data = {
+                "source": "ocr",
+                "id": orow.id,
+                "dutyfree_company": orow.dutyfree_company,
+                "group_no": orow.group_no,
+                "receipt_no": orow.receipt_no,
+                "country_code": orow.country_code,
+                "passport_no": orow.passport_no,
+                "purchaser": orow.purchaser,
+                "coordinate": orow.coordinate,
+                "rotation": None,
+            }
+
+    # Passport 쪽
+    passport_data: dict[str, Any] | None = None
+
+    stmt_vp = (
+        select(models.VerifiedPassport)
+        .where(
+            models.VerifiedPassport.hash_img == hash_img,
+            models.VerifiedPassport.is_verified.is_(True),
+        )
+        .order_by(models.VerifiedPassport.db_updated_at.desc())
+        .limit(1)
+    )
+    result_vp = await db.execute_query(stmt_vp, schemas=schemas)
+    vp = result_vp.scalar_one_or_none()
+
+    if vp is not None:
+        passport_data = {
+            "source": "verified",
+            "id": vp.id,
+            "country_code": vp.country_code,
+            "passport_no": vp.passport_no,
+            "name": vp.name,
+            "coordinate": vp.coordinate,
+            "rotation": getattr(vp, "rotation", None),
+        }
+    else:
+        stmt_op = (
+            select(models.OcrPassport)
+            .where(models.OcrPassport.hash_img == hash_img)
+            .order_by(models.OcrPassport.db_created_at.asc())
+            .limit(1)
+        )
+        result_op = await db.execute_query(stmt_op, schemas=schemas)
+        op = result_op.scalar_one_or_none()
+        if op is not None:
+            passport_data = {
+                "source": "ocr",
+                "id": op.id,
+                "country_code": op.country_code,
+                "passport_no": op.passport_no,
+                "name": op.name,
+                "coordinate": op.coordinate,
+                "rotation": None,
+            }
+
+    return {
+        "receipt": receipt_data,
+        "passport": passport_data,
     }
 
 
@@ -724,6 +1156,210 @@ async def get_usage(
         "total_llm_tokens": int(total_llm_tokens) if total_llm_tokens else 0,
         "period_start": start_date,
         "period_end": end_date,
+    }
+
+
+@router.post(
+    "/data-mapping/receipts/verify",
+    summary="영수증 검수/수정",
+    description="OCR 또는 검증 데이터를 기반으로 영수증 정보를 검수/수정하고 VerifiedReceipt/OcrReceipt 상태를 반영합니다.",
+)
+@handle_http_error
+async def verify_receipt(
+    payload: ReceiptVerifyRequest,
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = _get_current_tenant_schemas(current_user)
+    source = (payload.source or "").lower()
+    if source not in ("ocr", "verified"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source는 'ocr' 또는 'verified'만 가능합니다.",
+        )
+
+    ocr_row = None
+    verified_row = None
+
+    if source == "ocr":
+        stmt = select(models.OcrReceipt).where(models.OcrReceipt.id == payload.id)
+        result = await db.execute_query(stmt, schemas=schemas)
+        ocr_row = result.scalar_one_or_none()
+        if ocr_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="지정된 OCR 영수증을 찾을 수 없습니다.",
+            )
+        original_duty = getattr(ocr_row, "dutyfree_company", None)
+        original_receipt_no = getattr(ocr_row, "receipt_no", None)
+        original_passport_no = getattr(ocr_row, "passport_no", None)
+        original_name = getattr(ocr_row, "purchaser", None)
+        hash_img = getattr(ocr_row, "hash_img", None)
+    else:
+        stmt = select(models.VerifiedReceipt).where(models.VerifiedReceipt.id == payload.id)
+        result = await db.execute_query(stmt, schemas=schemas)
+        verified_row = result.scalar_one_or_none()
+        if verified_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="지정된 검증 영수증을 찾을 수 없습니다.",
+            )
+        original_duty = getattr(verified_row, "dutyfree_company", None)
+        original_receipt_no = getattr(verified_row, "receipt_no", None)
+        original_passport_no = getattr(verified_row, "passport_no", None)
+        original_name = getattr(verified_row, "name", None)
+        hash_img = getattr(verified_row, "hash_img", None)
+
+    # 최초 기준 값과의 차이 여부에 따라 is_corrected 계산 (단순 비교)
+    is_corrected = any(
+        [
+            payload.dutyfree_company != original_duty,
+            payload.receipt_no != original_receipt_no,
+            (payload.passport_no or "") != (original_passport_no or ""),
+            (payload.purchaser or "") != (original_name or ""),
+        ]
+    )
+
+    # VerifiedReceipt upsert (unique: dutyfree_company + receipt_no)
+    row = {
+        "dutyfree_company": payload.dutyfree_company,
+        "group_no": payload.group_no,
+        "receipt_no": payload.receipt_no,
+        "passport_no": payload.passport_no,
+        "name": payload.purchaser,
+        "hash_img": hash_img,
+        "coordinate": payload.coordinate,
+        "rotation": payload.rotation,
+        "is_verified": True,
+        "is_corrected": is_corrected,
+        "verifier_id": getattr(current_user, "id", None),
+        "verifier_name": getattr(current_user, "name", None),
+        "db_updated_by": str(getattr(current_user, "id", "")),
+    }
+
+    df_verified = pd.DataFrame([row])
+    await db.upsert_batch(
+        table=models.VerifiedReceipt,
+        data=df_verified,
+        schemas=schemas,
+    )
+
+    # OCR 원본은 최초 검수 시 is_processed=True 로 전환
+    if ocr_row is not None and getattr(ocr_row, "is_processed", False) is False:
+        stmt_update = (
+            sql_update(models.OcrReceipt)
+            .where(models.OcrReceipt.id == ocr_row.id)
+            .values(is_processed=True, db_updated_by=str(getattr(current_user, "id", "")))
+        )
+        await db.execute_query(stmt_update, schemas=schemas)
+
+    return {
+        "message": "영수증 정보가 검수/저장되었습니다.",
+        "dutyfree_company": payload.dutyfree_company,
+        "receipt_no": payload.receipt_no,
+        "is_corrected": is_corrected,
+    }
+
+
+@router.post(
+    "/data-mapping/passports/verify",
+    summary="여권 검수/수정",
+    description="OCR 또는 검증 데이터를 기반으로 여권 정보를 검수/수정하고 VerifiedPassport/OcrPassport 상태를 반영합니다.",
+)
+@handle_http_error
+async def verify_passport(
+    payload: PassportVerifyRequest,
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = _get_current_tenant_schemas(current_user)
+    source = (payload.source or "").lower()
+    if source not in ("ocr", "verified"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source는 'ocr' 또는 'verified'만 가능합니다.",
+        )
+
+    # 여권 번호 길이 검증 (최대 9자리)
+    if payload.passport_no and len(payload.passport_no) > 9:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="여권 번호는 9자리 이하여야 합니다.",
+        )
+
+    ocr_row = None
+    verified_row = None
+
+    if source == "ocr":
+        stmt = select(models.OcrPassport).where(models.OcrPassport.id == payload.id)
+        result = await db.execute_query(stmt, schemas=schemas)
+        ocr_row = result.scalar_one_or_none()
+        if ocr_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="지정된 OCR 여권 정보를 찾을 수 없습니다.",
+            )
+        original_country = getattr(ocr_row, "country_code", None)
+        original_passport_no = getattr(ocr_row, "passport_no", None)
+        original_name = getattr(ocr_row, "name", None)
+        hash_img = getattr(ocr_row, "hash_img", None)
+    else:
+        stmt = select(models.VerifiedPassport).where(models.VerifiedPassport.id == payload.id)
+        result = await db.execute_query(stmt, schemas=schemas)
+        verified_row = result.scalar_one_or_none()
+        if verified_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="지정된 검증 여권 정보를 찾을 수 없습니다.",
+            )
+        original_country = getattr(verified_row, "country_code", None)
+        original_passport_no = getattr(verified_row, "passport_no", None)
+        original_name = getattr(verified_row, "name", None)
+        hash_img = getattr(verified_row, "hash_img", None)
+
+    is_corrected = any(
+        [
+            payload.country_code != original_country,
+            payload.passport_no != (original_passport_no or ""),
+            (payload.name or "") != (original_name or ""),
+        ]
+    )
+
+    row = {
+        "country_code": payload.country_code,
+        "passport_no": payload.passport_no,
+        "name": payload.name,
+        "hash_img": hash_img,
+        "coordinate": payload.coordinate,
+        "rotation": payload.rotation,
+        "is_verified": True,
+        "is_corrected": is_corrected,
+        "verifier_id": getattr(current_user, "id", None),
+        "verifier_name": getattr(current_user, "name", None),
+        "db_updated_by": str(getattr(current_user, "id", "")),
+    }
+
+    df_verified = pd.DataFrame([row])
+    await db.upsert_batch(
+        table=models.VerifiedPassport,
+        data=df_verified,
+        schemas=schemas,
+    )
+
+    # OCR 원본은 최초 검수 시 is_processed=True 로 전환
+    if ocr_row is not None and getattr(ocr_row, "is_processed", False) is False:
+        stmt_update = (
+            sql_update(models.OcrPassport)
+            .where(models.OcrPassport.id == ocr_row.id)
+            .values(is_processed=True, db_updated_by=str(getattr(current_user, "id", "")))
+        )
+        await db.execute_query(stmt_update, schemas=schemas)
+
+    return {
+        "message": "여권 정보가 검수/저장되었습니다.",
+        "country_code": payload.country_code,
+        "passport_no": payload.passport_no,
+        "is_corrected": is_corrected,
     }
 
 

@@ -6,6 +6,7 @@ import Sidebar from '../components/Sidebar';
 import SessionHeader from '../components/SessionHeader';
 import CommonTabsRow from '../components/CommonTabsRow';
 import { DATA_MAPPING_TABS, DEFAULT_DATA_MAPPING_TAB } from '../constants/dataMappingTabs';
+import ImageReviewPanel from '../data-mapping/ImageReviewPanel';
 import './DataMappingPage.css';
 
 /** 면세점(EDI 출처) 목록 – 프론트 상수. 추후 API/DB로 전환 가능 */
@@ -33,7 +34,8 @@ function DataMappingPage() {
   const imageFileInputRef = useRef(null);
   const [ocrProgress, setOcrProgress] = useState(null);
   const [ocrProgressError, setOcrProgressError] = useState('');
-  
+  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
+
   // URL 파라미터에서 탭 정보 가져오기
   const searchParams = new URLSearchParams(location.search);
   const tabFromUrl = searchParams.get('tab');
@@ -187,7 +189,7 @@ function DataMappingPage() {
   };
 
   useEffect(() => {
-    if (activeTab !== 'image-review') {
+    if (activeTab !== 'image-review' || isVerifyModalOpen) {
       return;
     }
 
@@ -211,7 +213,7 @@ function DataMappingPage() {
       mounted = false;
       clearInterval(timerId);
     };
-  }, [activeTab]);
+  }, [activeTab, isVerifyModalOpen]);
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -342,10 +344,10 @@ function DataMappingPage() {
             {ocrProgressError && <div className="upload-error">{ocrProgressError}</div>}
             {ocrProgress && (
               <div className="upload-success">
-                전체 {ocrProgress.total}건 / 처리중 {ocrProgress.processing}건 / 완료 {ocrProgress.done}건 / 대기 {ocrProgress.pending}건
-                {' '}({ocrProgress.progress_percent}%)
+                전체 {ocrProgress.total}건 / 처리중 {ocrProgress.processing}건 / 완료 {ocrProgress.done}건 / 대기 {ocrProgress.pending}건 ({ocrProgress.progress_percent}%)
               </div>
             )}
+            <ImageReviewPanel onVerifyModalOpenChange={setIsVerifyModalOpen} />
           </div>
         );
       case 'image-mapping':

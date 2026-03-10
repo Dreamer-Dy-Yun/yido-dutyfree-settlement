@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, Boolean, Date, DateTime, Numeric, ForeignKey, UniqueConstraint, BigInteger, Enum as SQLEnum
+from sqlalchemy import String, Text, Boolean, Date, DateTime, Numeric, Float, ForeignKey, UniqueConstraint, BigInteger, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from DATABASE.models.base_model import BaseModel
 from enum import Enum
@@ -64,7 +64,8 @@ class OcrPassport(BaseModel):
     date_of_issue: Mapped[date | None] = mapped_column(Date, nullable=True)  # 발행일
     authority: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발급기관
     date_of_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)  # 만료일
-    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=False, index=True)  # 이미지 좌표 
+    coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 이미지 좌표(정규화된 좌표)
+    is_processed: Mapped[bool|None] = mapped_column(Boolean, default=False, nullable=True)  # 처리 여부
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (SHA-256, COMPOSITE)
     hash_ocr_result: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (COMPOSITE)
 
@@ -89,7 +90,8 @@ class OcrReceipt(BaseModel):
     country_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 국가코드
     passport_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 구매자 여권 번호
     purchaser: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 구매자 이름
-    coordinate: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=False, index=True)  # 이미지 좌표 
+    coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 이미지 좌표(정규화된 좌표)
+    is_processed: Mapped[bool|None] = mapped_column(Boolean, default=False, nullable=True)  # 처리 여부
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (COMPOSITE)
     hash_ocr_result: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 해싱된 이미지 (COMPOSITE)
 
@@ -116,6 +118,8 @@ class VerifiedReceipt(BaseModel):
     receipt_no: Mapped[str] = mapped_column(String(30), nullable=False)  # 영수증 번호(교환권) (COMPOSITE)
     passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 구매자 여권 번호
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 구매자 이름
+    rotation: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)  # 이미지 회전 각도
+    coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 검증된 이미지 좌표(정규화된 좌표)
     verifier_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)  # 확인(변경)자 식별번호
     verifier_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 확인(변경)자 사용자명
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False)  # 해싱된 영수증 이미지
@@ -151,6 +155,8 @@ class VerifiedPassport(BaseModel):
     verifier_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)  # 확인(변경)자 식별번호
     verifier_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 확인(변경)자 사용자명
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False)  # 해싱된 여권 이미지 (SHA-256)
+    rotation: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)  # 이미지 회전 각도
+    coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 검증된 이미지 좌표(정규화된 좌표)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 확인 여부
     is_corrected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 확인자에 의한 변경 유무
 
@@ -172,10 +178,10 @@ class Image(BaseModel):
 
     hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)  # 이미지 해싱값 (SHA-256)
     path: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # 경로
-    exists: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 파일 존재 여부
-    is_processing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 작업 진행 중 여부 (논리 LOCK 역할)
-    is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 이미지 작업 완료 여부
-    is_classified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)  # 이미지 분류 여부
+    exists: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 파일 존재 여부
+    is_processing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 작업 진행 중 여부 (논리 LOCK 역할)
+    is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 이미지 작업 완료 여부
+    is_classified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 이미지 분류 여부
     note: Mapped[str] = mapped_column(Text, nullable=True)  # 비고고
 
 # ---------------------------------------------------------------------------

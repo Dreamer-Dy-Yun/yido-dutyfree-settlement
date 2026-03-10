@@ -119,3 +119,66 @@ export const getImageOcrProgress = async () => {
   const response = await api.get('/api/tenant/data-mapping/image-ocr-progress');
   return response.data;
 };
+
+/**
+ * 이미지 확인 - 영수증 리스트 조회
+ * @param {Object} options
+ * @param {boolean} [options.isCompleted=false] - true 이면 검수 완료(Verified), false 이면 미완료(OCR 원본)
+ * @param {number} [options.skip=0]
+ * @param {number} [options.limit=50]
+ */
+export const getReceiptList = async ({ isCompleted = false, skip = 0, limit = 50 } = {}) => {
+  const params = {
+    is_completed: isCompleted,
+    skip,
+    limit,
+  };
+  const response = await api.get('/api/tenant/data-mapping/receipts', { params });
+  return response.data;
+};
+
+/**
+ * 이미지 확인 - 여권 리스트 조회
+ * @param {Object} options
+ * @param {boolean} [options.isCompleted=false]
+ * @param {number} [options.skip=0]
+ * @param {number} [options.limit=50]
+ */
+export const getPassportList = async ({ isCompleted = false, skip = 0, limit = 50 } = {}) => {
+  const params = {
+    is_completed: isCompleted,
+    skip,
+    limit,
+  };
+  const response = await api.get('/api/tenant/data-mapping/passports', { params });
+  return response.data;
+};
+
+/**
+ * 이미지 확인 - 영수증 검수/수정
+ * @param {Object} payload - 서버 설계에 맞는 검수/수정 데이터
+ */
+export const verifyReceipt = async (payload) => {
+  const response = await api.post('/api/tenant/data-mapping/receipts/verify', payload);
+  return response.data;
+};
+
+/**
+ * 이미지 확인 - 여권 검수/수정
+ * @param {Object} payload - 서버 설계에 맞는 검수/수정 데이터
+ */
+export const verifyPassport = async (payload) => {
+  const response = await api.post('/api/tenant/data-mapping/passports/verify', payload);
+  return response.data;
+};
+
+/**
+ * 이미지 확인 - hash_img 기준 영수증/여권 상세 조회
+ * @param {string} hashImg
+ */
+export const getImageDetailsByHash = async (hashImg) => {
+  const response = await api.get('/api/tenant/data-mapping/image-details', {
+    params: { hash_img: hashImg },
+  });
+  return response.data;
+};

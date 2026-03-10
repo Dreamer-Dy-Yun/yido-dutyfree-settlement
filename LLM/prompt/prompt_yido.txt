@@ -14,10 +14,11 @@
 
 [coordinate]
 # 이미지 내의 각 세그먼트들(영수증, 여권)의 정보를 기록한다.
-# 좌표 스케일 : pixel
+# 좌표 스케일 : normalized (0 ~ 1)
 # 원점 : top-left
 # x → right, y → down
-# {top : 0, bottom : 0, left : 0, right : 0}의 형태로 기록한다.
+# {top : 0.0, bottom : 0.0, left : 0.0, right : 0.0}의 형태로 기록한다. 
+# 소숫점 이하 자릿수는 제한을 두지 않는다
 
 [hash_img]
 # 유저 프롬프트 최상단에 제공 (반드시 입력받은 해시 값을 그대로 적어서 반환할 것.)

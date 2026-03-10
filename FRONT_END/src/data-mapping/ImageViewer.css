@@ -1,0 +1,91 @@
+.image-viewer-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #111;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.image-viewer-container-edit {
+  cursor: crosshair;
+}
+
+/* 알트: 에임/십자 커서 */
+.image-viewer-cursor-crosshair.image-viewer-container {
+  cursor: crosshair;
+}
+
+.image-viewer-cursor-crosshair.image-viewer-container:active {
+  cursor: crosshair;
+}
+
+.image-viewer-container:active {
+  cursor: grabbing;
+}
+
+.image-viewer-transform-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.image-viewer-transform-wrapper .image-viewer-image {
+  display: block;
+  user-select: none;
+  pointer-events: none;
+}
+
+.image-viewer-dim {
+  position: absolute;
+  background: rgba(20, 20, 20, 0.45);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.image-viewer-roi {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 80, 80, 0.95);
+  box-shadow: 0 0 8px rgba(255, 80, 80, 0.8);
+  pointer-events: none;
+}
+
+.image-viewer-roi-inner {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 200, 200, 0.7);
+}
+
+.image-viewer-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.image-viewer-selection {
+  position: absolute;
+  border: 2px dashed rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
+.image-viewer-help {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #e5e7eb;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
