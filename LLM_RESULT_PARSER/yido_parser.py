@@ -14,7 +14,7 @@
 
 import pandas as pd
 import json
-from typing import Any, Optional
+from typing import Any, Optional, Self
 import time
 import uuid
 from LLM.dto import LLMResponse, LLMUsage
@@ -23,7 +23,7 @@ from pathlib import Path
 from CUSTOMIZED.cust_hasher import Hasher
 
 class YidoParser:
-    def __init__(self, llm_response: LLMResponse):
+    def __init__(self):
         """
         YidoParser 초기화
 
@@ -32,14 +32,18 @@ class YidoParser:
             path_image: 이미지 경로
         """
         self.request_id: str = str(uuid.uuid4())  # 비동기 환경에서 고유 식별자
-        self.model: str = llm_response.model
-        self.start_time: float = llm_response.start_time
+        self.model: str = ""
+        self.start_time: float = 0.0
         self._df_receipt: pd.DataFrame = pd.DataFrame()
         self._df_passport: pd.DataFrame = pd.DataFrame()
         self._df_usage: pd.DataFrame = pd.DataFrame()
+        self._uuid_batch: str = ""
         self.hashed_image: str = ""
-        self._run(llm_response)
 
+
+    def add_uuid_batch(self, uuid_batch: str) -> Self:
+        self._uuid_batch = uuid_batch
+        return self
 
     def add_hashed_image(self, path_image: Path) -> None:
         self.hashed_image = Hasher().hash(path_image, ignore_errors=True).value.hex()
@@ -73,7 +77,7 @@ class YidoParser:
         return pd.DataFrame([self._parse_passport(passport) for passport in passports])
 
     def _parse_receipt(self, receipt: dict[str, Any]) -> dict[str, Any]:
-        return {
+        dict_temp : dict[str, Any] = {
             "dutyfree_company": receipt.get("dutyfree_company"),
             "group_no": receipt.get("group_no"),
             "receipt_no": receipt.get("receipt_no"),
@@ -82,9 +86,15 @@ class YidoParser:
             "purchaser": receipt.get("purchaser"),
             "coordinate": receipt.get("coordinate"),    #JSON 형식
         }
+        return {
+            **dict_temp,
+            "hash_ocr_result": Hasher().hash(dict_temp).value.hex(),
+            "uuid_batch": self._uuid_batch,
+            "uuid_record": str(uuid.uuid4()).hex(),
+        }
 
     def _parse_passport(self, passport: dict[str, Any]) -> dict[str, Any]:
-        return {
+        dict_temp : dict[str, Any] = {
             "country_code": passport.get("country_code"),
             "passport_no": passport.get("passport_no"),
             "name": passport.get("name"),
@@ -97,6 +107,12 @@ class YidoParser:
             "authority": passport.get("authority"),
             "coordinate": passport.get("coordinate"),    #JSON 형식
         }
+        return {
+            **dict_temp,
+            "hash_ocr_result": Hasher().hash(dict_temp).value.hex(),
+            "uuid_batch": self._uuid_batch,
+            "uuid_record": str(uuid.uuid4()).hex(),
+        }
 
 
     def _parse_json(self, content: str) -> dict[str, Any]:
@@ -108,12 +124,15 @@ class YidoParser:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON response: {e}\nResponse content: {content[:500]}")
 
-    def _run(self, llm_response: LLMResponse) -> None:
+    def run(self, llm_response: LLMResponse) -> None:
         """응답 내용을 파싱하여 DataFrame 생성"""
         
         receipts = llm_response.content.get("receipts", {}).get("list", [])
         passports = llm_response.content.get("passports", {}).get("list", [])
         usage = llm_response.usage if llm_response.usage else None
+
+        self.model = llm_response.model
+        self.start_time = llm_response.start_time
         
         self._df_receipt = self._parse_receipts(receipts)
         self._df_passport = self._parse_passports(passports)
