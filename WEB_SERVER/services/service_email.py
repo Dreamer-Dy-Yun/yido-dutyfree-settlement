@@ -1,7 +1,7 @@
 ###########################################
 # Module name : email_service.py
 # Module functions : 이메일 발송 서비스
-# Written by : Yun Dae-young 
+# Written by : Cursor AI 
 # Contact : Dreamer.Dy.Yun@Gmail.com
 # Created at : 2026.01.30
 # Updated at : 2026.02.19
@@ -841,6 +841,111 @@ class EmailService:
 
         msg: MIMEMultipart = MIMEMultipart("alternative")
         msg["Subject"] = "[구매대행B2C] 임시 비밀번호가 발급되었습니다"
+        msg["From"] = self._sender
+        msg["To"] = receiver_email
+
+        part1 = MIMEText(text_body, "plain", "utf-8")
+        part2 = MIMEText(html_body, "html", "utf-8")
+        msg.attach(part1)
+        msg.attach(part2)
+
+        self.mime_msg = msg
+        return self
+
+    def set_user_deletion_email(
+        self,
+        receiver_email: str,
+        receiver_name: str,
+    ) -> Self:
+        """
+        테넌트 사용자 계정 삭제 안내 이메일 생성
+        - 수신자: 삭제된 사용자 이메일
+        - 내용: 계정 삭제 사실 안내
+        """
+        html_body = f"""
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+            <meta charset="UTF-8">
+            <title>계정 삭제 안내</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+                    background-color: #f3f4f6;
+                    color: #111827;
+                    line-height: 1.6;
+                    margin: 0;
+                    padding: 24px 0;
+                }}
+                .container {{
+                    max-width: 640px;
+                    margin: 0 auto;
+                    background-color: #ffffff;
+                    border-radius: 16px;
+                    overflow: hidden;
+                    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
+                }}
+                .header {{
+                    background: radial-gradient(circle at top left, #ef4444, #dc2626);
+                    color: #ffffff;
+                    padding: 28px 32px 24px 32px;
+                }}
+                .header-title {{
+                    font-size: 22px;
+                    font-weight: 700;
+                    margin: 0 0 6px 0;
+                }}
+                .content {{
+                    padding: 28px 32px 24px 32px;
+                }}
+                .paragraph {{
+                    font-size: 14px;
+                    color: #4b5563;
+                    margin: 0 0 12px 0;
+                }}
+                .footer {{
+                    padding: 12px 32px 20px 32px;
+                    font-size: 11px;
+                    color: #9ca3af;
+                    border-top: 1px solid #f3f4f6;
+                    text-align: center;
+                    background-color: #f9fafb;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <p class="header-title">계정 삭제가 완료되었습니다</p>
+                </div>
+                <div class="content">
+                    <p class="paragraph">안녕하세요, {receiver_name} 님.</p>
+                    <p class="paragraph">
+                        요청하신 계정 삭제가 정상적으로 처리되었습니다.
+                    </p>
+                    <p class="paragraph">
+                        본 메일은 안내용 자동 발송 메일이며, 문의가 필요한 경우 관리자에게 연락해 주세요.
+                    </p>
+                </div>
+                <div class="footer">
+                    본 메일은 발신 전용입니다.
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        text_body = f"""
+        계정 삭제가 완료되었습니다.
+
+        안녕하세요, {receiver_name} 님.
+        요청하신 계정 삭제가 정상적으로 처리되었습니다.
+
+        본 메일은 안내용 자동 발송 메일입니다.
+        """
+
+        msg: MIMEMultipart = MIMEMultipart("alternative")
+        msg["Subject"] = "[구매대행B2C] 계정 삭제가 완료되었습니다"
         msg["From"] = self._sender
         msg["To"] = receiver_email
 

@@ -14,16 +14,17 @@ import os
 import secrets
 import string
 import uuid
+import re
 from pathlib import Path
 import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import select, func, and_, update as sql_update
+from sqlalchemy import select, func, and_, update as sql_update, delete as sql_delete
 from sqlalchemy.sql import Select
 
-from WEB_SERVER.auth.dependencies import get_current_tenant_admin
+from WEB_SERVER.auth.dependencies import get_current_tenant_admin, get_current_user
 from WEB_SERVER.routers.settings import get_db_manager, get_tenant_repository
 from WEB_SERVER.auth import get_password_hash
 from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_service
@@ -62,6 +63,12 @@ def _get_current_tenant_schemas(current_user: models.User) -> list[str]:
     return [tenant_schema, "public"]
 
 
+def _is_valid_email(email: str | None) -> bool:
+    if not email:
+        return False
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email.strip()))
+
+
 # 요청/응답 스키마
 class UserCreateRequest(BaseModel):
     name: str
@@ -79,6 +86,10 @@ class UserUpdateRequest(BaseModel):
     department: str | None = None
     contact: str | None = None
     is_active: bool | None = None
+
+
+class UserActivationRequest(BaseModel):
+    is_active: bool
 
 
 class ResetPasswordRequest(BaseModel):
@@ -183,7 +194,7 @@ async def get_users(
 async def upload_edi_data(
     file: UploadFile = File(..., description="EDI/엑셀 파일"),
     edi_source: str = Form(..., description="면세점 구분: lotte | silla"),
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = _get_current_tenant_schemas(current_user)
@@ -258,7 +269,7 @@ async def upload_edi_data(
 async def upload_image_zip(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="이미지 ZIP 파일"),
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     """
@@ -392,7 +403,7 @@ async def upload_image_zip(
 )
 @handle_http_error
 async def get_image_ocr_progress(
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = _get_current_tenant_schemas(current_user)
@@ -441,7 +452,7 @@ async def list_receipts_for_review(
     ),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     """
@@ -557,7 +568,7 @@ async def list_passports_for_review(
     ),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     """
@@ -659,7 +670,7 @@ async def list_passports_for_review(
 @handle_http_error
 async def get_data_mapping_image(
     hash_img: str,
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     """
@@ -716,7 +727,7 @@ async def get_data_mapping_image(
 @handle_http_error
 async def get_data_mapping_details_by_image(
     hash_img: str,
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     """
@@ -836,10 +847,11 @@ async def create_user(
     db: DBManager = Depends(get_db_manager),
 ):
     """유저 추가"""
-    schemas = _get_current_tenant_schemas(current_user)
-    # TODO: 스키마 전환 로직 추가 필요
-    
-    # 이메일 중복 확인
+    # 유저 생성/조회는 현재 테넌트 스키마에서만 수행
+    tenant_schema = _get_current_tenant_schema_from_user(current_user)
+    schemas = [tenant_schema]
+
+    # 이메일 중복 확인 (테넌트 스키마 한정)
     stmt = select(models.User).where(models.User.e_mail == user_data.e_mail)
     result = await db.execute_query(stmt, schemas=schemas)
     existing_user = result.scalar_one_or_none()
@@ -890,8 +902,11 @@ async def create_user(
         receiver_email=user_data.e_mail,
         receiver_name=user_data.name,
         verification_token=verification_token,
-        service_url=app_url
-    ).send(log=f"인증 이메일 발송 완료: {user_data.e_mail}")
+        service_url=app_url,
+    ).send(
+        log_success=f"인증 이메일 발송 완료: {user_data.e_mail}",
+        log_error=f"인증 이메일 발송 실패: {user_data.e_mail}",
+    )
     
     return {
         "message": "유저가 추가되었습니다. 이메일을 확인하여 인증을 완료해주세요.",
@@ -984,14 +999,15 @@ async def update_user(
     return {"message": "유저 정보가 수정되었습니다", "user_id": user_id}
 
 
-@router.delete("/users/{user_id}", summary="유저 삭제/비활성화", description="유저를 삭제하거나 비활성화합니다.")
+@router.patch("/users/{user_id}/activation", summary="유저 활성 상태 변경", description="유저의 활성 상태를 설정합니다.")
 @handle_http_error
-async def delete_user(
+async def user_activate(
     user_id: int,
+    activation_data: UserActivationRequest,
     current_user: models.User = Depends(get_current_tenant_admin),
     db: DBManager = Depends(get_db_manager),
 ):
-    """유저 삭제/비활성화"""
+    """유저 활성 상태 변경"""
     schemas = _get_current_tenant_schemas(current_user)
     # TODO: 스키마 전환 로직 추가 필요
     
@@ -1005,18 +1021,85 @@ async def delete_user(
             detail="유저를 찾을 수 없습니다"
         )
     
-    # 자기 자신은 삭제 불가
+    # 자기 자신 비활성화는 불가
+    if user.id == current_user.id and not activation_data.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="자기 자신은 비활성화할 수 없습니다"
+        )
+
+    stmt = sql_update(models.User).where(models.User.id == user_id).values(is_active=activation_data.is_active)
+    await db.execute_query(stmt, schemas=schemas)
+    
+    return {
+        "message": "유저가 활성화되었습니다" if activation_data.is_active else "유저가 비활성화되었습니다",
+        "user_id": user_id,
+        "is_active": activation_data.is_active,
+    }
+
+
+@router.delete("/users/{user_id}", summary="유저 삭제", description="유저를 물리적으로 삭제합니다.")
+@handle_http_error
+async def delete_user(
+    user_id: int,
+    current_user: models.User = Depends(get_current_tenant_admin),
+    db: DBManager = Depends(get_db_manager),
+):
+    """유저 물리 삭제"""
+    schemas = _get_current_tenant_schemas(current_user)
+    # TODO: 스키마 전환 로직 추가 필요
+
+    stmt = select(models.User).where(models.User.id == user_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="유저를 찾을 수 없습니다"
+        )
+
     if user.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="자기 자신은 삭제할 수 없습니다"
         )
-    
-    # 비활성화 처리 (실제 삭제는 하지 않음)
-    stmt = sql_update(models.User).where(models.User.id == user_id).values(is_active=False)
+
+    receiver_email = (getattr(user, "e_mail", "") or "").strip()
+    receiver_name = (getattr(user, "name", "") or "").strip() or receiver_email
+
+    stmt = sql_delete(models.User).where(models.User.id == user_id)
     await db.execute_query(stmt, schemas=schemas)
-    
-    return {"message": "유저가 비활성화되었습니다", "user_id": user_id}
+
+    smtp_service = await get_db_smtp_email_service(db) or email_service
+    sender_email = (getattr(smtp_service, "_sender", "") or "").strip()
+    smtp_user = (getattr(smtp_service, "_user", "") or "").strip()
+    smtp_password = (getattr(smtp_service, "_password", "") or "").strip()
+
+    mail_sent = False
+    if not sender_email or not smtp_user or not smtp_password or not _is_valid_email(sender_email):
+        mail_notice = "유저 삭제는 완료되었지만 송신자 메일 계정이 유효하지 않아 확인 메일을 발송하지 못했습니다. 시스템 관리자에게 문의해 주세요."
+    elif not _is_valid_email(receiver_email):
+        mail_notice = "유저 삭제는 완료되었지만 수신자 메일 주소가 유효하지 않아 확인 메일을 발송하지 못했습니다."
+    else:
+        mail_sent = smtp_service.set_user_deletion_email(
+            receiver_email=receiver_email,
+            receiver_name=receiver_name,
+        ).send(
+            log_success=f"유저 삭제 확인 이메일 발송 완료: {receiver_email}",
+            log_error=f"유저 삭제 확인 이메일 발송 실패: {receiver_email}",
+        )
+        if mail_sent:
+            mail_notice = "유저 삭제가 완료되었고 삭제 확인 메일을 발송했습니다."
+        else:
+            mail_notice = "유저 삭제는 완료되었지만 확인 메일 발송에 실패했습니다."
+
+    return {
+        "message": "유저가 삭제되었습니다",
+        "user_id": user_id,
+        "mail_sent": mail_sent,
+        "mail_notice": mail_notice,
+    }
 
 
 @router.post("/users/{user_id}/reset-password", summary="비밀번호 재설정", description="유저의 비밀번호를 재설정합니다.")
@@ -1167,7 +1250,7 @@ async def get_usage(
 @handle_http_error
 async def verify_receipt(
     payload: ReceiptVerifyRequest,
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = _get_current_tenant_schemas(current_user)
@@ -1269,7 +1352,7 @@ async def verify_receipt(
 @handle_http_error
 async def verify_passport(
     payload: PassportVerifyRequest,
-    current_user: models.User = Depends(get_current_tenant_admin),
+    current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
 ):
     schemas = _get_current_tenant_schemas(current_user)

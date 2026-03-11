@@ -103,6 +103,7 @@
 }
 
 .workspace-edit-button,
+.workspace-activation-button,
 .workspace-delete-button,
 .workspace-reset-button {
   padding: 6px 12px;
@@ -120,6 +121,26 @@
 
 .workspace-edit-button:hover {
   background: #5568d3;
+}
+
+.workspace-activation-button {
+  color: white;
+}
+
+.workspace-activation-button.activate {
+  background: #28a745;
+}
+
+.workspace-activation-button.activate:hover {
+  background: #218838;
+}
+
+.workspace-activation-button.deactivate {
+  background: #f39c12;
+}
+
+.workspace-activation-button.deactivate:hover {
+  background: #e67e22;
 }
 
 .workspace-delete-button {
@@ -200,6 +221,31 @@
   color: #333;
 }
 
+.workspace-delete-confirm-modal {
+  max-width: 520px;
+}
+
+.workspace-delete-confirm-text {
+  margin: 0 0 12px 0;
+  color: #444;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.workspace-delete-confirm-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.workspace-delete-confirm-input:focus {
+  outline: none;
+  border-color: #e74c3c;
+}
+
 .workspace-modal-form {
   display: flex;
   flex-direction: column;
@@ -264,6 +310,27 @@
 
 .workspace-save-button:hover {
   background: #5568d3;
+}
+
+.workspace-delete-confirm-button {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+  background: #e74c3c;
+  color: white;
+}
+
+.workspace-delete-confirm-button:hover:enabled {
+  background: #c0392b;
+}
+
+.workspace-delete-confirm-button:disabled {
+  background: #f3b1aa;
+  cursor: not-allowed;
 }
 
 .workspace-password-match-message {

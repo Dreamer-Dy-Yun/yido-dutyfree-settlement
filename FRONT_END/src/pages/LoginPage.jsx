@@ -96,8 +96,21 @@ function LoginPage() {
         }
       }
       
-      // 일반 사용자는 대시보드로 이동
-      navigate('/dashboard');
+      // 테넌트 관리자만 대시보드 유저관리로 이동, 일반 유저는 데이터 매핑으로 이동
+      if (token) {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          if (payload.role === 'admin') {
+            navigate('/dashboard');
+          } else {
+            navigate('/dashboard/data-mapping');
+          }
+          return;
+        } catch {
+          // 토큰 파싱 실패 시 데이터 매핑으로 이동
+        }
+      }
+      navigate('/dashboard/data-mapping');
     } catch (err) {
       setError(err.response?.data?.detail || '로그인에 실패했습니다');
     } finally {

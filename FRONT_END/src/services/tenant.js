@@ -36,7 +36,17 @@ export const updateTenantUser = async (userId, userData) => {
 };
 
 /**
- * 테넌트 유저 삭제/비활성화
+ * 테넌트 유저 활성 상태 변경
+ */
+export const userActivate = async (userId, isActive) => {
+  const response = await api.patch(`/api/tenant/users/${userId}/activation`, {
+    is_active: isActive,
+  });
+  return response.data;
+};
+
+/**
+ * 테넌트 유저 물리 삭제
  */
 export const deleteTenantUser = async (userId) => {
   const response = await api.delete(`/api/tenant/users/${userId}`);

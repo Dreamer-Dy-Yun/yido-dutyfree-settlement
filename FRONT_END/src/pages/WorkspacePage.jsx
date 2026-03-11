@@ -5,6 +5,7 @@ import {
   getTenantUsers,
   createTenantUser,
   updateTenantUser,
+  userActivate,
   deleteTenantUser,
   resetUserPassword,
   getUsage,
@@ -29,6 +30,10 @@ function WorkspacePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [deletingUser, setDeletingUser] = useState(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [userFormData, setUserFormData] = useState({
     name: '',
@@ -43,6 +48,12 @@ function WorkspacePage() {
   useEffect(() => {
     loadCurrentUser();
   }, []);
+
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin') {
+      navigate('/dashboard/data-mapping', { replace: true });
+    }
+  }, [currentUser, navigate]);
 
   useEffect(() => {
     const nextParams = new URLSearchParams(location.search);
@@ -154,15 +165,46 @@ function WorkspacePage() {
     }
   };
 
-  const handleDeleteUser = async (userId) => {
-    if (!window.confirm('정말 이 유저를 비활성화하시겠습니까?')) {
+  const handleUserActivation = async (user) => {
+    const actionLabel = user.is_active ? '비활성화' : '활성화';
+    if (!window.confirm(`정말 이 유저를 ${actionLabel}하시겠습니까?`)) {
       return;
     }
     try {
-      await deleteTenantUser(userId);
+      await userActivate(user.id, !user.is_active);
+      loadUsers();
+    } catch (err) {
+      setError(err.response?.data?.detail || '유저 활성 상태 변경에 실패했습니다');
+    }
+  };
+
+  const handleDeleteUser = async (user) => {
+    setError(null);
+    setDeletingUser(user);
+    setDeleteConfirmText('');
+    setShowDeleteConfirmModal(true);
+  };
+
+  const closeDeleteConfirmModal = () => {
+    if (isDeletingUser) return;
+    setShowDeleteConfirmModal(false);
+    setDeletingUser(null);
+    setDeleteConfirmText('');
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!deletingUser) return;
+    if (deleteConfirmText.trim() !== '지금 삭제') return;
+
+    setIsDeletingUser(true);
+    try {
+      await deleteTenantUser(deletingUser.id);
+      closeDeleteConfirmModal();
       loadUsers();
     } catch (err) {
       setError(err.response?.data?.detail || '유저 삭제에 실패했습니다');
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -247,8 +289,14 @@ function WorkspacePage() {
                             <button onClick={() => handleEditUser(user)} className="workspace-edit-button">
                               수정
                             </button>
-                            <button onClick={() => handleDeleteUser(user.id)} className="workspace-delete-button">
-                              비활성화
+                            <button
+                              onClick={() => handleUserActivation(user)}
+                              className={`workspace-activation-button ${user.is_active ? 'deactivate' : 'activate'}`}
+                            >
+                              {user.is_active ? '비활성화' : '활성화'}
+                            </button>
+                            <button onClick={() => handleDeleteUser(user)} className="workspace-delete-button">
+                              삭제
                             </button>
                             <button
                               onClick={() => handleResetPassword(user.id)}
@@ -398,6 +446,41 @@ function WorkspacePage() {
                       저장
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showDeleteConfirmModal && deletingUser && (
+            <div className="workspace-modal-overlay" onClick={closeDeleteConfirmModal}>
+              <div className="workspace-modal-content workspace-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+                <h2>유저 삭제 확인</h2>
+                <p className="workspace-delete-confirm-text">
+                  <strong>{deletingUser.name || deletingUser.e_mail}</strong> 유저를 삭제합니다.
+                  삭제 후 복구할 수 없습니다.
+                </p>
+                <p className="workspace-delete-confirm-text">
+                  삭제를 진행하려면 아래에 <strong>지금 삭제</strong>를 입력하세요.
+                </p>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder='지금 삭제'
+                  className="workspace-delete-confirm-input"
+                  disabled={isDeletingUser}
+                />
+                <div className="workspace-modal-actions">
+                  <button onClick={closeDeleteConfirmModal} className="workspace-cancel-button" disabled={isDeletingUser}>
+                    취소
+                  </button>
+                  <button
+                    onClick={handleConfirmDeleteUser}
+                    className="workspace-delete-confirm-button"
+                    disabled={isDeletingUser || deleteConfirmText.trim() !== '지금 삭제'}
+                  >
+                    {isDeletingUser ? '삭제 중...' : '삭제 확인'}
+                  </button>
                 </div>
               </div>
             </div>
