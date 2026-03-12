@@ -1,0 +1,230 @@
+import { useEffect, useState } from 'react';
+import { getMatchStatus, postMatchAttempt, getMatches } from '../services/tenant';
+
+/**
+ * 이미지 매핑 탭 콘텐츠
+ * - 상단: 매핑 상태 요약 + "매핑 시도" 버튼
+ * - 하단: 매핑/미매핑/전체 리스트 (면세점 / 영수증 번호 / 이름만 표시)
+ */
+function ImageMappingPanel() {
+  const [status, setStatus] = useState(null);
+  const [statusError, setStatusError] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+
+  const [filter, setFilter] = useState('all'); // 'all' | 'matched' | 'unmatched'
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [rows, setRows] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState('');
+
+  const loadStatus = async () => {
+    try {
+      setStatusError('');
+      const data = await getMatchStatus();
+      setStatus(data);
+    } catch (err) {
+      console.error('Failed to load match status:', err);
+      setStatusError('매칭 상태를 불러오지 못했습니다.');
+    }
+  };
+
+  const loadList = async (opts = {}) => {
+    const nextFilter = opts.filter ?? filter;
+    const nextPage = opts.page ?? page;
+
+    try {
+      setListLoading(true);
+      setListError('');
+      const data = await getMatches({
+        status: nextFilter,
+        page: nextPage,
+        pageSize,
+      });
+
+      // 백엔드 응답 형태에 따라 조정 필요
+      const items = data.items || data.results || [];
+      const total = data.total ?? data.total_count ?? items.length;
+
+      setRows(items);
+      setTotalCount(total);
+      setPage(nextPage);
+      setFilter(nextFilter);
+    } catch (err) {
+      console.error('Failed to load matches:', err);
+      setListError('매칭 결과를 불러오지 못했습니다.');
+    } finally {
+      setListLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStatus();
+    loadList({ page: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleMatchAttempt = async () => {
+    if (!status || status.unmatched_count === 0) {
+      return;
+    }
+    try {
+      setIsRunning(true);
+      await postMatchAttempt({ tryFallback: true });
+      // 매칭 시도 후 상태/리스트 재조회
+      await loadStatus();
+      await loadList({ page: 1 });
+    } catch (err) {
+      console.error('Failed to trigger match attempt:', err);
+      alert('매칭 시도 요청에 실패했습니다.');
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const handleFilterChange = async (nextFilter) => {
+    await loadList({ filter: nextFilter, page: 1 });
+  };
+
+  const handlePageChange = async (direction) => {
+    const nextPage = page + direction;
+    if (nextPage < 1) return;
+    const maxPage = Math.max(1, Math.ceil(totalCount / pageSize));
+    if (nextPage > maxPage) return;
+    await loadList({ page: nextPage });
+  };
+
+  const unmatchedCount = status?.unmatched_count ?? 0;
+
+  return (
+    <div className="tab-content">
+      <h2>이미지 매핑</h2>
+
+      <div className="mapping-status-card">
+        {statusError && <div className="upload-error">{statusError}</div>}
+        {status && !statusError && (
+          <div className="upload-success">
+            확인되었으나 미매핑된 데이터 {unmatchedCount}건이 있습니다.
+          </div>
+        )}
+
+        <div className="mapping-actions">
+          <button
+            className="primary-button"
+            onClick={handleMatchAttempt}
+            disabled={isRunning || unmatchedCount === 0}
+          >
+            {isRunning ? '매핑 시도 중...' : '매핑 시도'}
+          </button>
+        </div>
+      </div>
+
+      <div className="mapping-list-card">
+        <div className="mapping-list-header">
+          <div className="mapping-filters">
+            <button
+              className={filter === 'all' ? 'filter-button active' : 'filter-button'}
+              onClick={() => handleFilterChange('all')}
+            >
+              전체
+            </button>
+            <button
+              className={filter === 'matched' ? 'filter-button active' : 'filter-button'}
+              onClick={() => handleFilterChange('matched')}
+            >
+              매핑됨
+            </button>
+            <button
+              className={filter === 'unmatched' ? 'filter-button active' : 'filter-button'}
+              onClick={() => handleFilterChange('unmatched')}
+            >
+              미매핑
+            </button>
+          </div>
+        </div>
+
+        {listError && <div className="upload-error">{listError}</div>}
+
+        <table className="common-table">
+          <thead>
+            <tr>
+              <th>면세점</th>
+              <th>영수증 번호</th>
+              <th>이름</th>
+              <th>동작</th>
+            </tr>
+          </thead>
+          <tbody>
+            {listLoading && (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center' }}>
+                  로딩 중...
+                </td>
+              </tr>
+            )}
+            {!listLoading && rows.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center' }}>
+                  표시할 데이터가 없습니다.
+                </td>
+              </tr>
+            )}
+            {!listLoading &&
+              rows.map((row) => {
+                // 백엔드 응답 필드 이름에 맞게 조정 필요 (예: dutyfree_company, receipt_no, name 등)
+                const dutyfreeCompany = row.dutyfree_company ?? '-';
+                const receiptNo = row.receipt_no ?? '-';
+                const purchaserName = row.name ?? '-';
+
+                return (
+                  <tr key={row.uuid_receipt || `${dutyfreeCompany}-${receiptNo}-${purchaserName}`}>
+                    <td>{dutyfreeCompany}</td>
+                    <td>{receiptNo}</td>
+                    <td>{purchaserName}</td>
+                    <td>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        // TODO: 모달 열기/후보 여권 리스트 조회는 이후 단계에서 구현
+                        onClick={() => {
+                          // placeholder
+                        }}
+                      >
+                        상세 보기
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
+
+        <div className="pagination-controls">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => handlePageChange(-1)}
+            disabled={page <= 1}
+          >
+            이전
+          </button>
+          <span className="page-info">
+            페이지 {page} / {Math.max(1, Math.ceil(totalCount / pageSize))}
+          </span>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => handlePageChange(1)}
+            disabled={page >= Math.max(1, Math.ceil(totalCount / pageSize))}
+          >
+            다음
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default ImageMappingPanel;
+

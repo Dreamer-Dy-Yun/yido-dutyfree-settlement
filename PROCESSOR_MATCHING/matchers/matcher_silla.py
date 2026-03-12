@@ -10,45 +10,26 @@
 ############################################
 
 from PROCESSOR_MATCHING.matcher import PassportReceiptMatcher
-from sqlalchemy import select, Executable, Result
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Self
-from DATABASE import models
 import pandas as pd
-import uuid
-from collections import defaultdict
-from pathlib import Path
 from CUSTOMIZED.cust_logger import logger
-from dataclasses import dataclass
-
-
-@dataclass
-class MatchResult:
-    with_results: dict[str, pd.DataFrame]
-    without_result: pd.DataFrame
+from PROCESSOR_MATCHING.matcher import MatchResult
 
 
 class PRM_Silla(PassportReceiptMatcher):
 
-    async def _fallback_match(self) -> Self:
-        df: pd.DataFrame = pd.concat(self._dfs_without_result)
-        self._dfs_without_result = []
 
-        async with self.db.open_session(schemas=self.schemas) as session:
-            for _, row in df.iterrows():
-                country_code: str = str(row["country_code"])
-                passport_no: str = self._m_passport_number_for_sql(str(row["passport_no"]))
-                name: str = self._m_purchaser_for_sql(str(row["name"]))
-                df_passport = await self._get_passport_data(session, country_code, passport_no, name)
-                match_result: MatchResult = self._match(pd.DataFrame([row]), df_passport)
-                self._dict_results.update(match_result.with_results)
-                self._dfs_without_result.append(match_result.without_result)
-        return self
+    def _add_rank(self, name: str, df_passport: pd.DataFrame) -> pd.DataFrame:
+        for index, row in df_passport.iterrows():
+            df_passport.at[index, "rank"] = abs(len(row["name"]) - len(name))
+        return df_passport    
 
-    
+
     def _match(self, df_receipt: pd.DataFrame, df_passport: pd.DataFrame) -> MatchResult:
         """
         신라는 완전 매칭이므로 사실상 후보 없음.
+        국가코드, 여권번호만 매칭.
+
 
         조회 비용을 줄이기 위해 우선 해당 배치 UUID 에 해당하는 모든 여권 데이터를 조회.
         반환값 : tuple[dict(str, pd.DataFrame), pd.DataFrame]
@@ -69,7 +50,7 @@ class PRM_Silla(PassportReceiptMatcher):
 
             condition = df_passport["country_code"] == country_code
             condition = condition & (df_passport["passport_no"] == passport_no)
-            condition = condition & (df_passport["name"] == name)
+            # condition = condition & (df_passport["name"] == name) # 굳이 이름 매칭 불필요
 
             df_temp = df_passport[condition]
 
@@ -90,6 +71,25 @@ class PRM_Silla(PassportReceiptMatcher):
         return MatchResult(with_results=dict_with_results, without_result=pd.DataFrame(list_without_result))
 
 
+    async def _fallback_match(self) -> Self:
+        """
+        신라는 이름 매칭 하지 않음. 국가코드, 여권번호만 매칭.
+        """
+        df: pd.DataFrame = pd.concat(self._dfs_without_result)
+        self._dfs_without_result = []
+
+        async with self.db.open_session(schemas=self.schemas) as session:
+            for _, row in df.iterrows():
+                country_code: str = str(row["country_code"])
+                passport_no: str = str(row["passport_no"])
+                # name: str = str(row["name"])
+                df_passport = await self._get_passport_data(session, country_code, passport_no)
+                match_result: MatchResult = self._match(pd.DataFrame([row]), df_passport)
+                self._dict_results.update(match_result.with_results)
+                self._dfs_without_result.append(match_result.without_result)
+        return self
+
+
     async def run(self, locked_by: str, try_fallback: bool = False) -> Self:
 
         try:
@@ -97,39 +97,31 @@ class PRM_Silla(PassportReceiptMatcher):
             if df_verified_receipts.empty:
                 return self
 
-            unique_uuid_records: list[str] = df_verified_receipts["uuid_record"].dropna().unique().tolist()
+            unique_uuid_batches: list[str] = df_verified_receipts["uuid_batch"].dropna().unique().tolist()
+            uuid_record: str = ""
             df_passport: pd.DataFrame = pd.DataFrame()
-            dfs_without_result_init: list[pd.DataFrame] = []
-            dfs_without_result_final: list[pd.DataFrame] = []
+            dfs_without_result: list[pd.DataFrame] = []
             df_receipt: pd.DataFrame = pd.DataFrame()
 
-            for uuid_record in unique_uuid_records:
-                df_passport = await self._get_passport_data_with_batch_uuid(uuid_record)
-                df_receipt = df_verified_receipts[df_verified_receipts["uuid_record"] == uuid_record]
+            for uuid_batch in unique_uuid_batches:
+                df_passport = await self._get_passport_data_with_batch_uuid(uuid_batch)
+                df_receipt = df_verified_receipts[df_verified_receipts["uuid_batch"] == uuid_batch]
                 if df_passport.empty:
-                    dfs_without_result_init.append(df_receipt)
+                    dfs_without_result.append(df_receipt)
                     continue
                 match_result: MatchResult = self._match(df_receipt, df_passport) # 1차 매칭
                 self._dict_results.update(match_result.with_results)
-                dfs_without_result_init.append(match_result.without_result)
+                self._dfs_without_result.append(match_result.without_result)
 
-            df_without_result: pd.DataFrame = pd.concat(dfs_without_result_init)
+            if try_fallback:
+                await self._fallback_match()
 
-            async with self.db.open_session(schemas=self.schemas) as session:
-                for _, row in df_without_result.iterrows():
-                    country_code: str = str(row["country_code"])
-                    passport_no: str = self._m_passport_number_for_sql(str(row["passport_no"]))
-                    name: str = self._m_purchaser_for_sql(str(row["name"]))
-                    df_passport = await self._get_passport_data(session, country_code, passport_no, name)
-                    match_result: MatchResult = self._match(row, df_passport) # 2차 매칭
-                    self._dict_results.update(match_result.with_results)
-                    dfs_without_result_final.append(match_result.without_result)
-
-            for df in dfs_without_result_final:
+            for df in self._dfs_without_result:
                 uuid_record = df["uuid_record"][0]
                 self._dict_results.update({uuid_record: pd.DataFrame()}) # 최종 매칭 실패 : 빈 데이터프레임
 
-            await self.mark_processed_verified_receipt(locked_by=locked_by, is_processed=True)
+            await self._flush_matched_results()
+            await self.unlock_processed_receipts(locked_by)
         except Exception as e:
             logger.error(f"[PRM_Lotte] Error: {e}")
             raise

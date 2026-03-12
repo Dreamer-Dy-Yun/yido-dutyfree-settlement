@@ -29,6 +29,7 @@ from WEB_SERVER.routers.settings import get_db_manager, get_tenant_repository
 from WEB_SERVER.auth import get_password_hash
 from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_service
 from WEB_SERVER.services.service_image_ocr import run_image_ocr_background
+from WEB_SERVER.services.service_match_queue import enqueue_match_job
 from WEB_SERVER.services.verification_token import verification_token_service
 from WEB_SERVER.routers.settings import get_user_repository
 from CUSTOMIZED.cust_deco_error import handle_http_error
@@ -38,11 +39,12 @@ from PROCESSOR_DATA.parsers.edi_silla import EdiSilla
 from PROCESSOR_DATA.patch import fix_invalid_datetime_in_xlsx_bytes
 
 from DATABASE import models
-from DATABASE.models.tenant_model import UserRole
+from DATABASE.models.tenant_model import UserRole, MATCHED
 from DATABASE.models.public_model import Tenant as PublicTenant
 from DATABASE.repositories.authorities import UserRepository, TenantRepository
 from DATABASE.dbms import DBManager
 import pandas as pd
+from PROCESSOR_MATCHING.matcher_registry import dict_matcher
 
 router = APIRouter(prefix="/api/tenant", tags=["테넌트 관리"])
 
@@ -188,6 +190,15 @@ class UsageResponse(BaseModel):
     period_end: datetime | None
 
 
+class MatchJobRequest(BaseModel):
+    """매치 워커가 호출하는 내부용 매칭 작업 요청 스키마"""
+
+    tenant_schema: str
+    requested_by: int | None = None
+    try_fallback: bool = True
+    matcher_key: str = "lotte"
+
+
 class ReceiptVerifyRequest(BaseModel):
     """영수증 검수/수정 요청 스키마"""
     source: str  # "ocr" | "verified"
@@ -325,6 +336,64 @@ async def upload_edi_data(
         "filename": filename,
         "edi_source": edi_source_lower,
         "rows_upserted": rows_upserted,
+    }
+
+
+@router.post(
+    "/data-mapping/match-attempt",
+    summary="영수증-여권 매칭 작업 요청",
+    description="현재 테넌트에 대해 백그라운드 매칭 작업을 Redis 큐에 등록합니다.",
+)
+@handle_http_error
+async def request_match_attempt(
+    try_fallback: bool = Form(True, description="fallback 매칭 수행 여부 (기본값: True)"),
+    current_user: models.User = Depends(get_current_user),
+):
+    tenant_schema = _get_current_tenant_schema_from_user(current_user)
+    job = enqueue_match_job(
+        tenant_schema=tenant_schema,
+        requested_by=getattr(current_user, "id", None),
+        try_fallback=try_fallback,
+    )
+    return {
+        "message": "매칭 작업이 큐에 등록되었습니다.",
+        "job": job,
+    }
+
+
+@router.post(
+    "/internal/match/run",
+    summary="내부용 매칭 작업 실행",
+    description="매치 워커가 호출하는 내부 전용 엔드포인트로, 지정된 테넌트에 대해 매칭 로직을 실행합니다.",
+)
+@handle_http_error
+async def internal_run_match_job(
+    payload: MatchJobRequest,
+    db: DBManager = Depends(get_db_manager),
+):
+    import uuid
+
+    matcher_key = (payload.matcher_key or "lotte").lower()
+    matcher_cls = dict_matcher.get(matcher_key)
+    if matcher_cls is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"지원하지 않는 matcher_key 입니다: {matcher_key}",
+        )
+
+    matcher = matcher_cls(
+        db=db,
+        public_schema="public",
+        tenant_schema=payload.tenant_schema,
+    )
+
+    locked_by = uuid.uuid4().hex
+    await matcher.run(locked_by=locked_by, try_fallback=payload.try_fallback)
+
+    return {
+        "message": "매칭 작업이 완료되었습니다.",
+        "tenant_schema": payload.tenant_schema,
+        "matcher_key": matcher_key,
     }
 
 
@@ -500,6 +569,113 @@ async def get_image_ocr_progress(
         "done": int(done),
         "pending": int(pending),
         "progress_percent": progress_percent,
+    }
+
+
+@router.get(
+    "/data-mapping/match-status",
+    summary="영수증-여권 매칭 상태 조회",
+    description="현재 테넌트의 영수증 매칭 진행 현황을 조회합니다.",
+)
+@handle_http_error
+async def get_match_status(
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    """
+    매칭 상태 요약:
+    - total_count: is_verified=True 인 VerifiedReceipt 전체 건수
+    - unmatched_count: is_verified=True 이면서 is_processed=False 인 건수 (아직 매칭 시도 대상)
+    - matched_count: total_count - unmatched_count
+    """
+    schemas = _get_current_tenant_schemas(current_user)
+
+    stmt_total = select(func.count(models.VerifiedReceipt.id)).where(
+        models.VerifiedReceipt.is_verified.is_(True)
+    )
+    total_count = (await db.execute_query(stmt_total, schemas=schemas)).scalar() or 0
+
+    stmt_unmatched = select(func.count(models.VerifiedReceipt.id)).where(
+        and_(
+            models.VerifiedReceipt.is_verified.is_(True),
+            models.VerifiedReceipt.is_processed.is_(False),
+        )
+    )
+    unmatched_count = (await db.execute_query(stmt_unmatched, schemas=schemas)).scalar() or 0
+
+    matched_count = max(int(total_count) - int(unmatched_count), 0)
+
+    return {
+        "total_count": int(total_count),
+        "matched_count": matched_count,
+        "unmatched_count": int(unmatched_count),
+    }
+
+
+@router.get(
+    "/data-mapping/matches",
+    summary="영수증-여권 매칭 결과 리스트 조회",
+    description="MATCHED 테이블 기준으로 매핑/미매핑/전체 리스트를 조회합니다.",
+)
+@handle_http_error
+async def list_matches(
+    status_filter: str = Query(
+        "all",
+        alias="status",
+        description="'all' | 'matched' | 'unmatched' 중 하나",
+    ),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    """
+    MATCHED + VerifiedReceipt 조인 결과를 기반으로 리스트를 반환한다.
+    - status='matched'   : MATCHED.uuid_passport IS NOT NULL
+    - status='unmatched' : MATCHED.uuid_passport IS NULL
+    - status='all'       : 필터 없음
+    """
+    schemas = _get_current_tenant_schemas(current_user)
+
+    base_stmt = (
+        select(
+            MATCHED.uuid_receipt.label("uuid_receipt"),
+            MATCHED.uuid_passport.label("uuid_passport"),
+            models.VerifiedReceipt.dutyfree_company.label("dutyfree_company"),
+            models.VerifiedReceipt.receipt_no.label("receipt_no"),
+            models.VerifiedReceipt.name.label("name"),
+        )
+        .select_from(MATCHED)
+        .join(
+            models.VerifiedReceipt,
+            models.VerifiedReceipt.uuid_record == MATCHED.uuid_receipt,
+        )
+    )
+
+    if status_filter == "matched":
+        base_stmt = base_stmt.where(MATCHED.uuid_passport.is_not(None))
+    elif status_filter == "unmatched":
+        base_stmt = base_stmt.where(MATCHED.uuid_passport.is_(None))
+
+    # total_count 계산
+    count_stmt = base_stmt.with_only_columns(func.count()).order_by(None)
+    total_result = await db.execute_query(count_stmt, schemas=schemas)
+    total_count = total_result.scalar() or 0
+
+    # 페이지네이션 적용
+    stmt = (
+        base_stmt.order_by(models.VerifiedReceipt.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    result = await db.execute_query(stmt, schemas=schemas)
+    items = result.mappings().all() if result.mappings() else []
+
+    return {
+        "items": [dict(row) for row in items],
+        "total_count": int(total_count),
+        "page": page,
+        "page_size": page_size,
     }
 
 
@@ -1285,7 +1461,7 @@ async def get_usage(
     total_verified_receipt = result.scalar() or 0
     
     # Matched 카운트
-    stmt = select(func.count(models.Matched.id))
+    stmt = select(func.count(models.EDI_INFO.id))
     if conditions:
         stmt = stmt.where(and_(*conditions))
     result = await db.execute_query(stmt, schemas=schemas)
@@ -1339,18 +1515,21 @@ async def verify_receipt(
     source_row = ocr_row or verified_row
     original_duty = getattr(source_row, "dutyfree_company", None)
     original_receipt_no = getattr(source_row, "receipt_no", None)
+    original_country_code = getattr(source_row, "country_code", None)
     original_passport_no = getattr(source_row, "passport_no", None)
     original_name = getattr(source_row, "purchaser", None) or getattr(source_row, "name", None)
 
     dutyfree_company = (payload.dutyfree_company or "").strip()
     group_no = (payload.group_no or "").strip() or None
     receipt_no = (payload.receipt_no or "").strip()
+    country_code = (payload.country_code or "").strip() or None
     passport_no = (payload.passport_no or "").strip() or None
     purchaser = (payload.purchaser or "").strip() or None
 
     is_corrected = any([
         dutyfree_company != (original_duty or ""),
         receipt_no != (original_receipt_no or ""),
+        country_code != (original_country_code or ""),
         (passport_no or "") != (original_passport_no or ""),
         (purchaser or "") != (original_name or ""),
     ])
@@ -1368,6 +1547,7 @@ async def verify_receipt(
         "dutyfree_company": dutyfree_company,
         "group_no": group_no,
         "receipt_no": receipt_no,
+        "country_code": country_code,
         "passport_no": passport_no,
         "name": purchaser,
         **common,

@@ -110,6 +110,104 @@
   font-size: 13px;
 }
 
+/* 이미지 매핑 전용 스타일 */
+.mapping-status-card {
+  margin-top: 16px;
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mapping-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.mapping-list-card {
+  margin-top: 8px;
+}
+
+.mapping-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.mapping-filters {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.filter-button.active {
+  background: #667eea;
+  border-color: #667eea;
+  color: #fff;
+}
+
+.primary-button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  background: #667eea;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.primary-button:disabled {
+  background: #9fa8da;
+  cursor: not-allowed;
+}
+
+.primary-button:not(:disabled):hover {
+  background: #5568d3;
+}
+
+.secondary-button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.pagination-controls {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #4b5563;
+}
+
 .edi-dropzone {
   border: 2px dashed #c5cae9;
   border-radius: 8px;

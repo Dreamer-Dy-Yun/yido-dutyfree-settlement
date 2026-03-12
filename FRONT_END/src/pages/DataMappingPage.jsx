@@ -7,6 +7,7 @@ import SessionHeader from '../components/SessionHeader';
 import CommonTabsRow from '../components/CommonTabsRow';
 import { DATA_MAPPING_TABS, DEFAULT_DATA_MAPPING_TAB } from '../constants/dataMappingTabs';
 import ImageReviewPanel from '../data-mapping/ImageReviewPanel';
+import ImageMappingPanel from '../data-mapping/ImageMappingPanel';
 import './DataMappingPage.css';
 
 /** 면세점(EDI 출처) 목록 – 프론트 상수. 추후 API/DB로 전환 가능 */
@@ -352,10 +353,7 @@ function DataMappingPage() {
         );
       case 'image-mapping':
         return (
-          <div className="tab-content">
-            <h2>이미지 매핑</h2>
-            <p>확인된 이미지를 기준으로 여권정보와 영수증정보를 매핑합니다. 준비 중입니다.</p>
-          </div>
+          <ImageMappingPanel />
         );
       case 'data-check':
         return <div className="tab-content"><p>데이터 확인 기능은 준비 중입니다.</p></div>;

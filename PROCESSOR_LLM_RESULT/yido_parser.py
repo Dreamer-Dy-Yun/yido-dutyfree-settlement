@@ -90,7 +90,7 @@ class YidoParser:
             **dict_temp,
             "hash_ocr_result": Hasher().hash(dict_temp).value.hex(),
             "uuid_batch": self._uuid_batch,
-            "uuid_record": str(uuid.uuid4()).hex(),
+            "uuid_record": uuid.uuid4().hex,
         }
 
     def _parse_passport(self, passport: dict[str, Any]) -> dict[str, Any]:
@@ -111,7 +111,7 @@ class YidoParser:
             **dict_temp,
             "hash_ocr_result": Hasher().hash(dict_temp).value.hex(),
             "uuid_batch": self._uuid_batch,
-            "uuid_record": str(uuid.uuid4()).hex(),
+            "uuid_record": uuid.uuid4().hex,
         }
 
 

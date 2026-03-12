@@ -1,4 +1,4 @@
-﻿# PostgreSQL + pgAdmin + Redis (DATABASE/config.py 湲곕낯媛믨낵 留욎땄)
+# PostgreSQL + pgAdmin + Redis (DATABASE/config.py 湲곕낯媛믨낵 留욎땄)
 services:
   postgres:
     image: postgres:16-alpine
@@ -42,6 +42,25 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  match_worker:
+    image: python:3.11-slim
+    container_name: yido_match_worker
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - WEB_API_BASE_URL=http://host.docker.internal:10000
+    command: >
+      sh -c "pip install -r requirements.txt && python -m PROCESSOR_MATCHING.run_match_worker"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:

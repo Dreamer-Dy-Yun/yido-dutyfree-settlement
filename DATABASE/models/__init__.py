@@ -25,7 +25,19 @@ from DATABASE.models.public_model import (
 )
 
 # Tenant 스키마 모델
-from DATABASE.models.tenant_model import User, OcrPassport, OcrReceipt, VerifiedPassport, VerifiedReceipt, Image, EdiSilla, EdiLotte, Matched, LlmUsage
+from DATABASE.models.tenant_model import (
+    User,
+    OcrPassport,
+    OcrReceipt,
+    VerifiedPassport,
+    VerifiedReceipt,
+    Image,
+    EDI_UNIFIED,
+    MATCHED,
+    EdiSilla,
+    EdiLotte,
+    LlmUsage,
+)
 
 # 하위 호환성을 위해 __all__ 정의
 __all__ = [
@@ -46,8 +58,9 @@ __all__ = [
     "VerifiedPassport",
     "VerifiedReceipt",
     "Image",
+    "EDI_UNIFIED",
+    "MATCHED",
     "EdiSilla",
     "EdiLotte",
-    "Matched",
     "LlmUsage",
 ]

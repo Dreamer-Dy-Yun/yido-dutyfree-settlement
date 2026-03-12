@@ -192,3 +192,43 @@ export const getImageDetailsByHash = async (hashImg) => {
   });
   return response.data;
 };
+
+/**
+ * 매칭 상태 조회
+ * - 확인되었으나 미매핑된 데이터 수 등을 확인하기 위해 사용
+ */
+export const getMatchStatus = async () => {
+  const response = await api.get('/api/tenant/data-mapping/match-status');
+  return response.data;
+};
+
+/**
+ * 매칭 시도 트리거
+ * - 서버에서 비동기 매칭 작업을 큐에 등록
+ * @param {Object} options
+ * @param {boolean} [options.tryFallback=true] - 1차 매칭 실패 시 폴백 매칭 사용 여부
+ */
+export const postMatchAttempt = async ({ tryFallback = true } = {}) => {
+  const response = await api.post('/api/tenant/data-mapping/match-attempt', {
+    try_fallback: tryFallback,
+  });
+  return response.data;
+};
+
+/**
+ * 매칭 결과 리스트 조회
+ * - 이미지 매핑 탭에서 매핑/미매핑/전체 리스트를 페이징으로 조회
+ * @param {Object} options
+ * @param {'all'|'matched'|'unmatched'} [options.status='all']
+ * @param {number} [options.page=1]
+ * @param {number} [options.pageSize=20]
+ */
+export const getMatches = async ({ status = 'all', page = 1, pageSize = 20 } = {}) => {
+  const params = {
+    status,
+    page,
+    page_size: pageSize,
+  };
+  const response = await api.get('/api/tenant/data-mapping/matches', { params });
+  return response.data;
+};

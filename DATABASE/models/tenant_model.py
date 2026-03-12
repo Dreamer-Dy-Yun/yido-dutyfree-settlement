@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from numpy import int16
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Text, Boolean, Date, DateTime, Numeric, Float, ForeignKey, UniqueConstraint, BigInteger, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
@@ -163,6 +164,7 @@ class VerifiedReceipt(BaseModelTenant):
     dutyfree_company: Mapped[str] = mapped_column(String(30), nullable=False)  # 면세점 구분 (COMPOSITE)
     group_no: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 그룹 번호
     receipt_no: Mapped[str] = mapped_column(String(30), nullable=False)  # 영수증 번호(교환권) (COMPOSITE)
+    country_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 국가코드
     passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 구매자 여권 번호
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 구매자 이름
     rotation: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)  # 이미지 회전 각도
@@ -205,15 +207,13 @@ class Image(BaseModelTenant):
 
 
 # ---------------------------------------------------------------------------
-# MATCHED: EDI 정보 (여권-영수증 매칭과 그 이후의 매칭으로 테이블 분리 고려중) 
-# 테이블 목적: EDI 정보(여권-영수증 매칭과 그 이후의 매칭으로 테이블 분리 고려중)
+# EDI_UNIFIED: EDI 통합 정보 
+# 테이블 목적: EDI 정보
 # Version: 2.0.0, 작성자: 윤대영
-# ※ 여권 정보는 JOIN으로 받을 것
-# ※ receipt_no는 VERIFIED_RECEIPT.receipt_no 참조 (논리적 연결, 복합 유니크 키이므로 FK 제약 없음)
 # ---------------------------------------------------------------------------
-class Matched(BaseModelTenant):
+class EDI_UNIFIED(BaseModelTenant):
     """매칭된 EDI 정보. 여권-영수증 매칭 및 이후 매칭."""
-    __tablename__ = "matched"
+    __tablename__ = "edi_unified"
 
     passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 매핑 당시 여권번호 스냅샷
     dutyfree_operator: Mapped[str] = mapped_column(String(30), nullable=False)  # 면세점명 (COMPOSITE)
@@ -240,14 +240,31 @@ class Matched(BaseModelTenant):
     point: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 포인트
     rebate_amount: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 리베이트 금액
     is_matched: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 매칭여부
-    uuid_passport: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # Verified_Passport.uuid_record 참조
-    uuid_receipt: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # Verified_Receipt.uuid_record 참조
+    uuid_passport: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # Verified_Passport.uuid_record 참조 / 안쓸수도 있음.
+    uuid_receipt: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # Verified_Receipt.uuid_record 참조 / 안쓸수도 있음음
 
     __table_args__ = (
         UniqueConstraint("dutyfree_operator", "receipt_no", "product_code", name="uq_matched_operator_receipt_product"),
     )
 
+# ---------------------------------------------------------------------------
+# MATCHED: 영수증-여권 매칭 결과
+# 테이블 목적: 영수증(UUID) 기준 최종/후보 여권 매칭 결과 저장
+# Version: 2.0.0, 작성자: 윤대영
+# ---------------------------------------------------------------------------
 
+class MATCHED(BaseModelTenant):
+    """영수증 UUID 기준 여권 매칭 결과."""
+    __tablename__ = "matched"
+
+    uuid_receipt: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # VerifiedReceipt.uuid_record
+    uuid_passport: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # 최종 선택된 VerifiedPassport.uuid_record
+    possible_passports: Mapped[list[str] | None] = mapped_column(ARRAY(String(32)), nullable=True)  # 후보 여권 uuid_record 리스트
+    ranks: Mapped[list[float] | None] = mapped_column(ARRAY(Numeric(precision=19, scale=4)), nullable=True)  # 후보별 rank 리스트
+
+    __table_args__ = (
+        UniqueConstraint("uuid_receipt", name="uq_matched_receipt"),
+    )
 
 
 # ---------------------------------------------------------------------------
