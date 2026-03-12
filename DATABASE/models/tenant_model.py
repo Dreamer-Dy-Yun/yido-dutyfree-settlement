@@ -111,6 +111,43 @@ class OcrReceipt(BaseModelTenant):
 
 
 # ---------------------------------------------------------------------------
+# VERIFIED_PASSPORT: 검증된 구매자 여권 정보
+# 테이블 목적: 구매자의 여권 정보
+# Version: 2.0.0, 작성자: 윤대영
+# ---------------------------------------------------------------------------
+class VerifiedPassport(BaseModelTenant):
+    """검증된 구매자 여권 정보.  ICAO Doc 9303 Part 4 Section 4.2.2 근거. 인간 작업자 확인/정정 플래그 포함."""
+    __tablename__ = "verified_passport"
+
+    country_code: Mapped[str] = mapped_column(String(3), nullable=False)  # 국적 (COMPOSITE)
+    passport_no: Mapped[str] = mapped_column(String(9), nullable=False)  # 여권번호 (COMPOSITE)
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 이름
+    gender: Mapped[str | None] = mapped_column(String(1), nullable=True)  # 성별 [M|F]
+    place_of_birth: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 출생지
+    date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)  # 생년월일
+    place_of_issue: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발행지
+    date_of_issue: Mapped[date | None] = mapped_column(Date, nullable=True)  # 발행일
+    authority: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발급기관
+    date_of_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)  # 만료일
+    verifier_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)  # 확인(변경)자 식별번호
+    verifier_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 확인(변경)자 사용자명
+    is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 영수증-여권 매칭 처리 여부
+    locked_by: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # 매칭 워커 락 소유자(UUID 등)
+    hash_img: Mapped[str] = mapped_column(String(64), nullable=True)  # 해싱된 여권 이미지 (SHA-256)
+    rotation: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)  # 이미지 회전 각도
+    coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 검증된 이미지 좌표(정규화된 좌표)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인 여부
+    is_corrected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인자에 의한 변경 유무
+    uuid_batch: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # 배치 UUID / 받아오기
+    uuid_record: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # 레코드 UUID / 생성시 부여
+
+    verifier: Mapped["User | None"] = relationship("User", foreign_keys=[verifier_id], lazy="selectin")
+
+    __table_args__ = (
+        UniqueConstraint("country_code", "passport_no", "uuid_batch", name="uq_verified_passport_country_pass"),
+    )
+
+# ---------------------------------------------------------------------------
 # VERIFIED_RECEIPT: 구매자의 영수증 정보
 # Version: 2.0.0, 작성자: 윤대영
 # ※ 원본 사진이 없더라도 삭제하지 않음
@@ -132,6 +169,8 @@ class VerifiedReceipt(BaseModelTenant):
     coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 검증된 이미지 좌표(정규화된 좌표)
     verifier_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)  # 확인(변경)자 식별번호
     verifier_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 확인(변경)자 사용자명
+    is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 영수증-여권 매칭 처리 여부
+    locked_by: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # 매칭 워커 락 소유자(UUID 등)
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False)  # 해싱된 영수증 이미지
     is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인 여부
     is_corrected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인자에 의한 변경 유부
@@ -144,41 +183,6 @@ class VerifiedReceipt(BaseModelTenant):
         UniqueConstraint("dutyfree_company", "receipt_no", name="uq_verified_receipt_duty_receipt"),
     )
 
-
-# ---------------------------------------------------------------------------
-# VERIFIED_PASSPORT: 검증된 구매자 여권 정보
-# 테이블 목적: 구매자의 여권 정보
-# Version: 2.0.0, 작성자: 윤대영
-# ---------------------------------------------------------------------------
-class VerifiedPassport(BaseModelTenant):
-    """검증된 구매자 여권 정보.  ICAO Doc 9303 Part 4 Section 4.2.2 근거. 인간 작업자 확인/정정 플래그 포함."""
-    __tablename__ = "verified_passport"
-
-    country_code: Mapped[str] = mapped_column(String(3), nullable=False)  # 국적 (COMPOSITE)
-    passport_no: Mapped[str] = mapped_column(String(9), nullable=False)  # 여권번호 (COMPOSITE)
-    name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 이름
-    gender: Mapped[str | None] = mapped_column(String(1), nullable=True)  # 성별 [M|F]
-    place_of_birth: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 출생지
-    date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)  # 생년월일
-    place_of_issue: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발행지
-    date_of_issue: Mapped[date | None] = mapped_column(Date, nullable=True)  # 발행일
-    authority: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발급기관
-    date_of_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)  # 만료일
-    verifier_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)  # 확인(변경)자 식별번호
-    verifier_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 확인(변경)자 사용자명
-    hash_img: Mapped[str] = mapped_column(String(64), nullable=True)  # 해싱된 여권 이미지 (SHA-256)
-    rotation: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)  # 이미지 회전 각도
-    coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 검증된 이미지 좌표(정규화된 좌표)
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인 여부
-    is_corrected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인자에 의한 변경 유무
-    uuid_batch: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # 배치 UUID / 받아오기
-    uuid_record: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # 레코드 UUID / 생성시 부여
-
-    verifier: Mapped["User | None"] = relationship("User", foreign_keys=[verifier_id], lazy="selectin")
-
-    __table_args__ = (
-        UniqueConstraint("country_code", "passport_no", "uuid_batch", name="uq_verified_passport_country_pass"),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +200,7 @@ class Image(BaseModelTenant):
     is_processing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 작업 진행 중 여부 (논리 LOCK 역할)
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 이미지 작업 완료 여부
     is_classified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 이미지 자동 분류 여부
+    uuid_batch: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # 배치 UUID / 받아오기
     note: Mapped[str] = mapped_column(Text, nullable=True)  # 비고고
 
 

@@ -63,6 +63,74 @@ def _get_current_tenant_schemas(current_user: models.User) -> list[str]:
     return [tenant_schema, "public"]
 
 
+async def _fetch_verify_source(
+    db: "DBManager",
+    schemas: list[str],
+    source: str,
+    payload_id: int,
+    ocr_model: type,
+    verified_model: type,
+    ocr_404_msg: str,
+    verified_404_msg: str,
+) -> tuple[Any, Any]:
+    """검수 소스 조회. (ocr_row, verified_row) 반환, 둘 중 하나만 채워짐."""
+    if source == "ocr":
+        stmt = select(ocr_model).where(ocr_model.id == payload_id)
+        result = await db.execute_query(stmt, schemas=schemas)
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ocr_404_msg)
+        return (row, None)
+    stmt = select(verified_model).where(verified_model.id == payload_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=verified_404_msg)
+    return (None, row)
+
+
+def _verified_row_common(
+    current_user: models.User,
+    hash_img: Any,
+    coordinate: Any,
+    rotation: Any,
+    is_corrected: bool,
+    uuid_batch: str,
+    uuid_record: str,
+) -> dict[str, Any]:
+    """Verified* upsert용 공통 필드."""
+    return {
+        "hash_img": hash_img,
+        "coordinate": coordinate,
+        "rotation": rotation,
+        "is_verified": True,
+        "is_corrected": is_corrected,
+        "verifier_id": getattr(current_user, "id", None),
+        "verifier_name": getattr(current_user, "name", None),
+        "db_updated_by": str(getattr(current_user, "id", "")),
+        "uuid_batch": uuid_batch or "",
+        "uuid_record": uuid_record or "",
+    }
+
+
+async def _mark_ocr_processed_if_needed(
+    db: "DBManager",
+    schemas: list[str],
+    ocr_row: Any,
+    ocr_model: type,
+    current_user: models.User,
+) -> None:
+    """OCR 원본이 있으면 is_processed=True 로 갱신."""
+    if ocr_row is None or getattr(ocr_row, "is_processed", False):
+        return
+    stmt = (
+        sql_update(ocr_model)
+        .where(ocr_model.id == ocr_row.id)
+        .values(is_processed=True, db_updated_by=str(getattr(current_user, "id", "")))
+    )
+    await db.execute_query(stmt, schemas=schemas)
+
+
 def _is_valid_email(email: str | None) -> bool:
     if not email:
         return False
@@ -362,6 +430,7 @@ async def upload_image_zip(
                 "path": str(relative_path).replace("\\", "/"),
                 "exists": True,
                 "is_processed": False,
+                "uuid_batch": upload_id,
             }
         )
 
@@ -1261,80 +1330,50 @@ async def verify_receipt(
             detail="source는 'ocr' 또는 'verified'만 가능합니다.",
         )
 
-    ocr_row = None
-    verified_row = None
-
-    if source == "ocr":
-        stmt = select(models.OcrReceipt).where(models.OcrReceipt.id == payload.id)
-        result = await db.execute_query(stmt, schemas=schemas)
-        ocr_row = result.scalar_one_or_none()
-        if ocr_row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="지정된 OCR 영수증을 찾을 수 없습니다.",
-            )
-        original_duty = getattr(ocr_row, "dutyfree_company", None)
-        original_receipt_no = getattr(ocr_row, "receipt_no", None)
-        original_passport_no = getattr(ocr_row, "passport_no", None)
-        original_name = getattr(ocr_row, "purchaser", None)
-        hash_img = getattr(ocr_row, "hash_img", None)
-    else:
-        stmt = select(models.VerifiedReceipt).where(models.VerifiedReceipt.id == payload.id)
-        result = await db.execute_query(stmt, schemas=schemas)
-        verified_row = result.scalar_one_or_none()
-        if verified_row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="지정된 검증 영수증을 찾을 수 없습니다.",
-            )
-        original_duty = getattr(verified_row, "dutyfree_company", None)
-        original_receipt_no = getattr(verified_row, "receipt_no", None)
-        original_passport_no = getattr(verified_row, "passport_no", None)
-        original_name = getattr(verified_row, "name", None)
-        hash_img = getattr(verified_row, "hash_img", None)
-
-    # 최초 기준 값과의 차이 여부에 따라 is_corrected 계산 (단순 비교)
-    is_corrected = any(
-        [
-            payload.dutyfree_company != original_duty,
-            payload.receipt_no != original_receipt_no,
-            (payload.passport_no or "") != (original_passport_no or ""),
-            (payload.purchaser or "") != (original_name or ""),
-        ]
+    ocr_row, verified_row = await _fetch_verify_source(
+        db, schemas, source, payload.id,
+        models.OcrReceipt, models.VerifiedReceipt,
+        "지정된 OCR 영수증을 찾을 수 없습니다.",
+        "지정된 검증 영수증을 찾을 수 없습니다.",
     )
+    source_row = ocr_row or verified_row
+    original_duty = getattr(source_row, "dutyfree_company", None)
+    original_receipt_no = getattr(source_row, "receipt_no", None)
+    original_passport_no = getattr(source_row, "passport_no", None)
+    original_name = getattr(source_row, "purchaser", None) or getattr(source_row, "name", None)
 
-    # VerifiedReceipt upsert (unique: dutyfree_company + receipt_no)
+    dutyfree_company = (payload.dutyfree_company or "").strip()
+    group_no = (payload.group_no or "").strip() or None
+    receipt_no = (payload.receipt_no or "").strip()
+    passport_no = (payload.passport_no or "").strip() or None
+    purchaser = (payload.purchaser or "").strip() or None
+
+    is_corrected = any([
+        dutyfree_company != (original_duty or ""),
+        receipt_no != (original_receipt_no or ""),
+        (passport_no or "") != (original_passport_no or ""),
+        (purchaser or "") != (original_name or ""),
+    ])
+
+    common = _verified_row_common(
+        current_user,
+        getattr(source_row, "hash_img", None),
+        payload.coordinate,
+        payload.rotation,
+        is_corrected,
+        getattr(source_row, "uuid_batch", None) or "",
+        getattr(source_row, "uuid_record", None) or "",
+    )
     row = {
-        "dutyfree_company": payload.dutyfree_company,
-        "group_no": payload.group_no,
-        "receipt_no": payload.receipt_no,
-        "passport_no": payload.passport_no,
-        "name": payload.purchaser,
-        "hash_img": hash_img,
-        "coordinate": payload.coordinate,
-        "rotation": payload.rotation,
-        "is_verified": True,
-        "is_corrected": is_corrected,
-        "verifier_id": getattr(current_user, "id", None),
-        "verifier_name": getattr(current_user, "name", None),
-        "db_updated_by": str(getattr(current_user, "id", "")),
+        "dutyfree_company": dutyfree_company,
+        "group_no": group_no,
+        "receipt_no": receipt_no,
+        "passport_no": passport_no,
+        "name": purchaser,
+        **common,
     }
-
-    df_verified = pd.DataFrame([row])
-    await db.upsert_batch(
-        table=models.VerifiedReceipt,
-        data=df_verified,
-        schemas=schemas,
-    )
-
-    # OCR 원본은 최초 검수 시 is_processed=True 로 전환
-    if ocr_row is not None and getattr(ocr_row, "is_processed", False) is False:
-        stmt_update = (
-            sql_update(models.OcrReceipt)
-            .where(models.OcrReceipt.id == ocr_row.id)
-            .values(is_processed=True, db_updated_by=str(getattr(current_user, "id", "")))
-        )
-        await db.execute_query(stmt_update, schemas=schemas)
+    await db.upsert_batch(table=models.VerifiedReceipt, data=pd.DataFrame([row]), schemas=schemas)
+    await _mark_ocr_processed_if_needed(db, schemas, ocr_row, models.OcrReceipt, current_user)
 
     return {
         "message": "영수증 정보가 검수/저장되었습니다.",
@@ -1362,81 +1401,50 @@ async def verify_passport(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="source는 'ocr' 또는 'verified'만 가능합니다.",
         )
-
-    # 여권 번호 길이 검증 (최대 9자리)
     if payload.passport_no and len(payload.passport_no) > 9:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="여권 번호는 9자리 이하여야 합니다.",
         )
 
-    ocr_row = None
-    verified_row = None
-
-    if source == "ocr":
-        stmt = select(models.OcrPassport).where(models.OcrPassport.id == payload.id)
-        result = await db.execute_query(stmt, schemas=schemas)
-        ocr_row = result.scalar_one_or_none()
-        if ocr_row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="지정된 OCR 여권 정보를 찾을 수 없습니다.",
-            )
-        original_country = getattr(ocr_row, "country_code", None)
-        original_passport_no = getattr(ocr_row, "passport_no", None)
-        original_name = getattr(ocr_row, "name", None)
-        hash_img = getattr(ocr_row, "hash_img", None)
-    else:
-        stmt = select(models.VerifiedPassport).where(models.VerifiedPassport.id == payload.id)
-        result = await db.execute_query(stmt, schemas=schemas)
-        verified_row = result.scalar_one_or_none()
-        if verified_row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="지정된 검증 여권 정보를 찾을 수 없습니다.",
-            )
-        original_country = getattr(verified_row, "country_code", None)
-        original_passport_no = getattr(verified_row, "passport_no", None)
-        original_name = getattr(verified_row, "name", None)
-        hash_img = getattr(verified_row, "hash_img", None)
-
-    is_corrected = any(
-        [
-            payload.country_code != original_country,
-            payload.passport_no != (original_passport_no or ""),
-            (payload.name or "") != (original_name or ""),
-        ]
+    ocr_row, verified_row = await _fetch_verify_source(
+        db, schemas, source, payload.id,
+        models.OcrPassport, models.VerifiedPassport,
+        "지정된 OCR 여권 정보를 찾을 수 없습니다.",
+        "지정된 검증 여권 정보를 찾을 수 없습니다.",
     )
+    source_row = ocr_row or verified_row
+    original_country = getattr(source_row, "country_code", None)
+    original_passport_no = getattr(source_row, "passport_no", None)
+    original_name = getattr(source_row, "name", None)
 
+    country_code = (payload.country_code or "").strip()
+    passport_no = (payload.passport_no or "").strip()
+    name = (payload.name or "").strip() or None
+
+    is_corrected = any([
+        country_code != (original_country or ""),
+        passport_no != (original_passport_no or ""),
+        (name or "") != (original_name or ""),
+    ])
+
+    common = _verified_row_common(
+        current_user,
+        getattr(source_row, "hash_img", None),
+        payload.coordinate,
+        payload.rotation,
+        is_corrected,
+        getattr(source_row, "uuid_batch", None) or "",
+        getattr(source_row, "uuid_record", None) or "",
+    )
     row = {
-        "country_code": payload.country_code,
-        "passport_no": payload.passport_no,
-        "name": payload.name,
-        "hash_img": hash_img,
-        "coordinate": payload.coordinate,
-        "rotation": payload.rotation,
-        "is_verified": True,
-        "is_corrected": is_corrected,
-        "verifier_id": getattr(current_user, "id", None),
-        "verifier_name": getattr(current_user, "name", None),
-        "db_updated_by": str(getattr(current_user, "id", "")),
+        "country_code": country_code,
+        "passport_no": passport_no,
+        "name": name,
+        **common,
     }
-
-    df_verified = pd.DataFrame([row])
-    await db.upsert_batch(
-        table=models.VerifiedPassport,
-        data=df_verified,
-        schemas=schemas,
-    )
-
-    # OCR 원본은 최초 검수 시 is_processed=True 로 전환
-    if ocr_row is not None and getattr(ocr_row, "is_processed", False) is False:
-        stmt_update = (
-            sql_update(models.OcrPassport)
-            .where(models.OcrPassport.id == ocr_row.id)
-            .values(is_processed=True, db_updated_by=str(getattr(current_user, "id", "")))
-        )
-        await db.execute_query(stmt_update, schemas=schemas)
+    await db.upsert_batch(table=models.VerifiedPassport, data=pd.DataFrame([row]), schemas=schemas)
+    await _mark_ocr_processed_if_needed(db, schemas, ocr_row, models.OcrPassport, current_user)
 
     return {
         "message": "여권 정보가 검수/저장되었습니다.",

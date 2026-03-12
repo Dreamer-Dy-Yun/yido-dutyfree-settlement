@@ -29,6 +29,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
 # CORS 미들웨어 설정
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3001,http://192.168.0.19:5173,http://192.168.0.19:3001,http://172.23.112.1:5173,http://172.23.112.1:3001").split(",")
 app.add_middleware(

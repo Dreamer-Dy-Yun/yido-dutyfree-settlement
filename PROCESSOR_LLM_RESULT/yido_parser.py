@@ -77,14 +77,14 @@ class YidoParser:
         return pd.DataFrame([self._parse_passport(passport) for passport in passports])
 
     def _parse_receipt(self, receipt: dict[str, Any]) -> dict[str, Any]:
-        dict_temp : dict[str, Any] = {
-            "dutyfree_company": receipt.get("dutyfree_company"),
-            "group_no": receipt.get("group_no"),
-            "receipt_no": receipt.get("receipt_no"),
-            "country_code": receipt.get("country_code"),
-            "passport_no": receipt.get("passport_no"),
-            "purchaser": receipt.get("purchaser"),
-            "coordinate": receipt.get("coordinate"),    #JSON 형식
+        dict_temp: dict[str, Any] = {
+            "dutyfree_company": (receipt.get("dutyfree_company") or "").strip() or None,
+            "group_no": (receipt.get("group_no") or "").strip() or None,
+            "receipt_no": (receipt.get("receipt_no") or "").strip() or None,
+            "country_code": (receipt.get("country_code") or "").strip() or None,
+            "passport_no": (receipt.get("passport_no") or "").strip() or None,
+            "purchaser": (receipt.get("purchaser") or "").strip() or None,
+            "coordinate": receipt.get("coordinate"),  # JSON 형식
         }
         return {
             **dict_temp,
@@ -94,18 +94,18 @@ class YidoParser:
         }
 
     def _parse_passport(self, passport: dict[str, Any]) -> dict[str, Any]:
-        dict_temp : dict[str, Any] = {
-            "country_code": passport.get("country_code"),
-            "passport_no": passport.get("passport_no"),
-            "name": passport.get("name"),
-            "gender": passport.get("gender"),
-            "place_of_birth": passport.get("place_of_birth"),
-            "date_of_birth": passport.get("date_of_birth"),
-            "place_of_issue": passport.get("place_of_issue"),
-            "date_of_issue": passport.get("date_of_issue"),
-            "date_of_expiry": passport.get("date_of_expiry"),
-            "authority": passport.get("authority"),
-            "coordinate": passport.get("coordinate"),    #JSON 형식
+        dict_temp: dict[str, Any] = {
+            "country_code": (passport.get("country_code") or "").strip() or None,
+            "passport_no": (passport.get("passport_no") or "").strip() or None,
+            "name": (passport.get("name") or "").strip() or None,
+            "gender": (passport.get("gender") or "").strip() or None,
+            "place_of_birth": (passport.get("place_of_birth") or "").strip() or None,
+            "date_of_birth": (passport.get("date_of_birth") or "").strip() or None,
+            "place_of_issue": (passport.get("place_of_issue") or "").strip() or None,
+            "date_of_issue": (passport.get("date_of_issue") or "").strip() or None,
+            "date_of_expiry": (passport.get("date_of_expiry") or "").strip() or None,
+            "authority": (passport.get("authority") or "").strip() or None,
+            "coordinate": passport.get("coordinate"),  # JSON 형식
         }
         return {
             **dict_temp,

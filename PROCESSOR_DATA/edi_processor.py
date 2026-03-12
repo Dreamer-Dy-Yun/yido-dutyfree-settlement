@@ -52,8 +52,8 @@ class EdiProcessor(ABC):
     def parse(self) -> pd.DataFrame:
         df = self._drop_total_row().copy()
 
-        rename_map = {k: v[0] for k, v in self.column_spec().items()}
-        dtype_map = {v[0]: v[1] for k, v in self.column_spec().items()}
+        rename_map = {k.strip(): v[0] for k, v in self.column_spec().items()}
+        dtype_map = {v[0].strip(): v[1].strip() for k, v in self.column_spec().items()}
         
         df = df.rename(columns=rename_map, errors="ignore")
 
