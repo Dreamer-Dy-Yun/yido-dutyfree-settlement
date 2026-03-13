@@ -679,6 +679,141 @@ async def list_matches(
     }
 
 
+@router.get(
+    "/data-mapping/matches/{uuid_receipt}",
+    summary="영수증-여권 매핑 상세 조회",
+    description="MATCHED 기준으로 영수증/여권 상세 및 매핑 후보 리스트를 조회합니다.",
+)
+@handle_http_error
+async def get_match_detail(
+    uuid_receipt: str,
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    schemas = _get_current_tenant_schemas(current_user)
+
+    # MATCHED + VerifiedReceipt 를 한 번에 조인해서 list_matches 와 동일 기준으로 조회
+    stmt_base = (
+        select(
+            MATCHED,
+            models.VerifiedReceipt,
+            models.Image.path.label("image_path"),
+        )
+        .select_from(MATCHED)
+        .join(
+            models.VerifiedReceipt,
+            models.VerifiedReceipt.uuid_record == MATCHED.uuid_receipt,
+        )
+        .join(
+            models.Image,
+            models.Image.hash == models.VerifiedReceipt.hash_img,
+            isouter=True,
+        )
+        .where(MATCHED.uuid_receipt == uuid_receipt)
+    )
+    result_base = await db.execute_query(stmt_base, schemas=schemas)
+    row_base = result_base.mappings().first() if result_base.mappings() else None
+    if not row_base:
+        raise HTTPException(status_code=404, detail="해당 영수증에 대한 매칭 결과가 없습니다.")
+
+    matched = row_base.get("MATCHED", row_base)
+    vr = row_base.get("VerifiedReceipt") or row_base.get("verified_receipt") or None
+    if vr is None:
+        raise HTTPException(status_code=404, detail="해당 영수증을 찾을 수 없습니다.")
+
+    receipt = {
+        "uuid_record": vr.uuid_record,
+        "dutyfree_company": vr.dutyfree_company,
+        "group_no": vr.group_no,
+        "receipt_no": vr.receipt_no,
+        "country_code": vr.country_code,
+        "passport_no": vr.passport_no,
+        "name": vr.name,
+        "coordinate_verified": vr.coordinate,
+        "hash_img": vr.hash_img,
+        "image_path": row_base.get("image_path"),
+    }
+
+    possible_passports = getattr(matched, "possible_passports", None) or []
+    ranks = getattr(matched, "ranks", None) or [float(i) for i in range(len(possible_passports))]
+
+    candidates: list[dict] = []
+    if possible_passports:
+        stmt_candidates = (
+            select(
+                models.VerifiedPassport.uuid_record.label("uuid_record"),
+                models.VerifiedPassport.country_code,
+                models.VerifiedPassport.passport_no,
+                models.VerifiedPassport.name,
+                models.VerifiedPassport.coordinate,
+                models.VerifiedPassport.hash_img,
+                models.Image.path.label("image_path"),
+            )
+            .select_from(models.VerifiedPassport)
+            .join(
+                models.Image,
+                models.Image.hash == models.VerifiedPassport.hash_img,
+                isouter=True,
+            )
+            .where(models.VerifiedPassport.uuid_record.in_(possible_passports))
+        )
+        result_candidates = await db.execute_query(stmt_candidates, schemas=schemas)
+        rows_candidates = result_candidates.mappings().all() if result_candidates.mappings() else []
+
+        dict_candidates = {str(r["uuid_record"]): dict(r) for r in rows_candidates}
+
+        tmp: list[dict] = []
+        for idx, uuid_p in enumerate(possible_passports):
+            row = dict_candidates.get(str(uuid_p))
+            if not row:
+                continue
+            rank_value = ranks[idx] if idx < len(ranks) else float(idx)
+            row_out = dict(row)
+            row_out["rank"] = rank_value
+            tmp.append(row_out)
+
+        candidates = sorted(tmp, key=lambda x: (x.get("rank", 0), x.get("uuid_record", "")))
+
+    current_uuid_passport = getattr(matched, "uuid_passport", None)
+    current_match = None
+    if current_uuid_passport:
+        for c in candidates:
+            if str(c.get("uuid_record")) == str(current_uuid_passport):
+                current_match = c
+                break
+
+        if current_match is None:
+            stmt_current = (
+                select(
+                    models.VerifiedPassport.uuid_record.label("uuid_record"),
+                    models.VerifiedPassport.country_code,
+                    models.VerifiedPassport.passport_no,
+                    models.VerifiedPassport.name,
+                    models.VerifiedPassport.coordinate,
+                    models.VerifiedPassport.hash_img,
+                    models.Image.path.label("image_path"),
+                )
+                .select_from(models.VerifiedPassport)
+                .join(
+                    models.Image,
+                    models.Image.hash == models.VerifiedPassport.hash_img,
+                    isouter=True,
+                )
+                .where(models.VerifiedPassport.uuid_record == current_uuid_passport)
+            )
+            result_current = await db.execute_query(stmt_current, schemas=schemas)
+            row_current = result_current.mappings().first() if result_current.mappings() else None
+            if row_current:
+                current_match = dict(row_current)
+                current_match["rank"] = 0.0
+
+    return {
+        "receipt": receipt,
+        "current_match": current_match,
+        "candidates": candidates,
+    }
+
+
 # ============================================================================
 # 데이터 매핑 / 이미지 확인용 리스트 API
 # ============================================================================

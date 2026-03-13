@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getMatchStatus, postMatchAttempt, getMatches } from '../services/tenant';
+import { getMatchStatus, postMatchAttempt, getMatches, getMatchDetail } from '../services/tenant';
+import MappingDetailModal from './MappingDetailModal';
 
 /**
  * 이미지 매핑 탭 콘텐츠
@@ -18,6 +19,12 @@ function ImageMappingPanel() {
   const [totalCount, setTotalCount] = useState(0);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState('');
+
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailIndex, setDetailIndex] = useState(0);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
 
   const loadStatus = async () => {
     try {
@@ -97,6 +104,54 @@ function ImageMappingPanel() {
 
   const unmatchedCount = status?.unmatched_count ?? 0;
 
+  const handleOpenDetail = async (row, index) => {
+    if (!row?.uuid_receipt) return;
+    try {
+      setDetailModalOpen(true);
+      setDetailIndex(index);
+      setDetailLoading(true);
+      setDetailError('');
+      const data = await getMatchDetail(row.uuid_receipt);
+      setDetail(data);
+    } catch (err) {
+      console.error('Failed to load match detail:', err);
+      setDetailError('매핑 상세 정보를 불러오지 못했습니다.');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleCloseDetail = () => {
+    setDetailModalOpen(false);
+    setDetail(null);
+    setDetailError('');
+  };
+
+  const handleDetailChangeIndex = async (direction) => {
+    if (rows.length === 0) return;
+
+    const nextIndex =
+      direction === 'prev'
+        ? (detailIndex === 0 ? rows.length - 1 : detailIndex - 1)
+        : (detailIndex === rows.length - 1 ? 0 : detailIndex + 1);
+
+    const nextRow = rows[nextIndex];
+    if (!nextRow?.uuid_receipt) return;
+
+    try {
+      setDetailIndex(nextIndex);
+      setDetailLoading(true);
+      setDetailError('');
+      const data = await getMatchDetail(nextRow.uuid_receipt);
+      setDetail(data);
+    } catch (err) {
+      console.error('Failed to load match detail:', err);
+      setDetailError('매핑 상세 정보를 불러오지 못했습니다.');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   return (
     <div className="tab-content">
       <h2>이미지 매핑</h2>
@@ -171,7 +226,7 @@ function ImageMappingPanel() {
               </tr>
             )}
             {!listLoading &&
-              rows.map((row) => {
+              rows.map((row, idx) => {
                 // 백엔드 응답 필드 이름에 맞게 조정 필요 (예: dutyfree_company, receipt_no, name 등)
                 const dutyfreeCompany = row.dutyfree_company ?? '-';
                 const receiptNo = row.receipt_no ?? '-';
@@ -186,10 +241,7 @@ function ImageMappingPanel() {
                       <button
                         className="secondary-button"
                         type="button"
-                        // TODO: 모달 열기/후보 여권 리스트 조회는 이후 단계에서 구현
-                        onClick={() => {
-                          // placeholder
-                        }}
+                        onClick={() => handleOpenDetail(row, idx)}
                       >
                         상세 보기
                       </button>
@@ -222,6 +274,17 @@ function ImageMappingPanel() {
           </button>
         </div>
       </div>
+
+      {detailModalOpen && (
+        <MappingDetailModal
+          loading={detailLoading}
+          error={detailError}
+          detail={detail}
+          onClose={handleCloseDetail}
+          onPrev={() => handleDetailChangeIndex('prev')}
+          onNext={() => handleDetailChangeIndex('next')}
+        />
+      )}
     </div>
   );
 }

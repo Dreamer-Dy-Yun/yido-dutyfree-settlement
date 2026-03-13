@@ -9,7 +9,7 @@ const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 4;
 const ZOOM_STEP = 0.1;
 const ROI_PADDING = 0.05;   // ROI 확장 시 여유 비율
-const VIEW_MARGIN = 0.05;   // 신 뷰어 영역 여백 (5%)
+const VIEW_MARGIN = 0.05;   // 기본 뷰어 영역 여백 (5%)
 
 // ---------------------------------------------------------------------------
 // 좌표 변환 (이미지 ↔ 뷰). translate + scale 만 (회전 없음).
@@ -72,8 +72,20 @@ function normCoordinate(coord, imgW, imgH) {
  * @param {string} imageHash - 이미지 해시 (hash_img)
  * @param {{top,bottom,left,right}|null} coordinate - 정규화 좌표 (0~1, width/height 기준)
  * @param {(coord) => void} [onChangeCoordinate]
+ * @param {boolean} [editable=true] - 좌표 편집(ROI 선택) 기능 활성화 여부
+ * @param {boolean} [showHelp=true] - 하단 도움말 표시 여부
+ * @param {'contain'|'width'} [fit='contain'] - 초기 뷰에서 이미지 맞춤 방식
+ * @param {number} [focusMargin] - ROI 기준 뷰 여백 비율(0~0.3 정도). 미지정 시 기본 0.05
  */
-function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
+function ImageViewer({
+  imageHash,
+  coordinate,
+  onChangeCoordinate,
+  editable = true,
+  showHelp = true,
+  fit = 'contain',
+  focusMargin,
+}) {
   const containerRef = useRef(null);
   const imgRef = useRef(null);
   const initializedViewRef = useRef(false);
@@ -114,11 +126,17 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
 
   const baseScale =
     naturalSize.width > 0 && naturalSize.height > 0 && containerSize.width > 0 && containerSize.height > 0
-      ? Math.min(containerSize.width / naturalSize.width, containerSize.height / naturalSize.height)
+      ? fit === 'width'
+        ? containerSize.width / naturalSize.width
+        : Math.min(containerSize.width / naturalSize.width, containerSize.height / naturalSize.height)
       : 1;
   const totalScale = baseScale * zoom;
 
   const toView = (x, y) => imageToView(x, y, offset, totalScale);
+
+  // 마지막으로 포커싱에 사용한 픽셀 좌표를 보관하여,
+  // 좌표가 실제로 바뀐 경우에만 초기 포커스를 다시 계산한다.
+  const lastPixelCoordinateRef = useRef(null);
 
   // -------------------------------------------------------------------------
   // 효과: 컨테이너 크기
@@ -144,6 +162,10 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
   // 효과: Alt 키 상태 (커서용)
   // -------------------------------------------------------------------------
   useEffect(() => {
+    if (!editable) {
+      setModAlt(false);
+      return;
+    }
     const onKeyDown = (e) => {
       if (e.key === 'Alt') setModAlt(true);
     };
@@ -159,7 +181,7 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
       window.removeEventListener('keyup', onKeyUp, true);
       window.removeEventListener('blur', onBlur);
     };
-  }, []);
+  }, [editable]);
 
   // -------------------------------------------------------------------------
   // 효과: 이미지 로드
@@ -189,6 +211,22 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
   // 효과: 초기 뷰 (ROI가 신 뷰어 영역에 꽉 차게)
   // -------------------------------------------------------------------------
   useEffect(() => {
+    // 좌표가 변경된 경우에는 초기화 플래그를 리셋하여 새 좌표 기준으로 다시 포커싱한다.
+    if (hasPixelCoordinate && pixelCoordinate) {
+      const last = lastPixelCoordinateRef.current;
+      const curr = pixelCoordinate;
+      const changed =
+        !last ||
+        last.top !== curr.top ||
+        last.bottom !== curr.bottom ||
+        last.left !== curr.left ||
+        last.right !== curr.right;
+      if (changed) {
+        initializedViewRef.current = false;
+        lastPixelCoordinateRef.current = { ...curr };
+      }
+    }
+
     if (!hasPixelCoordinate || initializedViewRef.current) return;
     const { width: imgW, height: imgH } = naturalSize;
     const { width: viewW, height: viewH } = containerSize;
@@ -207,26 +245,33 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
     const extW = Math.max(1, extRight - extLeft);
     const extH = Math.max(1, extBottom - extTop);
 
-    const nvLeft = viewW * VIEW_MARGIN;
-    const nvTop = viewH * VIEW_MARGIN;
-    const nvW = viewW * (1 - 2 * VIEW_MARGIN);
-    const nvH = viewH * (1 - 2 * VIEW_MARGIN);
-    const scaleX = nvW / extW;
-    const scaleY = nvH / extH;
-    if (!isFinite(scaleX) || !isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) return;
+    const margin = typeof focusMargin === 'number' ? Math.max(0, Math.min(0.3, focusMargin)) : VIEW_MARGIN;
 
-    const scale = Math.min(scaleX, scaleY);
+    const nvLeft = viewW * margin;
+    const nvTop = viewH * 0.05; // 상단 5% 지점에 포커스 영역 상단을 맞추기 위함
+    const nvW = viewW * (1 - 2 * margin);
+    const nvH = viewH * (1 - 2 * margin);
+
+    // 포커스(roi) 자체가 가로 기준으로 (1 - 2*margin) 폭에 맞도록 스케일을 계산한다.
+    // extW 는 패딩 포함 확장 영역이므로, 여백 비율을 정확히 맞추려면 roiW 를 기준으로 잡아야 한다.
+    const scaleX = nvW / roiW;
+    const scaleY = nvH / extH; // 세로는 참고용(현재는 가로를 우선)
+    if (!isFinite(scaleX) || scaleX <= 0) return;
+
+    const scale = scaleX;
     if (!isFinite(scale) || scale <= 0) return;
     const newZoom = scale / baseScale;
     const total = baseScale * newZoom;
 
     setZoom(newZoom);
     setOffset({
-      x: nvLeft - extLeft * total,
-      y: nvTop - extTop * total,
+      // 포커스 영역(roi)의 왼쪽이 nvLeft(= viewW * margin)에 오도록 정렬
+      x: nvLeft - roiLeft * total,
+      // 세로는 실제 포커스 상단이 컨테이너 높이의 5% 지점(nvTop)에 오도록 정렬
+      y: nvTop - roiTop * total,
     });
     initializedViewRef.current = true;
-  }, [hasPixelCoordinate, pixelCoordinate, naturalSize, containerSize, baseScale]);
+  }, [hasPixelCoordinate, pixelCoordinate, naturalSize, containerSize, baseScale, focusMargin]);
 
   const getEventPos = (e) => {
     if (!containerRef.current) return null;
@@ -253,7 +298,7 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
     const pos = getEventPos(e);
     if (!pos) return;
 
-    if (e.altKey) {
+    if (e.altKey && editable && onChangeCoordinate) {
       setSelecting(true);
       selectStartRef.current = pos;
       setSelectEnd(pos);
@@ -290,7 +335,7 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
   };
 
   const handleMouseUp = () => {
-    if (selecting && selectEnd && naturalSize.width > 0 && naturalSize.height > 0 && totalScale > 0) {
+    if (selecting && selectEnd && editable && onChangeCoordinate && naturalSize.width > 0 && naturalSize.height > 0 && totalScale > 0) {
       const start = selectStartRef.current;
       const vMinX = Math.min(start.x, selectEnd.x);
       const vMaxX = Math.max(start.x, selectEnd.x);
@@ -382,7 +427,7 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
 
   const wrapperTransform = `translate(${offset.x}px, ${offset.y}px) scale(${totalScale})`;
   const isEditMode = selecting;
-  const cursorClass = modAlt ? 'image-viewer-cursor-crosshair' : '';
+  const cursorClass = editable && modAlt ? 'image-viewer-cursor-crosshair' : '';
 
   return (
     <div
@@ -427,9 +472,11 @@ function ImageViewer({ imageHash, coordinate, onChangeCoordinate }) {
             />
           ))}
           {selectStyle && <div className="image-viewer-selection" style={selectStyle} />}
-          <div className="image-viewer-help">
-            Alt+드래그: 영역 재지정 / 드래그: 화면 이동
-          </div>
+          {editable && showHelp && (
+            <div className="image-viewer-help">
+              Alt+드래그: 영역 재지정 / 드래그: 화면 이동
+            </div>
+          )}
         </>
       ) : (
         <div className="image-viewer-empty">이미지 경로가 없습니다.</div>

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import ImageViewer from './ImageViewer';
 import { verifyReceipt, verifyPassport, getImageDetailsByHash } from '../services/tenant';
+import './ImageViewerLayout.css';
 import './ImageVerifyModal.css';
 
 /**
@@ -213,15 +214,19 @@ function ImageVerifyModal({ mode, items, currentIndex, onChangeIndex, onClose, o
           </button>
         </div>
         <div className="image-verify-body">
-          <div className="image-verify-left">
-            <ImageViewer
-              imageHash={imageHash}
-              coordinate={coordinate}
-              onChangeCoordinate={(coord) => {
-                setCoordinate(coord);
-                setCanSendToLLM(true);
-              }}
-            />
+          <div className="image-verify-left image-viewer-pane">
+            <div className="image-viewer-frame">
+              <ImageViewer
+                imageHash={imageHash}
+                coordinate={coordinate}
+                onChangeCoordinate={(coord) => {
+                  setCoordinate(coord);
+                  setCanSendToLLM(true);
+                }}
+                fit="width"
+                focusMargin={0.1}
+              />
+            </div>
           </div>
           <div className="image-verify-right">
             <div className="image-verify-type-toggle">

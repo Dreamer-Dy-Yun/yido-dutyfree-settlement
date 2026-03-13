@@ -30,26 +30,30 @@
 }
 
 .image-verify-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 20px;
-  padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: row;
+  padding: 16px 20px 20px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
 .image-verify-left {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   min-height: 0;
-  height: 100%;
 }
 
-.image-verify-left .image-viewer-container {
-  height: 100%;
-  min-height: 380px;
+/* 이미지 확인 모달에서는 뷰어 프레임 높이를 기존(약 380px)의 2배 수준으로 확장 */
+.image-verify-left .image-viewer-frame {
+  flex: 0 0 650px;
+  min-height: 600px;
 }
 
 .image-verify-right {
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   min-height: 0;

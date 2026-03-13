@@ -232,3 +232,12 @@ export const getMatches = async ({ status = 'all', page = 1, pageSize = 20 } = {
   const response = await api.get('/api/tenant/data-mapping/matches', { params });
   return response.data;
 };
+
+/**
+ * 매칭 상세 조회
+ * @param {string} uuidReceipt - VerifiedReceipt.uuid_record
+ */
+export const getMatchDetail = async (uuidReceipt) => {
+  const response = await api.get(`/api/tenant/data-mapping/matches/${uuidReceipt}`);
+  return response.data;
+};
