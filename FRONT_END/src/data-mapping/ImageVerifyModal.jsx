@@ -9,7 +9,15 @@ import './ImageVerifyModal.css';
  * - mode: 'receipt' | 'passport'
  * - items: 현재 필터가 적용된 리스트
  */
-function ImageVerifyModal({ mode, items, currentIndex, onChangeIndex, onClose, onSaved }) {
+function ImageVerifyModal({
+  mode,
+  items,
+  currentIndex,
+  onChangeIndex,
+  onClose,
+  onSaved,
+  disableNavigation = false,
+}) {
   const [editTarget, setEditTarget] = useState(mode); // 'receipt' | 'passport'
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
@@ -118,9 +126,11 @@ function ImageVerifyModal({ mode, items, currentIndex, onChangeIndex, onClose, o
           handleSubmit();
         }
       } else if (e.key === 'ArrowLeft') {
+        if (disableNavigation) return;
         e.preventDefault();
         onChangeIndex('prev');
       } else if (e.key === 'ArrowRight') {
+        if (disableNavigation) return;
         e.preventDefault();
         onChangeIndex('next');
       }
@@ -224,7 +234,7 @@ function ImageVerifyModal({ mode, items, currentIndex, onChangeIndex, onClose, o
                   setCanSendToLLM(true);
                 }}
                 fit="width"
-                focusMargin={0.1}
+                focusMargin={0.05}
               />
             </div>
           </div>

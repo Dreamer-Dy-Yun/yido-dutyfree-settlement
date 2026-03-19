@@ -6,7 +6,6 @@ export const DATA_MAPPING_TABS = [
   { id: 'image-review', label: '이미지 확인', icon: '🧾' },
   { id: 'image-mapping', label: '이미지 매핑', icon: '🔗' },
   { id: 'data-check', label: '데이터 확인', icon: '🔍' },
-  { id: 'fee-info', label: '수수료 정보', icon: '💰' },
 ];
 
 export const getDataMappingTabPath = (tabId) => `/dashboard/data-mapping?tab=${tabId}`;

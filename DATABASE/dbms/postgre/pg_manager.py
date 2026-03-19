@@ -36,17 +36,25 @@
 #                    PGDBManager.upsert_batch() 에서 스키마 설정 옵션 추가, 매서드 레벨에서 스키마 선택(인젝션) 가능하도록 변경
 #                    PGDBManager.upsert_batch() : 세션 주입 가능한 옵션 추가
 #                    ※ PGDBManager.update_batch()도 동일 수정
-# TODO : key 기반 중복 체크 로직 추가 (upsert_batch(), update_batch() 용)
+#       2026.03.19 : PGDBManager.upsert_batch() 에서 배치 단위 에러 메시지 모음 추가
 # TODO : Steaming용 모듈 작성 고려
-# TODO : df->db를 위한 내부 타입 안정화 용 df 래퍼 작성
-# TODO : 임의의 스키마 내 테이블 일괄 작성 기능 추가 (퍼블릭, 테넌트 스키마(스키마 미지정) 모두 가능)
 # TODO : 임의의 스키마 내 테이블 일괄 변경 (퍼블릭, 테넌트 스키마(스키마 미지정) 모두 가능)
+# TODO : PGDBManager.convert_df_by_model() 추가. 테스트 완료시 기존 함수 삭제 (구현 : 2026.03.19)
 ############################################
 import urllib
+from decimal import Decimal
 
 
 from DATABASE.dbms import DBManager
-from sqlalchemy import Table, text, Column, and_, values, update, UniqueConstraint, PrimaryKeyConstraint, ForeignKeyConstraint
+from sqlalchemy import (
+    Table, text, Column, and_, values,
+    update,
+    UniqueConstraint, PrimaryKeyConstraint, ForeignKeyConstraint,
+    String as SAString,
+    Numeric, Integer, Float,
+    DateTime, Date ,Time,
+    Boolean, JSON,
+)
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlalchemy.sql import quoted_name
 from sqlalchemy.sql.dml import Insert
@@ -54,7 +62,7 @@ from sqlalchemy.sql.elements import ColumnElement, Executable
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from sqlalchemy.schema import AddConstraint
-from typing import Type, TypeVar, Optional, AsyncContextManager, Self, AsyncIterator, overload
+from typing import Type, TypeVar, Optional, AsyncContextManager, Self, AsyncIterator, overload, Any
 from pandas import DataFrame
 import asyncpg
 import asyncio
@@ -664,7 +672,7 @@ class PGDBManager(DBManager):
         conflict_cols: list[str] | None = None, 
         try_convert: bool = True, 
         session: AsyncSession | None = None, 
-        params_per_chunk: int = 10000, 
+        params_per_chunk: int = 30000, 
         allow_infinity: bool = True,
         partial_commit: bool = True,
         ) -> dict[str, int | DataFrame]:
@@ -672,7 +680,8 @@ class PGDBManager(DBManager):
             raise ValueError(f"Invalid data type: {type(data)}")
 
         # 항상 그렇듯 극한 성능 필요하면 언어 변경 및 SQL 수기 작성 필요
-        df = self._convert_df_for_db(data, try_convert, allow_infinity)
+        # df = self._convert_df_for_db(data, try_convert, allow_infinity)
+        df = self.convert_df_by_model(data, table, allow_infinity, deep_copy=True)
 
         if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
             raise ValueError(f"Invalid conflict columns: {conflict_cols}")
@@ -704,13 +713,135 @@ class PGDBManager(DBManager):
                         await session.rollback()
                     raise 
 
+    @staticmethod
+    def _fix_cols_string(series: pd.Series) -> pd.Series:
+        return series.astype(object).where(pd.notna(series), None)
 
-    def _convert_df_for_db(self, df: pd.DataFrame, try_convert: bool = True, allow_infinity: bool = True) -> pd.DataFrame:
+    @staticmethod
+    def _fix_cols_integer(series: pd.Series) -> pd.Series:
+        s : pd.Series = pd.to_numeric(series, errors="coerce").astype("Int64")
+        return s.astype(object).where(s.notna(), None)
+
+    @staticmethod
+    def _fix_cols_float(series: pd.Series, allow_infinity: bool = True) -> pd.Series:
+        s : pd.Series = pd.to_numeric(series, errors="coerce")
+        mask : pd.Series = s.notna() if allow_infinity else s.notna() & np.isfinite(s)
+        return s.astype(object).where(mask, None)
+
+    @staticmethod
+    def _fix_cols_datetime(series: pd.Series) -> pd.Series:
+        s : pd.Series = pd.to_datetime(series, errors="coerce")
+        py: np.ndarray = s.dt.to_pydatetime()
+        out: pd.Series = pd.Series(py, index=s.index, dtype="object")
+        out.loc[s.isna()] = None
+        return out
+
+    @staticmethod
+    def _fix_cols_date(series: pd.Series) -> pd.Series:
+        s : pd.Series = pd.to_datetime(series, errors="coerce")
+        py : np.ndarray = s.dt.date
+        out : pd.Series = pd.Series(py, index=s.index, dtype="object")
+        out.loc[s.isna()] = None
+        return out
+
+    @staticmethod
+    def _fix_cols_time(series: pd.Series) -> pd.Series:
+        s : pd.Series = pd.to_datetime(series, errors="coerce")
+        py : np.ndarray = s.dt.time
+        out : pd.Series = pd.Series(py, index=s.index, dtype="object")
+        out.loc[s.isna()] = None
+        return out
+
+    @staticmethod
+    def _fix_cols_boolean(series: pd.Series) -> pd.Series:
+        def to_bool(v):
+            if pd.isna(v):
+                return None
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, (int, float)):
+                return bool(v)
+            if isinstance(v, str):
+                v = v.strip().lower()
+                if v in ("true", "t", "1", "y", "yes"):
+                    return True
+                if v in ("false", "f", "0", "n", "no"):
+                    return False
+            return None
+
+        return series.astype(object).apply(to_bool)
+
+    @staticmethod
+    def _to_decimal(v: float | int | str | Decimal | None) -> Decimal | None:
+        if v is None or pd.isna(v):
+            return None
+        return Decimal(str(v))
+
+    @staticmethod
+    def _fix_cols_json(series: pd.Series) -> pd.Series:
+        return series.astype(object).where(pd.notna(series), None)
+
+
+    def convert_df_by_model(self, df: pd.DataFrame, model: DeclarativeBase, allow_infinity: bool = True, deep_copy: bool = True) -> pd.DataFrame:
+        result = df.copy() if deep_copy else df
+
+        for col in model.__table__.columns:
+            col_name = col.name
+
+            if col_name not in result.columns:
+                continue
+
+            s : pd.Series = result[col_name]
+
+            if isinstance(col.type, SAString):
+                result[col_name] = self._fix_cols_string(s)
+            elif isinstance(col.type, Integer):
+                result[col_name] = self._fix_cols_integer(s)
+            elif isinstance(col.type, Float):
+                result[col_name] = self._fix_cols_float(s, allow_infinity)
+            elif isinstance(col.type, Numeric):
+                s: pd.Series = self._fix_cols_float(s, allow_infinity)
+                result[col_name] = s.apply(self._to_decimal)
+            elif isinstance(col.type, DateTime):
+                result[col_name] = self._fix_cols_datetime(s)
+            elif isinstance(col.type, Date):
+                result[col_name] = self._fix_cols_date(s)
+            elif isinstance(col.type, Time):
+                result[col_name] = self._fix_cols_time(s)
+            elif isinstance(col.type, Boolean):
+                result[col_name] = self._fix_cols_boolean(s)
+            elif isinstance(col.type, JSON):
+                result[col_name] = self._fix_cols_json(s)
+            else:
+                # unknown type → 안전하게 None 처리만
+                result[col_name] = s.astype(object).where(pd.notna(s), None)
+
+        return result
+
+
+    def _convert_df_for_db(self, df: pd.DataFrame, table: DeclarativeBase, try_convert: bool = True, allow_infinity: bool = True) -> pd.DataFrame:
         if try_convert:
             df = df.copy()
             df = self.convert_datetime_for_db(df, deep_copy=False)
             df = self.convert_numeric_for_db(df, set_none_as=None, allow_infinity=allow_infinity, deep_copy=False)
+            df = self.convert_string_cols_by_model(df, table)
         return df
+
+    @staticmethod
+    def convert_string_cols_by_model(df: pd.DataFrame, model: DeclarativeBase) -> pd.DataFrame:
+        result = df.copy()
+
+        for col in model.__table__.columns:
+            col_name = col.name
+
+            if col_name not in result.columns:
+                continue
+
+            if isinstance(col.type, SAString):
+                s = result[col_name]
+                result[col_name] = s.astype(object).where(pd.notna(s), None)
+
+        return result
 
 
     async def _upsert_dataframe_core(
@@ -749,8 +880,11 @@ class PGDBManager(DBManager):
         dfs_failed_batch: list[DataFrame] = []
         df_failed: DataFrame = DataFrame()
 
+        list_error_messages: list[str] = []
+
         for i in range(0, len(df), rows_per_batch):
             df_batch: DataFrame = df.iloc[i:i+rows_per_batch]
+            batch_idx: int = i // rows_per_batch
             try:
                 stmt: Insert = self._stmt_upsert_dataframe(table, df_batch, conflict_cols)
                 await session.execute(stmt)
@@ -758,7 +892,11 @@ class PGDBManager(DBManager):
                     await session.commit()
                 cnt_success_rows += len(df_batch)
             except Exception as e:
-                logger.error(f"Error upserting dataframe: {e}")
+                err_type: str = type(e).__name__
+                orig: Any = getattr(e, "orig", None)
+                msg: str = str(orig) if orig else str(e)
+                # 배치 인덱스와 함께 요약만 남긴다 (상세 스택은 상위에서 로깅)
+                list_error_messages.append(f"[batch={batch_idx}] {err_type}: {msg}")
                 if partial_commit:
                     cnt_failed_rows += len(df_batch)
                     dfs_failed_batch.append(df_batch)
@@ -768,7 +906,15 @@ class PGDBManager(DBManager):
             finally:
                 pass
         if dfs_failed_batch:
-            df_failed: DataFrame = pd.concat(dfs_failed_batch, ignore_index=False)
+            df_failed = pd.concat(dfs_failed_batch, ignore_index=False)
+
+        if list_error_messages:
+            table_name = getattr(table, "__tablename__", str(table))
+            summary = (
+                f"Error upserting dataframe into '{table_name}' "
+                f"(success_rows={cnt_success_rows}, failed_rows={cnt_failed_rows}):"
+            )
+            raise ValueError(summary + "\n" + "\n".join(list_error_messages))
         return {"cnt_success_rows": cnt_success_rows, "cnt_failed_rows": cnt_failed_rows, "df_failed": df_failed}
 
 
@@ -792,7 +938,6 @@ class PGDBManager(DBManager):
             stmt = stmt.on_conflict_do_nothing(index_elements=uniqs)
         else:
             stmt = stmt.on_conflict_do_update(index_elements=uniqs, set_=update_cols)
-
         return stmt
 
 
@@ -839,7 +984,8 @@ class PGDBManager(DBManager):
         if not isinstance(data_to_update, DataFrame):
             raise ValueError(f"Invalid data_to_update type: {type(data_to_update)}")
 
-        df = self._convert_df_for_db(data_to_update, try_convert, allow_infinity)
+        # df = self._convert_df_for_db(data_to_update, table, try_convert, allow_infinity)
+        df = self.convert_df_by_model(data_to_update, table, allow_infinity, deep_copy=True)
 
         if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
             raise ValueError(f"Invalid conflict columns: {conflict_cols}")

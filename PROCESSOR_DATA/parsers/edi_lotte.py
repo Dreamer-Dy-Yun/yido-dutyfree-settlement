@@ -3,9 +3,11 @@ from PROCESSOR_DATA.edi_processor import EdiProcessor
 
 class EdiLotte(EdiProcessor):
     HEADER_LEVELS : list[int] = [0, 1]
+    DUTYFREE_OPERATOR : str = "LOTTE"
 
     # 한글 컬럼명 -> (영문명, dtype). DB/upsert 시 타입 맞춤용.
     def column_spec(self) -> dict[str, tuple[str, str]]:
+        """LOTTE EDI [여행사매출상세내역조회] 기준"""
         return {
             "순번": ("seq", "Int64"),
             "0": ("zero_index", "Int64"),
@@ -49,6 +51,45 @@ class EdiLotte(EdiProcessor):
         return df
 
 
+    def to_unified(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        롯데 EDI DataFrame을 EDI_UNIFIED 테이블용 포맷으로 정규화.
+        - 컬럼 매핑
+        - 제조일자(aging)은 제공되지 않으므로 manufactured_at 은 NULL 로 둔다.
+        """
+        df_unified: pd.DataFrame = pd.DataFrame(index=df.index)
+
+        # 기본 매핑 (EDI_UNIFIED 스키마 기준)
+        df_unified["dutyfree_operator"] = self.DUTYFREE_OPERATOR
+        df_unified["dutyfree_branch"] = df["branch"]
+        df_unified["datetime_original"] = df["original_sales_date"]
+        df_unified["datetime_purchase"] = df["sales_date"]
+        df_unified["customer_name"] = df["customer_name"]
+        df_unified["group_no"] = df["group_no"]
+        df_unified["receipt_no"] = df["voucher_no"]
+        df_unified["product_code"] = df["product_code"]
+
+        # 롯데에는 aging(제조일자) 정보가 없으므로 NULL 로 유지
+        df_unified["manufactured_at"] = None
+
+        # 나머지 공통 컬럼 매핑
+        df_unified["category"] = df["category"]
+        df_unified["brand"] = df["brand_name"]
+        df_unified["product_name"] = df["product_name"]
+        df_unified["ref_no"] = df["ref_no"]
+        df_unified["quantity"] = df["sales_quantity"]
+
+        df_unified["gross_sales_amount_usd"] = df["gross_sales_amount_usd"]
+        df_unified["net_sales_amount_usd"] = df["net_sales_amount_usd"]
+        df_unified["discount_amount_usd"] = df["discount_amount_usd"]
+        df_unified["gross_sales_amount_krw"] = df["gross_sales_amount_krw"]
+        df_unified["net_sales_amount_krw"] = df["net_sales_amount_krw"]
+        df_unified["discount_amount_krw"] = df["discount_amount_krw"]
+
+        # system_note 기본값 (신라와 맞추기 위해 컬럼만 생성)
+        df_unified["system_note"] = None
+
+        return df_unified
 
 # ---------------------------------------------------------------------------
 # TEST CODE

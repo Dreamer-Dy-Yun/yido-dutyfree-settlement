@@ -13,6 +13,7 @@ function TenantDetailPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteReason, setDeleteReason] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -155,19 +156,23 @@ function TenantDetailPage() {
   };
 
   const handleDelete = async () => {
+    if (deleting) return;
     if (!deleteReason.trim()) {
       alert('삭제 사유를 입력해주세요.');
       return;
     }
 
     try {
+      setDeleting(true);
       await deleteTenant(tenantId, deleteReason);
       alert('삭제 완료');
       setShowDeleteModal(false);
       setDeleteReason('');
-      loadTenantDetail();
+      navigate('/admin/tenants');
     } catch (err) {
       alert(err.response?.data?.detail || '삭제에 실패했습니다');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -515,7 +520,13 @@ function TenantDetailPage() {
       )}
 
       {showDeleteModal && (
-        <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            if (deleting) return;
+            setShowDeleteModal(false);
+          }}
+        >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3>테넌트 삭제</h3>
             <p style={{ color: '#dc2626', fontWeight: 600, marginBottom: '12px' }}>
@@ -527,23 +538,26 @@ function TenantDetailPage() {
               onChange={(e) => setDeleteReason(e.target.value)}
               placeholder="삭제 사유를 입력하세요..."
               rows="4"
+              disabled={deleting}
             />
             <div className="modal-actions">
               <button
                 className="common-btn common-btn-secondary"
                 onClick={() => {
+                  if (deleting) return;
                   setShowDeleteModal(false);
                   setDeleteReason('');
                 }}
+                disabled={deleting}
               >
                 취소
               </button>
               <button
                 className="common-btn common-btn-danger"
                 onClick={handleDelete}
-                disabled={!deleteReason.trim()}
+                disabled={deleting || !deleteReason.trim()}
               >
-                삭제
+                {deleting ? '삭제 중...' : '삭제'}
               </button>
             </div>
           </div>

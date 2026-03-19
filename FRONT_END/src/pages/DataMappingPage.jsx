@@ -8,6 +8,7 @@ import CommonTabsRow from '../components/CommonTabsRow';
 import { DATA_MAPPING_TABS, DEFAULT_DATA_MAPPING_TAB } from '../constants/dataMappingTabs';
 import ImageReviewPanel from '../data-mapping/ImageReviewPanel';
 import ImageMappingPanel from '../data-mapping/ImageMappingPanel';
+import EdiUnifiedCheckPanel from '../data-mapping/EdiUnifiedCheckPanel';
 import './DataMappingPage.css';
 
 /** 면세점(EDI 출처) 목록 – 프론트 상수. 추후 API/DB로 전환 가능 */
@@ -356,9 +357,13 @@ function DataMappingPage() {
           <ImageMappingPanel />
         );
       case 'data-check':
-        return <div className="tab-content"><p>데이터 확인 기능은 준비 중입니다.</p></div>;
-      case 'fee-info':
-        return <div className="tab-content"><p>수수료 정보 기능은 준비 중입니다.</p></div>;
+        return (
+          <div className="tab-content">
+            <h2>데이터 확인</h2>
+            <p>EDI 매핑 실행 및 최종 결과 확인/엑셀 다운로드를 제공합니다.</p>
+            <EdiUnifiedCheckPanel />
+          </div>
+        );
       default:
         return <div className="tab-content"><p>페이지를 찾을 수 없습니다.</p></div>;
     }

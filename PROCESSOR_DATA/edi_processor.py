@@ -70,3 +70,7 @@ class EdiProcessor(ABC):
             df = df.astype(non_datetime_cols, errors="ignore")
 
         return df
+
+    @abstractmethod
+    def to_unified(self, df: pd.DataFrame) -> pd.DataFrame:
+        pass

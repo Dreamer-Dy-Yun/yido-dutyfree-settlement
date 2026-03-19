@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 import io
 import os
+import time
 import secrets
 import string
 import uuid
@@ -19,9 +20,11 @@ from pathlib import Path
 import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, func, and_, update as sql_update, delete as sql_delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import Select
 
 from WEB_SERVER.auth.dependencies import get_current_tenant_admin, get_current_user
@@ -30,13 +33,17 @@ from WEB_SERVER.auth import get_password_hash
 from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_service
 from WEB_SERVER.services.service_image_ocr import run_image_ocr_background
 from WEB_SERVER.services.service_match_queue import enqueue_match_job
+from WEB_SERVER.services.service_edi_unified_queue import enqueue_edi_unified_job, get_edi_unified_job_status
 from WEB_SERVER.services.verification_token import verification_token_service
 from WEB_SERVER.routers.settings import get_user_repository
 from CUSTOMIZED.cust_deco_error import handle_http_error
+from CUSTOMIZED.cust_logger import logger
 from CUSTOMIZED.cust_zip_processor import ZipProcessor
 from PROCESSOR_DATA.parsers.edi_lotte import EdiLotte
 from PROCESSOR_DATA.parsers.edi_silla import EdiSilla
 from PROCESSOR_DATA.patch import fix_invalid_datetime_in_xlsx_bytes
+from PROCESSOR_DATA.edi_unified_service import EdiUnifiedService
+from PROCESSOR_DATA.edi_unified_export import EdiUnifiedExporter
 
 from DATABASE import models
 from DATABASE.models.tenant_model import UserRole, MATCHED
@@ -99,6 +106,7 @@ def _verified_row_common(
     is_corrected: bool,
     uuid_batch: str,
     uuid_record: str,
+    verification_mode: str | None = None,
 ) -> dict[str, Any]:
     """Verified* upsert용 공통 필드."""
     return {
@@ -112,7 +120,83 @@ def _verified_row_common(
         "db_updated_by": str(getattr(current_user, "id", "")),
         "uuid_batch": uuid_batch or "",
         "uuid_record": uuid_record or "",
+        # 단건 검수/수정 시 'single', 추후 일괄 처리 시 'bulk' 등으로 사용
+        "verification_mode": verification_mode,
     }
+
+
+async def _upsert_verified_row_by_uuid(
+    session,
+    table_model: type,
+    row: dict[str, Any],
+) -> None:
+    """uuid_record 기준으로 Verified* 단건 upsert."""
+    tbl = table_model.__table__
+    stmt = pg_insert(tbl).values(**row)
+    update_cols = {k: v for k, v in row.items() if k != "uuid_record"}
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[tbl.c.uuid_record],
+        set_=update_cols,
+    )
+    await session.execute(stmt)
+
+
+async def _merge_receipt_fk_and_replace(
+    db: DBManager,
+    schemas: list[str],
+    old_uuid: str,
+    row_new: dict[str, Any],
+) -> None:
+    """기존 receipt UUID 참조를 새 UUID로 교체 후 기존 row 삭제 + 새 row upsert."""
+    new_uuid = str(row_new.get("uuid_record") or "").strip()
+    if not old_uuid or not new_uuid:
+        raise HTTPException(status_code=400, detail="old_uuid/new_uuid가 비어 있습니다.")
+
+    async with db.open_session(schemas=schemas) as session:
+        await session.execute(
+            sql_update(models.MATCHED)
+            .where(models.MATCHED.uuid_receipt == old_uuid)
+            .values(uuid_receipt=new_uuid)
+        )
+        await session.execute(
+            sql_update(models.EDI_UNIFIED)
+            .where(models.EDI_UNIFIED.uuid_receipt == old_uuid)
+            .values(uuid_receipt=new_uuid)
+        )
+        await session.execute(
+            sql_delete(models.VerifiedReceipt)
+            .where(models.VerifiedReceipt.uuid_record == old_uuid)
+        )
+        await _upsert_verified_row_by_uuid(session, models.VerifiedReceipt, row_new)
+
+
+async def _merge_passport_fk_and_replace(
+    db: DBManager,
+    schemas: list[str],
+    old_uuid: str,
+    row_new: dict[str, Any],
+) -> None:
+    """기존 passport UUID 참조를 새 UUID로 교체 후 기존 row 삭제 + 새 row upsert."""
+    new_uuid = str(row_new.get("uuid_record") or "").strip()
+    if not old_uuid or not new_uuid:
+        raise HTTPException(status_code=400, detail="old_uuid/new_uuid가 비어 있습니다.")
+
+    async with db.open_session(schemas=schemas) as session:
+        await session.execute(
+            sql_update(models.MATCHED)
+            .where(models.MATCHED.uuid_passport == old_uuid)
+            .values(uuid_passport=new_uuid)
+        )
+        await session.execute(
+            sql_update(models.EDI_UNIFIED)
+            .where(models.EDI_UNIFIED.uuid_passport == old_uuid)
+            .values(uuid_passport=new_uuid)
+        )
+        await session.execute(
+            sql_delete(models.VerifiedPassport)
+            .where(models.VerifiedPassport.uuid_record == old_uuid)
+        )
+        await _upsert_verified_row_by_uuid(session, models.VerifiedPassport, row_new)
 
 
 async def _mark_ocr_processed_if_needed(
@@ -137,6 +221,12 @@ def _is_valid_email(email: str | None) -> bool:
     if not email:
         return False
     return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email.strip()))
+
+
+def _normalize_receipt_no(receipt_no: str | None) -> str:
+    if not receipt_no:
+        return ""
+    return receipt_no.replace("-", "").replace(" ", "")
 
 
 # 요청/응답 스키마
@@ -196,7 +286,24 @@ class MatchJobRequest(BaseModel):
     tenant_schema: str
     requested_by: int | None = None
     try_fallback: bool = True
-    matcher_key: str = "lotte"
+    matcher_key: str = "LOTTE"
+
+
+class EdiUnifiedJobRequest(BaseModel):
+    """EDI_UNIFIED 워커가 호출하는 내부용 작업 요청 스키마"""
+
+    tenant_schema: str
+    requested_by: int | None = None
+    sources: list[str] = ["SILLA", "LOTTE"]
+    max_rows: int | None = None
+    fill_receipt: bool = True
+    fill_passport: bool = True
+
+
+class EdiUnifiedJobEnqueueRequest(BaseModel):
+    """프론트에서 요청하는 EDI_UNIFIED 작업 등록 스키마"""
+
+    sources: list[str] = ["SILLA", "LOTTE"]
 
 
 class ReceiptVerifyRequest(BaseModel):
@@ -211,6 +318,7 @@ class ReceiptVerifyRequest(BaseModel):
     purchaser: str | None = None
     coordinate: dict[str, float] | None = None
     rotation: float | None = None
+    force_merge: bool = False
 
 
 class PassportVerifyRequest(BaseModel):
@@ -222,6 +330,17 @@ class PassportVerifyRequest(BaseModel):
     name: str | None = None
     coordinate: dict[str, float] | None = None
     rotation: float | None = None
+    force_merge: bool = False
+
+
+class BulkVerifyReceiptsRequest(BaseModel):
+    """영수증 일괄 확인 요청 스키마"""
+    ids: list[str]
+
+
+class BulkVerifyPassportsRequest(BaseModel):
+    """여권 일괄 확인 요청 스키마"""
+    ids: list[str]
 
 
 # 유저 관리 API
@@ -293,9 +412,16 @@ async def upload_edi_data(
             detail="EDI 업로드는 엑셀(.xlsx, .xls)만 지원합니다.",
         )
 
+    t0 = time.perf_counter()
     contents = await file.read()
-    if edi_source_lower == "silla":
-        contents = fix_invalid_datetime_in_xlsx_bytes(contents)
+    # 일부 엑셀에서 날짜 문자열이 "YYYYMMDDTHHMMSS" 형태로 들어오면 openpyxl이 파싱 중 예외를 낸다.
+    # 소스(롯데/신라)와 무관하게 xlsx 인 경우에는 사전 패치로 안전하게 처리한다.
+    if filename.lower().endswith(".xlsx"):
+        try:
+            contents = fix_invalid_datetime_in_xlsx_bytes(contents)
+        except Exception:
+            # 패치 실패 시에도 원본으로 파싱을 시도한다.
+            pass
 
     # EDI 파서가 엑셀 로딩/플랫헤더/타입 변환을 모두 담당하도록 위임
     try:
@@ -310,6 +436,7 @@ async def upload_edi_data(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="지원하지 않는 데이터 소스입니다.")
 
         df_parsed = parser.set_data(buffer).parse()
+        t1 = time.perf_counter()
     except HTTPException:
         # 위에서 명시적으로 만든 HTTPException은 그대로 전달
         raise
@@ -325,11 +452,16 @@ async def upload_edi_data(
     try:
         upsert_result = await db.upsert_batch(table=table, data=df_parsed, schemas=schemas)
         rows_upserted = int(upsert_result["cnt_success_rows"])
+        t2 = time.perf_counter()
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="저장에 실패했습니다.",
         )
+
+    parse_sec = round(t1 - t0, 2)
+    db_sec = round(t2 - t1, 2)
+    logger.info("EDI upload: parse=%ss, db=%ss, rows=%s", parse_sec, db_sec, rows_upserted)
 
     return {
         "message": "파일이 업로드되어 반영되었습니다.",
@@ -342,7 +474,7 @@ async def upload_edi_data(
 @router.post(
     "/data-mapping/match-attempt",
     summary="영수증-여권 매칭 작업 요청",
-    description="현재 테넌트에 대해 백그라운드 매칭 작업을 Redis 큐에 등록합니다.",
+    description="현재 테넌트에 대해 백그라운드 매칭 작업을 Redis 큐에 등록합니다. (기본: LOTTE+SILLA 모두 실행)",
 )
 @handle_http_error
 async def request_match_attempt(
@@ -350,6 +482,7 @@ async def request_match_attempt(
     current_user: models.User = Depends(get_current_user),
 ):
     tenant_schema = _get_current_tenant_schema_from_user(current_user)
+    # matcher_key 를 명시하지 않으면 LOTTE+SILLA 모두 실행
     job = enqueue_match_job(
         tenant_schema=tenant_schema,
         requested_by=getattr(current_user, "id", None),
@@ -359,6 +492,293 @@ async def request_match_attempt(
         "message": "매칭 작업이 큐에 등록되었습니다.",
         "job": job,
     }
+
+
+@router.post(
+    "/data-mapping/edi-unified/run",
+    summary="EDI_UNIFIED 동기화/매핑 작업 요청",
+    description="현재 테넌트에 대해 EDI_UNIFIED 동기화/매핑 작업을 Redis 큐에 등록합니다.",
+)
+@handle_http_error
+async def request_edi_unified_run(
+    payload: EdiUnifiedJobEnqueueRequest,
+    current_user: models.User = Depends(get_current_user),
+):
+    tenant_schema = _get_current_tenant_schema_from_user(current_user)
+    sources = [s.strip().upper() for s in (payload.sources or [])]
+    sources = [s for s in sources if s in ("SILLA", "LOTTE")] or ["SILLA", "LOTTE"]
+
+    logger.info(
+        "[EDI_UNIFIED][ENQUEUE] request_edi_unified_run | tenant_schema=%s user_id=%s sources=%s",
+        tenant_schema,
+        getattr(current_user, "id", None),
+        sources,
+    )
+
+    job = enqueue_edi_unified_job(
+        tenant_schema=tenant_schema,
+        requested_by=getattr(current_user, "id", None),
+        sources=sources,  # type: ignore[arg-type]
+        max_rows=None,
+        fill_receipt=True,
+        fill_passport=True,
+    )
+
+    logger.info(
+        "[EDI_UNIFIED][ENQUEUE] job_enqueued | job_id=%s status=%s tenant_schema=%s sources=%s",
+        job.get("job_id"),
+        "queued",
+        tenant_schema,
+        sources,
+    )
+
+    return {"message": "EDI 매핑 작업이 큐에 등록되었습니다.", "job": job}
+
+
+@router.get(
+    "/data-mapping/edi-unified/job/{job_id}",
+    summary="EDI_UNIFIED 작업 상태 조회",
+)
+@handle_http_error
+async def get_edi_unified_job(job_id: str):
+    status_data = get_edi_unified_job_status(job_id)
+    if not status_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job_id를 찾을 수 없습니다.")
+    return {"job": status_data}
+
+
+@router.post(
+    "/internal/edi-unified/run",
+    summary="내부용 EDI_UNIFIED 작업 실행",
+    description="EDI_UNIFIED 워커가 호출하는 내부 전용 엔드포인트로, 지정된 테넌트에 대해 EDI_UNIFIED 로직을 실행합니다.",
+)
+@handle_http_error
+async def internal_run_edi_unified_job(
+    payload: EdiUnifiedJobRequest,
+    db: DBManager = Depends(get_db_manager),
+):
+    sources = [s.strip().upper() for s in (payload.sources or [])]
+    sources = [s for s in sources if s in ("SILLA", "LOTTE")] or ["SILLA", "LOTTE"]
+
+    svc = EdiUnifiedService(db=db, tenant_schema=payload.tenant_schema, public_schema="public")
+
+    import time as _time
+    t0 = _time.perf_counter()
+    logger.info(
+        "[EDI_UNIFIED][WORKER] internal_run_edi_unified_job start | tenant_schema=%s sources=%s max_rows=%s fill_receipt=%s fill_passport=%s",
+        payload.tenant_schema,
+        sources,
+        payload.max_rows,
+        payload.fill_receipt,
+        payload.fill_passport,
+    )
+
+    await svc.run(
+        sources=sources,  # type: ignore[arg-type]
+        max_rows=payload.max_rows,
+        fill_receipt=bool(payload.fill_receipt),
+        fill_passport=bool(payload.fill_passport),
+    )
+
+    elapsed = round(_time.perf_counter() - t0, 3)
+    logger.info(
+        "[EDI_UNIFIED][WORKER] internal_run_edi_unified_job done | tenant_schema=%s total=%.3fs",
+        payload.tenant_schema,
+        elapsed,
+    )
+
+    return {"message": "EDI_UNIFIED 작업이 완료되었습니다.", "tenant_schema": payload.tenant_schema, "sources": sources}
+
+
+@router.get(
+    "/data-mapping/edi-unified/export",
+    summary="EDI 매핑 결과 엑셀 다운로드",
+)
+@handle_http_error
+async def export_edi_unified_excel(
+    from_date: str = Query(..., description="YYYY.MM.DD"),
+    to_date: str = Query(..., description="YYYY.MM.DD"),
+    sources: str = Query("all", description="all|silla|lotte"),
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    import datetime as _dt
+
+    def _parse_date(s: str) -> _dt.date:
+        return _dt.datetime.strptime(s, "%Y.%m.%d").date()
+
+    d_from = _parse_date(from_date)
+    d_to = _parse_date(to_date)
+    if d_from > d_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="from_date는 to_date보다 클 수 없습니다.")
+
+    sources_norm = sources.strip().upper()
+    src_list = ["SILLA", "LOTTE"] if sources_norm == "ALL" else [sources_norm]
+    src_list = [s for s in src_list if s in ("SILLA", "LOTTE")] or ["SILLA", "LOTTE"]
+
+    tenant_schema = _get_current_tenant_schema_from_user(current_user)
+    exporter = EdiUnifiedExporter(db=db, tenant_schema=tenant_schema, public_schema="public")
+    df = await exporter.build_export_dataframe(
+        sources=src_list,  # type: ignore[arg-type]
+        from_date=d_from,
+        to_date=d_to,
+    )
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="EDI매핑결과")
+    output.seek(0)
+
+    filename = f"EDI매핑결과_({d_from.strftime('%Y.%m.%d')}~{d_to.strftime('%Y.%m.%d')}).xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@router.get(
+    "/data-mapping/edi-unified/groups",
+    summary="EDI_UNIFIED 그룹(면세점+영수증번호) 목록 조회",
+)
+@handle_http_error
+async def list_edi_unified_groups(
+    from_date: str = Query(..., description="YYYY.MM.DD"),
+    to_date: str = Query(..., description="YYYY.MM.DD"),
+    sources: str = Query("all", description="all|silla|lotte"),
+    status_filter: str = Query("all", description="all|full|partial|unmapped"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    import datetime as _dt
+
+    def _parse_date(s: str) -> _dt.date:
+        return _dt.datetime.strptime(s, "%Y.%m.%d").date()
+
+    d_from = _parse_date(from_date)
+    d_to = _parse_date(to_date)
+    if d_from > d_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="from_date는 to_date보다 클 수 없습니다.")
+
+    sources_norm = sources.strip().upper()
+    src_list = ["SILLA", "LOTTE"] if sources_norm == "ALL" else [sources_norm]
+    src_list = [s for s in src_list if s in ("SILLA", "LOTTE")] or ["SILLA", "LOTTE"]
+
+    sf = status_filter.strip().lower()
+    if sf not in ("all", "full", "partial", "unmapped"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="status_filter는 all|full|partial|unmapped 만 가능합니다.")
+
+    schemas = _get_current_tenant_schemas(current_user)
+    base = select(
+        models.EDI_UNIFIED.dutyfree_operator.label("dutyfree_operator"),
+        models.EDI_UNIFIED.receipt_no.label("receipt_no"),
+        func.max(models.EDI_UNIFIED.datetime_purchase).label("datetime_purchase_max"),
+        func.count().label("line_count"),
+        func.max(models.EDI_UNIFIED.uuid_receipt).label("uuid_receipt_any"),
+        func.max(models.EDI_UNIFIED.uuid_passport).label("uuid_passport_any"),
+    ).where(
+        models.EDI_UNIFIED.dutyfree_operator.in_(src_list),
+        models.EDI_UNIFIED.datetime_purchase.is_not(None),
+        models.EDI_UNIFIED.datetime_purchase >= d_from,
+        models.EDI_UNIFIED.datetime_purchase <= d_to,
+    )
+
+    # 매핑 상태 필터
+    if sf == "full":
+        base = base.where(
+            models.EDI_UNIFIED.uuid_receipt.is_not(None),
+            models.EDI_UNIFIED.uuid_passport.is_not(None),
+        )
+    elif sf == "partial":
+        base = base.where(
+            models.EDI_UNIFIED.uuid_receipt.is_not(None),
+            models.EDI_UNIFIED.uuid_passport.is_(None),
+        )
+    elif sf == "unmapped":
+        base = base.where(models.EDI_UNIFIED.uuid_receipt.is_(None))
+
+    base = base.group_by(models.EDI_UNIFIED.dutyfree_operator, models.EDI_UNIFIED.receipt_no)
+
+    # total count (groups)
+    stmt_total = select(func.count()).select_from(base.subquery())
+    total = int((await db.execute_query(stmt_total, schemas=schemas)).scalar() or 0)
+
+    offset = (page - 1) * page_size
+    stmt = base.order_by(func.max(models.EDI_UNIFIED.datetime_purchase).desc()).offset(offset).limit(page_size)
+    result = await db.execute_query(stmt, schemas=schemas)
+    rows = result.mappings().all()
+
+    return {
+        "items": [
+            {
+                "dutyfree_operator": r.get("dutyfree_operator"),
+                "receipt_no": r.get("receipt_no"),
+                "datetime_purchase": r.get("datetime_purchase_max"),
+                "line_count": int(r.get("line_count") or 0),
+                "uuid_receipt": r.get("uuid_receipt_any"),
+                "uuid_passport": r.get("uuid_passport_any"),
+            }
+            for r in rows
+        ],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
+@router.get(
+    "/data-mapping/edi-unified/groups/detail",
+    summary="EDI_UNIFIED 그룹 상세(라인) 조회",
+)
+@handle_http_error
+async def get_edi_unified_group_detail(
+    dutyfree_operator: str = Query(...),
+    receipt_no: str = Query(...),
+    from_date: str = Query(..., description="YYYY.MM.DD"),
+    to_date: str = Query(..., description="YYYY.MM.DD"),
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    import datetime as _dt
+
+    def _parse_date(s: str) -> _dt.date:
+        return _dt.datetime.strptime(s, "%Y.%m.%d").date()
+
+    d_from = _parse_date(from_date)
+    d_to = _parse_date(to_date)
+    if d_from > d_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="from_date는 to_date보다 클 수 없습니다.")
+
+    op = dutyfree_operator.strip().upper()
+    if not op:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="dutyfree_operator가 필요합니다.")
+    rn = receipt_no.strip()
+    if not rn:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="receipt_no가 필요합니다.")
+
+    schemas = _get_current_tenant_schemas(current_user)
+    stmt = select(models.EDI_UNIFIED).where(
+        models.EDI_UNIFIED.dutyfree_operator == op,
+        models.EDI_UNIFIED.receipt_no == rn,
+        models.EDI_UNIFIED.datetime_purchase.is_not(None),
+        models.EDI_UNIFIED.datetime_purchase >= d_from,
+        models.EDI_UNIFIED.datetime_purchase <= d_to,
+    ).order_by(models.EDI_UNIFIED.product_code.asc())
+
+    result = await db.execute_query(stmt, schemas=schemas)
+    rows = result.mappings().all()
+
+    # 내부키(id) 제외하고 반환 (uuid는 화면 표시용으로 남겨둠)
+    items = []
+    for r in rows:
+        d = dict(r)
+        d.pop("id", None)
+        items.append(d)
+
+    return {"items": items, "count": len(items), "dutyfree_operator": op, "receipt_no": rn}
 
 
 @router.post(
@@ -373,7 +793,7 @@ async def internal_run_match_job(
 ):
     import uuid
 
-    matcher_key = (payload.matcher_key or "lotte").lower()
+    matcher_key = str(payload.matcher_key or "LOTTE").upper()
     matcher_cls = dict_matcher.get(matcher_key)
     if matcher_cls is None:
         raise HTTPException(
@@ -847,6 +1267,7 @@ async def list_receipts_for_review(
         stmt = (
             select(
                 models.OcrReceipt.id.label("id"),
+                models.OcrReceipt.uuid_record.label("uuid_record"),
                 models.OcrReceipt.dutyfree_company.label("dutyfree_company"),
                 models.OcrReceipt.group_no.label("group_no"),
                 models.OcrReceipt.receipt_no.label("receipt_no"),
@@ -872,6 +1293,7 @@ async def list_receipts_for_review(
         stmt = (
             select(
                 models.VerifiedReceipt.id.label("id"),
+                models.VerifiedReceipt.uuid_record.label("uuid_record"),
                 models.VerifiedReceipt.dutyfree_company.label("dutyfree_company"),
                 models.VerifiedReceipt.group_no.label("group_no"),
                 models.VerifiedReceipt.receipt_no.label("receipt_no"),
@@ -920,6 +1342,7 @@ async def list_receipts_for_review(
         items.append(
             {
                 "id": row.get("id"),
+                "uuid_record": row.get("uuid_record"),
                 "source": "verified" if is_completed else "ocr",
                 "dutyfree_company": row.get("dutyfree_company"),
                 "group_no": row.get("group_no"),
@@ -963,6 +1386,7 @@ async def list_passports_for_review(
         stmt = (
             select(
                 models.OcrPassport.id.label("id"),
+                models.OcrPassport.uuid_record.label("uuid_record"),
                 models.OcrPassport.country_code.label("country_code"),
                 models.OcrPassport.passport_no.label("passport_no"),
                 models.OcrPassport.name.label("name"),
@@ -985,6 +1409,7 @@ async def list_passports_for_review(
         stmt = (
             select(
                 models.VerifiedPassport.id.label("id"),
+                models.VerifiedPassport.uuid_record.label("uuid_record"),
                 models.VerifiedPassport.country_code.label("country_code"),
                 models.VerifiedPassport.passport_no.label("passport_no"),
                 models.VerifiedPassport.name.label("name"),
@@ -1030,6 +1455,7 @@ async def list_passports_for_review(
         items.append(
             {
                 "id": row.get("id"),
+                "uuid_record": row.get("uuid_record"),
                 "source": "verified" if is_completed else "ocr",
                 "country_code": row.get("country_code"),
                 "passport_no": row.get("passport_no"),
@@ -1655,11 +2081,11 @@ async def verify_receipt(
     original_name = getattr(source_row, "purchaser", None) or getattr(source_row, "name", None)
 
     dutyfree_company = (payload.dutyfree_company or "").strip()
-    group_no = (payload.group_no or "").strip() or None
+    group_no = (payload.group_no or "").strip()
     receipt_no = (payload.receipt_no or "").strip()
-    country_code = (payload.country_code or "").strip() or None
-    passport_no = (payload.passport_no or "").strip() or None
-    purchaser = (payload.purchaser or "").strip() or None
+    country_code = (payload.country_code or "").strip()
+    passport_no = (payload.passport_no or "").strip()
+    purchaser = (payload.purchaser or "").strip()
 
     is_corrected = any([
         dutyfree_company != (original_duty or ""),
@@ -1677,17 +2103,57 @@ async def verify_receipt(
         is_corrected,
         getattr(source_row, "uuid_batch", None) or "",
         getattr(source_row, "uuid_record", None) or "",
+        verification_mode="single",
     )
     row = {
         "dutyfree_company": dutyfree_company,
         "group_no": group_no,
         "receipt_no": receipt_no,
+        "normalized_receipt_no": _normalize_receipt_no(receipt_no),
         "country_code": country_code,
         "passport_no": passport_no,
         "name": purchaser,
         **common,
     }
-    await db.upsert_batch(table=models.VerifiedReceipt, data=pd.DataFrame([row]), schemas=schemas)
+    try:
+        await db.upsert_batch(
+            table=models.VerifiedReceipt,
+            data=pd.DataFrame([row]),
+            schemas=schemas,
+            conflict_cols=["uuid_record"],
+        )
+    except Exception as e:
+        stmt_existing = (
+            select(models.VerifiedReceipt.uuid_record)
+            .where(models.VerifiedReceipt.dutyfree_company == dutyfree_company)
+            .where(models.VerifiedReceipt.receipt_no == receipt_no)
+        )
+        result_existing = await db.execute_query(stmt_existing, schemas=schemas)
+        existing_uuid = result_existing.scalar_one_or_none()
+        new_uuid = row.get("uuid_record")
+        is_conflict_with_existing = bool(
+            existing_uuid and new_uuid and str(existing_uuid) != str(new_uuid)
+        )
+        if is_conflict_with_existing and payload.force_merge:
+            await _merge_receipt_fk_and_replace(
+                db=db,
+                schemas=schemas,
+                old_uuid=str(existing_uuid),
+                row_new=row,
+            )
+        elif is_conflict_with_existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "VERIFIED_RECEIPT_DUPLICATE",
+                    "message": "동일 영수증 정보가 이미 존재합니다. 덮어쓰기를 진행할지 확인해 주세요.",
+                    "existing_uuid": str(existing_uuid),
+                    "current_uuid": str(new_uuid),
+                    "force_merge_required": True,
+                },
+            )
+        else:
+            raise e
     await _mark_ocr_processed_if_needed(db, schemas, ocr_row, models.OcrReceipt, current_user)
 
     return {
@@ -1695,6 +2161,93 @@ async def verify_receipt(
         "dutyfree_company": payload.dutyfree_company,
         "receipt_no": payload.receipt_no,
         "is_corrected": is_corrected,
+    }
+
+
+@router.post(
+    "/data-mapping/receipts/bulk-verify",
+    summary="영수증 일괄 확인",
+    description="여러 영수증을 한 번에 확인 처리하고 verification_mode 를 'bulk' 로 설정합니다.",
+)
+@handle_http_error
+async def bulk_verify_receipts(
+    payload: BulkVerifyReceiptsRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    """영수증 일괄 확인 처리"""
+    schemas = _get_current_tenant_schemas(current_user)
+
+    if not payload.ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="일괄 확인할 영수증 ID 목록이 비어 있습니다.",
+        )
+
+    # 미완료 리스트는 OcrReceipt 기준이므로 uuid_record 기준으로 조회한다.
+    stmt = (
+        select(models.OcrReceipt)
+        .where(models.OcrReceipt.uuid_record.in_(payload.ids))
+        .where(models.OcrReceipt.is_processed.is_(False))
+    )
+    result = await db.execute_query(stmt, schemas=schemas)
+    rows_src = result.scalars().all()
+
+    if not rows_src:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="지정된 영수증을 찾을 수 없습니다.",
+        )
+
+    rows: list[dict[str, Any]] = []
+    for orc in rows_src:
+        common = _verified_row_common(
+            current_user,
+            orc.hash_img,
+            orc.coordinate,
+            None,
+            False,
+            orc.uuid_batch or "",
+            orc.uuid_record or "",
+            verification_mode="bulk",
+        )
+        row = {
+            "dutyfree_company": (orc.dutyfree_company or "").strip(),
+            "group_no": (orc.group_no or "").strip(),
+            "receipt_no": (orc.receipt_no or "").strip(),
+            "normalized_receipt_no": _normalize_receipt_no((orc.receipt_no or "").strip()),
+            "country_code": (orc.country_code or "").strip(),
+            "passport_no": (orc.passport_no or "").strip(),
+            "name": (orc.purchaser or "").strip(),
+            **common,
+        }
+        rows.append(row)
+
+    if rows:
+        df_rows = pd.DataFrame(rows)
+        # ON CONFLICT에서 동일 키가 한 배치 내에 중복되면 CardinalityViolation이 발생하므로
+        # uuid_record 및 복합 유니크키 기준으로 마지막 행만 남긴다.
+        if "uuid_record" in df_rows.columns:
+            df_rows = df_rows.drop_duplicates(subset=["uuid_record"], keep="last")
+        df_rows = df_rows.drop_duplicates(subset=["dutyfree_company", "receipt_no"], keep="last")
+
+        await db.upsert_batch(
+            table=models.VerifiedReceipt,
+            data=df_rows,
+            schemas=schemas,
+            conflict_cols=["uuid_record"],
+        )
+        # 선택된 OCR 레코드를 처리 완료로 표시
+        stmt_update = (
+            sql_update(models.OcrReceipt)
+            .where(models.OcrReceipt.uuid_record.in_(payload.ids))
+            .values(is_processed=True)
+        )
+        await db.execute_query(stmt_update, schemas=schemas)
+
+    return {
+        "message": f"{len(rows)}건의 영수증이 일괄 확인 처리되었습니다.",
+        "count": len(rows),
     }
 
 
@@ -1735,7 +2288,7 @@ async def verify_passport(
 
     country_code = (payload.country_code or "").strip()
     passport_no = (payload.passport_no or "").strip()
-    name = (payload.name or "").strip() or None
+    name = (payload.name or "").strip()
 
     is_corrected = any([
         country_code != (original_country or ""),
@@ -1751,6 +2304,7 @@ async def verify_passport(
         is_corrected,
         getattr(source_row, "uuid_batch", None) or "",
         getattr(source_row, "uuid_record", None) or "",
+        verification_mode="single",
     )
     row = {
         "country_code": country_code,
@@ -1758,7 +2312,46 @@ async def verify_passport(
         "name": name,
         **common,
     }
-    await db.upsert_batch(table=models.VerifiedPassport, data=pd.DataFrame([row]), schemas=schemas)
+    try:
+        await db.upsert_batch(
+            table=models.VerifiedPassport,
+            data=pd.DataFrame([row]),
+            schemas=schemas,
+            conflict_cols=["uuid_record"],
+        )
+    except Exception as e:
+        stmt_existing = (
+            select(models.VerifiedPassport.uuid_record)
+            .where(models.VerifiedPassport.country_code == country_code)
+            .where(models.VerifiedPassport.passport_no == passport_no)
+            .where(models.VerifiedPassport.uuid_batch == row.get("uuid_batch"))
+        )
+        result_existing = await db.execute_query(stmt_existing, schemas=schemas)
+        existing_uuid = result_existing.scalar_one_or_none()
+        new_uuid = row.get("uuid_record")
+        is_conflict_with_existing = bool(
+            existing_uuid and new_uuid and str(existing_uuid) != str(new_uuid)
+        )
+        if is_conflict_with_existing and payload.force_merge:
+            await _merge_passport_fk_and_replace(
+                db=db,
+                schemas=schemas,
+                old_uuid=str(existing_uuid),
+                row_new=row,
+            )
+        elif is_conflict_with_existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "VERIFIED_PASSPORT_DUPLICATE",
+                    "message": "동일 여권 정보가 이미 존재합니다. 덮어쓰기를 진행할지 확인해 주세요.",
+                    "existing_uuid": str(existing_uuid),
+                    "current_uuid": str(new_uuid),
+                    "force_merge_required": True,
+                },
+            )
+        else:
+            raise e
     await _mark_ocr_processed_if_needed(db, schemas, ocr_row, models.OcrPassport, current_user)
 
     return {
@@ -1766,6 +2359,88 @@ async def verify_passport(
         "country_code": payload.country_code,
         "passport_no": payload.passport_no,
         "is_corrected": is_corrected,
+    }
+
+
+@router.post(
+    "/data-mapping/passports/bulk-verify",
+    summary="여권 일괄 확인",
+    description="여러 여권을 한 번에 확인 처리하고 verification_mode 를 'bulk' 로 설정합니다.",
+)
+@handle_http_error
+async def bulk_verify_passports(
+    payload: BulkVerifyPassportsRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: DBManager = Depends(get_db_manager),
+):
+    """여권 일괄 확인 처리"""
+    schemas = _get_current_tenant_schemas(current_user)
+
+    if not payload.ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="일괄 확인할 여권 ID 목록이 비어 있습니다.",
+        )
+
+    # 미완료 리스트는 OcrPassport 기준이므로 uuid_record 기준으로 조회한다.
+    stmt = (
+        select(models.OcrPassport)
+        .where(models.OcrPassport.uuid_record.in_(payload.ids))
+        .where(models.OcrPassport.is_processed.is_(False))
+    )
+    result = await db.execute_query(stmt, schemas=schemas)
+    rows_src = result.scalars().all()
+
+    if not rows_src:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="지정된 여권 정보를 찾을 수 없습니다.",
+        )
+
+    rows: list[dict[str, Any]] = []
+    for opc in rows_src:
+        common = _verified_row_common(
+            current_user,
+            opc.hash_img,
+            opc.coordinate,
+            None,
+            False,
+            opc.uuid_batch or "",
+            opc.uuid_record or "",
+            verification_mode="bulk",
+        )
+        row = {
+            "country_code": (opc.country_code or "").strip(),
+            "passport_no": (opc.passport_no or "").strip(),
+            "name": (opc.name or "").strip(),
+            **common,
+        }
+        rows.append(row)
+
+    if rows:
+        df_rows = pd.DataFrame(rows)
+        # ON CONFLICT에서 동일 키가 한 배치 내에 중복되면 CardinalityViolation이 발생하므로
+        # uuid_record 및 복합 유니크키 기준으로 마지막 행만 남긴다.
+        if "uuid_record" in df_rows.columns:
+            df_rows = df_rows.drop_duplicates(subset=["uuid_record"], keep="last")
+        df_rows = df_rows.drop_duplicates(subset=["country_code", "passport_no", "uuid_batch"], keep="last")
+
+        await db.upsert_batch(
+            table=models.VerifiedPassport,
+            data=df_rows,
+            schemas=schemas,
+            conflict_cols=["uuid_record"],
+        )
+        stmt_update = (
+            sql_update(models.OcrPassport)
+            .where(models.OcrPassport.uuid_record.in_(payload.ids))
+            .values(is_processed=True)
+        )
+        await db.execute_query(stmt_update, schemas=schemas)
+
+    return {
+        "message": f"{len(rows)}건의 여권이 일괄 확인 처리되었습니다.",
+        "count": len(rows),
     }
 
 

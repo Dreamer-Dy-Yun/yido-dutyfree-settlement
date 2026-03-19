@@ -6,6 +6,7 @@ import CompanyRegisterPage from './pages/CompanyRegisterPage';
 import WorkspacePage from './pages/WorkspacePage';
 import TenantManagementPage from './pages/TenantManagementPage';
 import DataMappingPage from './pages/DataMappingPage';
+import FeePage from './pages/FeePage';
 import SystemAdminDashboard from './admin/pages/SystemAdminDashboard';
 import TenantListPage from './admin/pages/TenantListPage';
 import TenantDetailPage from './admin/pages/TenantDetailPage';
@@ -89,6 +90,14 @@ function App() {
           element={
             <ProtectedRoute>
               <DataMappingPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard/fee"
+          element={
+            <ProtectedRoute>
+              <FeePage />
             </ProtectedRoute>
           }
         />

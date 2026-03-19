@@ -606,16 +606,16 @@ class EmailService:
                     <p class="section-title">로그인 정보</p>
                     <div class="info-card">
                         <div class="info-row">
-                            <span class="info-label">로그인 페이지</span>
+                            <span class="info-label">로그인 페이지&nbsp;</span>
                             <span class="info-value"><a href="{login_url}" target="_blank" rel="noopener noreferrer">{login_url}</a></span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">초기 관리자 계정 ID</span>
+                            <span class="info-label">초기 관리자 계정 ID&nbsp;</span>
                             <span class="info-value">{login_id}</span>
                         </div>
                         <div class="info-row">
-                            <span class="info-label">임시 비밀번호</span>
-                            <span class="info-value" style="font-family: monospace; font-size: 14px; color: #dc2626; font-weight: 600;">{temp_password}</span>
+                            <span class="info-label">임시 비밀번호&nbsp;</span>
+                            <span class="info-value" style="font-family: monospace; font-size: 14px; color: #dc2626; font-weight: 600; -webkit-user-select: all; user-select: all; cursor: text; display: inline-block; padding: 2px 4px;" title="클릭 후 Ctrl+C로 복사">{temp_password}</span>
                         </div>
                         <p class="highlight">
                             최초 로그인 후 반드시 비밀번호와 관리자 정보를 변경해 주시기 바랍니다.
@@ -805,7 +805,7 @@ class EmailService:
                         </div>
                         <div class="info-row">
                             <span class="info-label" style="margin-right: 6px; color: #6b7280;">임시 비밀번호:</span>
-                            <span class="info-value temp-password">{temp_password}</span>
+                            <span class="info-value temp-password" style="-webkit-user-select: all; user-select: all; cursor: text; display: inline-block; padding: 2px 4px;" title="클릭 후 Ctrl+C로 복사">{temp_password}</span>
                         </div>
                     </div>
                     <a href="{login_url}" class="login-button" target="_blank" rel="noopener noreferrer">

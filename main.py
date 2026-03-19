@@ -35,3 +35,9 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+# d:/DEV/YIDO/venv/Scripts/Activate.ps1  
+# docker compose up -d
+# cd FRONT_END ;; npm run dev   
+# uvicorn WEB_SERVER.app:app --reload --port 10000  

@@ -3,7 +3,16 @@ import ImageViewer from './ImageViewer';
 import './ImageViewerLayout.css';
 import './MappingDetailModal.css';
 
-function MappingDetailModal({ loading, error, detail, onClose, onPrev, onNext }) {
+function MappingDetailModal({
+  loading,
+  error,
+  detail,
+  onClose,
+  onPrev,
+  onNext,
+  onEditReceipt,
+  onEditPassport,
+}) {
   const [selectedIndex, setSelectedIndex] = useState(null);
 
   useEffect(() => {
@@ -70,28 +79,40 @@ function MappingDetailModal({ loading, error, detail, onClose, onPrev, onNext })
             <>
               <div className="mapping-detail-section image-viewer-pane">
                 <h3>영수증</h3>
-                <div className="image-viewer-frame">
-                  {receiptHash ? (
-                    <ImageViewer
-                      imageHash={receiptHash}
-                      coordinate={receiptCoord}
-                      onChangeCoordinate={undefined}
-                      editable={false}
-                      showHelp={false}
-                      fit="width"
-                      focusMargin={0.1}
-                    />
-                  ) : (
-                    <div className="no-image">이미지 없음</div>
-                  )}
-                </div>
-                <div className="image-viewer-info">
-                  <div>면세점: {receipt?.dutyfree_company ?? '-'}</div>
-                  <div>그룹: {receipt?.group_no ?? '-'}</div>
-                  <div>영수증 번호: {receipt?.receipt_no ?? '-'}</div>
-                  <div>국가코드: {receipt?.country_code ?? '-'}</div>
-                  <div>여권번호: {receipt?.passport_no ?? '-'}</div>
-                  <div>이름: {receipt?.name ?? '-'}</div>
+                  <div className="image-viewer-frame">
+                    {receiptHash ? (
+                      <ImageViewer
+                        imageHash={receiptHash}
+                        coordinate={receiptCoord}
+                        onChangeCoordinate={undefined}
+                        editable={false}
+                        showHelp={false}
+                        fit="width"
+                        focusMargin={0.05}
+                      />
+                    ) : (
+                      <div className="no-image">이미지 없음</div>
+                    )}
+                  </div>
+                <div className="mapping-detail-info-row">
+                  <div className="image-viewer-info mapping-detail-info">
+                    <div>면세점: {receipt?.dutyfree_company ?? '-'}</div>
+                    <div>그룹: {receipt?.group_no ?? '-'}</div>
+                    <div>영수증 번호: {receipt?.receipt_no ?? '-'}</div>
+                    <div>국가코드: {receipt?.country_code ?? '-'}</div>
+                    <div>여권번호: {receipt?.passport_no ?? '-'}</div>
+                    <div>이름: {receipt?.name ?? '-'}</div>
+                  </div>
+                  <div className="mapping-detail-info-actions">
+                    <button
+                      type="button"
+                      className="workspace-save-button"
+                      onClick={() => onEditReceipt && onEditReceipt(receipt)}
+                      disabled={!receipt}
+                    >
+                      수정
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -108,17 +129,29 @@ function MappingDetailModal({ loading, error, detail, onClose, onPrev, onNext })
                           editable={false}
                           showHelp={false}
                           fit="width"
-                          focusMargin={0.1}
+                          focusMargin={0.05}
                         />
                       ) : (
                         <div className="no-image">이미지 없음</div>
                       )}
                     </div>
-                    <div className="image-viewer-info">
-                      <div>국적: {selectedPassport.country_code ?? '-'}</div>
-                      <div>여권 번호: {selectedPassport.passport_no ?? '-'}</div>
-                      <div>이름: {selectedPassport.name ?? '-'}</div>
-                      <div>순위: {selectedPassport.rank ?? '-'}</div>
+                    <div className="mapping-detail-info-row">
+                      <div className="image-viewer-info mapping-detail-info">
+                        <div>국적: {selectedPassport.country_code ?? '-'}</div>
+                        <div>여권 번호: {selectedPassport.passport_no ?? '-'}</div>
+                        <div>이름: {selectedPassport.name ?? '-'}</div>
+                        <div>순위: {selectedPassport.rank ?? '-'}</div>
+                      </div>
+                      <div className="mapping-detail-info-actions">
+                        <button
+                          type="button"
+                          className="workspace-save-button"
+                          onClick={() => onEditPassport && onEditPassport(selectedPassport)}
+                          disabled={!selectedPassport}
+                        >
+                          수정
+                        </button>
+                      </div>
                     </div>
                   </>
                 ) : (

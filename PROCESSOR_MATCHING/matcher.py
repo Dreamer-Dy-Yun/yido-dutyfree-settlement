@@ -42,7 +42,7 @@ class PassportReceiptMatcher(ABC):
     async def unlock_processed_receipts(self, locked_by: str) -> Self:
         stmt : Executable = update(models.VerifiedReceipt)
         stmt = stmt.values(locked_by=None, is_processed=True)
-        stmt = stmt.where(models.VerifiedReceipt.locked_by.is_(locked_by))
+        stmt = stmt.where(models.VerifiedReceipt.locked_by == locked_by)
         stmt = stmt.where(models.VerifiedReceipt.is_processed.is_(False))
         await self.db.execute_query(stmt, schemas=self.schemas)
         return self
@@ -156,6 +156,12 @@ class PassportReceiptMatcher(ABC):
 
         df_matched = pd.DataFrame(rows)
         if not df_matched.empty:
+            # pandas 가 None/빈값을 NaN(float)으로 올리면 asyncpg 가 문자열 컬럼에 대해
+            # "expected str, got float" 를 발생시키므로 최소한 uuid_passport 는 NaN -> None 으로 정규화한다.
+            if "uuid_passport" in df_matched.columns:
+                df_matched["uuid_passport"] = df_matched["uuid_passport"].where(
+                    ~df_matched["uuid_passport"].isna(), None
+                )
             await self.db.upsert_batch(
                 table=models.MATCHED,
                 data=df_matched,
@@ -176,7 +182,8 @@ class PassportReceiptMatcher(ABC):
         단일 조회.
         와일드 카드 있으면 모드 Like 조회. 옵티마이저 믿고 감.
         """
-        stmt : Executable = select(models.VerifiedPassport)
+
+        stmt : Executable = select(*models.VerifiedPassport.__table__.columns)
         if country_code:
             stmt = stmt.where(models.VerifiedPassport.country_code.like(country_code))
         if passport_no:
@@ -189,11 +196,12 @@ class PassportReceiptMatcher(ABC):
             stmt = stmt.limit(max_rows)
 
         if session:
-            result : Result[models.VerifiedPassport] = await session.execute(stmt)
+            result: Result = await session.execute(stmt)
         else:
-            result : Result[models.VerifiedPassport] = await self.db.execute_query(stmt, schemas=self.schemas)
+            result: Result = await self.db.execute_query(stmt, schemas=self.schemas)
 
-        return pd.DataFrame(result.mappings().all()) if result.mappings() else pd.DataFrame()
+        rows = result.mappings().all()
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
     @abstractmethod

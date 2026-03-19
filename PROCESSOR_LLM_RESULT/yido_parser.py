@@ -78,12 +78,12 @@ class YidoParser:
 
     def _parse_receipt(self, receipt: dict[str, Any]) -> dict[str, Any]:
         dict_temp: dict[str, Any] = {
-            "dutyfree_company": (receipt.get("dutyfree_company") or "").strip() or None,
+            "dutyfree_company": ((receipt.get("dutyfree_company") or "").strip().upper()) or None,
             "group_no": (receipt.get("group_no") or "").strip() or None,
             "receipt_no": (receipt.get("receipt_no") or "").strip() or None,
-            "country_code": (receipt.get("country_code") or "").strip() or None,
-            "passport_no": (receipt.get("passport_no") or "").strip() or None,
-            "purchaser": (receipt.get("purchaser") or "").strip() or None,
+            "country_code": (receipt.get("country_code") or "").strip().upper() or None,
+            "passport_no": (receipt.get("passport_no") or "").strip().upper() or None,
+            "purchaser": (receipt.get("purchaser") or "").strip().upper() or None,
             "coordinate": receipt.get("coordinate"),  # JSON 형식
         }
         return {

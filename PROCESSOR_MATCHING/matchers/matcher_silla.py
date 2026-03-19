@@ -75,7 +75,12 @@ class PRM_Silla(PassportReceiptMatcher):
         """
         신라는 이름 매칭 하지 않음. 국가코드, 여권번호만 매칭.
         """
-        df: pd.DataFrame = pd.concat(self._dfs_without_result)
+        dfs_non_empty = [df for df in self._dfs_without_result if df is not None and not df.empty]
+        if not dfs_non_empty:
+            self._dfs_without_result = []
+            return self
+
+        df: pd.DataFrame = pd.concat(dfs_non_empty)
         self._dfs_without_result = []
 
         async with self.db.open_session(schemas=self.schemas) as session:
@@ -100,25 +105,27 @@ class PRM_Silla(PassportReceiptMatcher):
             unique_uuid_batches: list[str] = df_verified_receipts["uuid_batch"].dropna().unique().tolist()
             uuid_record: str = ""
             df_passport: pd.DataFrame = pd.DataFrame()
-            dfs_without_result: list[pd.DataFrame] = []
             df_receipt: pd.DataFrame = pd.DataFrame()
 
             for uuid_batch in unique_uuid_batches:
                 df_passport = await self._get_passport_data_with_batch_uuid(uuid_batch)
                 df_receipt = df_verified_receipts[df_verified_receipts["uuid_batch"] == uuid_batch]
                 if df_passport.empty:
-                    dfs_without_result.append(df_receipt)
+                    self._dfs_without_result.append(df_receipt)
                     continue
                 match_result: MatchResult = self._match(df_receipt, df_passport) # 1차 매칭
                 self._dict_results.update(match_result.with_results)
                 self._dfs_without_result.append(match_result.without_result)
 
-            if try_fallback:
+            if try_fallback and any(df is not None and not df.empty for df in self._dfs_without_result):
                 await self._fallback_match()
 
             for df in self._dfs_without_result:
-                uuid_record = df["uuid_record"][0]
-                self._dict_results.update({uuid_record: pd.DataFrame()}) # 최종 매칭 실패 : 빈 데이터프레임
+                if df is None or df.empty:
+                    continue
+                # 인덱스 값이 0이 아닐 수 있으므로 위치 기반으로 uuid_record 추출
+                uuid_record = df["uuid_record"].iloc[0]
+                self._dict_results.update({uuid_record: pd.DataFrame()})  # 최종 매칭 실패 : 빈 데이터프레임
 
             await self._flush_matched_results()
             await self.unlock_processed_receipts(locked_by)

@@ -62,6 +62,25 @@ services:
       redis:
         condition: service_healthy
 
+  edi_unified_worker:
+    image: python:3.11-slim
+    container_name: yido_edi_unified_worker
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - WEB_API_BASE_URL=http://host.docker.internal:10000
+    command: >
+      sh -c "pip install -r requirements.txt && python -m PROCESSOR_DATA.run_edi_unified_worker"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:

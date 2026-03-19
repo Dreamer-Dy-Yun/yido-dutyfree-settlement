@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getMatchStatus, postMatchAttempt, getMatches, getMatchDetail } from '../services/tenant';
 import MappingDetailModal from './MappingDetailModal';
+import ImageVerifyModal from './ImageVerifyModal';
 
 /**
  * 이미지 매핑 탭 콘텐츠
@@ -11,6 +12,7 @@ function ImageMappingPanel() {
   const [status, setStatus] = useState(null);
   const [statusError, setStatusError] = useState('');
   const [isRunning, setIsRunning] = useState(false);
+  const pollingRef = useRef(null);
 
   const [filter, setFilter] = useState('all'); // 'all' | 'matched' | 'unmatched'
   const [page, setPage] = useState(1);
@@ -25,6 +27,10 @@ function ImageMappingPanel() {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [verifyMode, setVerifyMode] = useState('receipt'); // 'receipt' | 'passport'
+  const [verifyItem, setVerifyItem] = useState(null); // { hash_img, coordinate }
 
   const loadStatus = async () => {
     try {
@@ -72,21 +78,65 @@ function ImageMappingPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, []);
+
+  const startMatchPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 15; // 최대 약 30초 (2초 * 15)
+
+    pollingRef.current = setInterval(async () => {
+      attempts += 1;
+      try {
+        const data = await getMatchStatus();
+        setStatus(data);
+        await loadList({ page: 1 });
+
+        const nextUnmatched = data?.unmatched_count ?? 0;
+        if (nextUnmatched === 0 || attempts >= maxAttempts) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          setIsRunning(false);
+        }
+      } catch (err) {
+        console.error('Failed to poll match status:', err);
+        if (attempts >= 3) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          setIsRunning(false);
+        }
+      }
+    }, 2000);
+  };
+
   const handleMatchAttempt = async () => {
+    if (isRunning) return;
     if (!status || status.unmatched_count === 0) {
+      alert('미매핑 데이터가 없습니다.');
       return;
     }
     try {
       setIsRunning(true);
       await postMatchAttempt({ tryFallback: true });
-      // 매칭 시도 후 상태/리스트 재조회
-      await loadStatus();
-      await loadList({ page: 1 });
+      // 매칭 시도 후 상태/리스트를 폴링하면서 자동 갱신
+      startMatchPolling();
     } catch (err) {
       console.error('Failed to trigger match attempt:', err);
       alert('매칭 시도 요청에 실패했습니다.');
     } finally {
-      setIsRunning(false);
+      // 실제 매칭 작업은 비동기로 진행되므로,
+      // 폴링 루프가 종료될 때까지 isRunning은 유지한다.
     }
   };
 
@@ -152,6 +202,43 @@ function ImageMappingPanel() {
     }
   };
 
+  const reloadCurrentDetail = async () => {
+    const row = rows[detailIndex];
+    if (!row?.uuid_receipt) return;
+    try {
+      setDetailLoading(true);
+      setDetailError('');
+      const data = await getMatchDetail(row.uuid_receipt);
+      setDetail(data);
+      await loadStatus();
+    } catch (err) {
+      console.error('Failed to reload match detail:', err);
+      setDetailError('매핑 상세 정보를 다시 불러오지 못했습니다.');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleEditReceipt = (receipt) => {
+    if (!receipt?.hash_img) return;
+    setVerifyMode('receipt');
+    setVerifyItem({
+      hash_img: receipt.hash_img,
+      coordinate: receipt.coordinate_verified || null,
+    });
+    setVerifyModalOpen(true);
+  };
+
+  const handleEditPassport = (passport) => {
+    if (!passport?.hash_img) return;
+    setVerifyMode('passport');
+    setVerifyItem({
+      hash_img: passport.hash_img,
+      coordinate: passport.coordinate || null,
+    });
+    setVerifyModalOpen(true);
+  };
+
   return (
     <div className="tab-content">
       <h2>이미지 매핑</h2>
@@ -173,6 +260,11 @@ function ImageMappingPanel() {
             {isRunning ? '매핑 시도 중...' : '매핑 시도'}
           </button>
         </div>
+        {isRunning && (
+          <div style={{ marginTop: 8, fontSize: '0.85rem', color: '#4b5563' }}>
+            매칭 작업이 진행 중입니다. 완료되면 목록이 자동으로 새로고침됩니다.
+          </div>
+        )}
       </div>
 
       <div className="mapping-list-card">
@@ -283,6 +375,31 @@ function ImageMappingPanel() {
           onClose={handleCloseDetail}
           onPrev={() => handleDetailChangeIndex('prev')}
           onNext={() => handleDetailChangeIndex('next')}
+          onEditReceipt={handleEditReceipt}
+          onEditPassport={handleEditPassport}
+        />
+      )}
+
+      {verifyModalOpen && verifyItem && (
+        <ImageVerifyModal
+          mode={verifyMode}
+          items={[
+            {
+              image: {
+                hash_img: verifyItem.hash_img,
+                coordinate: verifyItem.coordinate || null,
+              },
+              source: 'verified',
+            },
+          ]}
+          currentIndex={0}
+          onChangeIndex={() => {}}
+          onClose={() => setVerifyModalOpen(false)}
+          onSaved={() => {
+            setVerifyModalOpen(false);
+            reloadCurrentDetail();
+          }}
+          disableNavigation
         />
       )}
     </div>

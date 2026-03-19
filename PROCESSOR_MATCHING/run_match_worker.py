@@ -14,6 +14,7 @@ async def _process_job(job: Dict[str, Any]) -> None:
     tenant_schema = job.get("tenant_schema")
     requested_by = job.get("requested_by")
     try_fallback = bool(job.get("try_fallback", True))
+    raw_matcher_key = job.get("matcher_key")
 
     if not tenant_schema:
         logger.warning(f"[MATCH_WORKER] invalid job, missing tenant_schema: {job}")
@@ -23,29 +24,39 @@ async def _process_job(job: Dict[str, Any]) -> None:
     internal_path = os.getenv("MATCH_INTERNAL_PATH", "/api/tenant/internal/match/run")
     url = f"{base_url.rstrip('/')}{internal_path}"
 
-    logger.info(
-        f"[MATCH_WORKER] start job via API for tenant_schema={tenant_schema}, "
-        f"requested_by={requested_by}, try_fallback={try_fallback}, url={url}"
-    )
-
-    payload: Dict[str, Any] = {
-        "tenant_schema": tenant_schema,
-        "requested_by": requested_by,
-        "try_fallback": try_fallback,
-        "matcher_key": job.get("matcher_key", "lotte"),
-    }
+    # matcher_key 가 명시되지 않은 경우 LOTTE+SILLA 모두 실행
+    matcher_keys: list[str]
+    if raw_matcher_key is None:
+        matcher_keys = ["LOTTE", "SILLA"]
+    else:
+        matcher_keys = [str(raw_matcher_key).upper()]
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(url, json=payload)
+        for matcher_key in matcher_keys:
+            logger.info(
+                f"[MATCH_WORKER] start job via API for tenant_schema={tenant_schema}, "
+                f"requested_by={requested_by}, try_fallback={try_fallback}, matcher_key={matcher_key}, url={url}"
+            )
 
-    if response.status_code >= 400:
-        logger.error(
-            f"[MATCH_WORKER] API call failed for tenant_schema={tenant_schema}, "
-            f"status={response.status_code}, body={response.text}"
-        )
-        response.raise_for_status()
+            payload: Dict[str, Any] = {
+                "tenant_schema": tenant_schema,
+                "requested_by": requested_by,
+                "try_fallback": try_fallback,
+                "matcher_key": matcher_key,
+            }
 
-    logger.info(f"[MATCH_WORKER] finished job for tenant_schema={tenant_schema}")
+            response = await client.post(url, json=payload)
+
+            if response.status_code >= 400:
+                logger.error(
+                    f"[MATCH_WORKER] API call failed for tenant_schema={tenant_schema}, "
+                    f"matcher_key={matcher_key}, status={response.status_code}, body={response.text}"
+                )
+                response.raise_for_status()
+
+            logger.info(
+                f"[MATCH_WORKER] finished job for tenant_schema={tenant_schema}, matcher_key={matcher_key}"
+            )
 
 
 async def run_worker() -> None:
@@ -95,6 +106,7 @@ async def _process_job(job: Dict[str, Any]) -> None:
     tenant_schema = job.get("tenant_schema")
     requested_by = job.get("requested_by")
     try_fallback = bool(job.get("try_fallback", True))
+    raw_matcher_key = job.get("matcher_key")
 
     if not tenant_schema:
         logger.warning(f"[MATCH_WORKER] invalid job, missing tenant_schema: {job}")
@@ -104,29 +116,39 @@ async def _process_job(job: Dict[str, Any]) -> None:
     internal_path = os.getenv("MATCH_INTERNAL_PATH", "/api/tenant/internal/match/run")
     url = f"{base_url.rstrip('/')}{internal_path}"
 
-    logger.info(
-        f"[MATCH_WORKER] start job via API for tenant_schema={tenant_schema}, "
-        f"requested_by={requested_by}, try_fallback={try_fallback}, url={url}"
-    )
-
-    payload: Dict[str, Any] = {
-        "tenant_schema": tenant_schema,
-        "requested_by": requested_by,
-        "try_fallback": try_fallback,
-        "matcher_key": job.get("matcher_key", "lotte"),
-    }
+    # matcher_key 가 명시되지 않은 경우 LOTTE+SILLA 모두 실행
+    matcher_keys: list[str]
+    if raw_matcher_key is None:
+        matcher_keys = ["LOTTE", "SILLA"]
+    else:
+        matcher_keys = [str(raw_matcher_key).upper()]
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(url, json=payload)
+        for matcher_key in matcher_keys:
+            logger.info(
+                f"[MATCH_WORKER] start job via API for tenant_schema={tenant_schema}, "
+                f"requested_by={requested_by}, try_fallback={try_fallback}, matcher_key={matcher_key}, url={url}"
+            )
 
-    if response.status_code >= 400:
-        logger.error(
-            f"[MATCH_WORKER] API call failed for tenant_schema={tenant_schema}, "
-            f"status={response.status_code}, body={response.text}"
-        )
-        response.raise_for_status()
+            payload: Dict[str, Any] = {
+                "tenant_schema": tenant_schema,
+                "requested_by": requested_by,
+                "try_fallback": try_fallback,
+                "matcher_key": matcher_key,
+            }
 
-    logger.info(f"[MATCH_WORKER] finished job for tenant_schema={tenant_schema}")
+            response = await client.post(url, json=payload)
+
+            if response.status_code >= 400:
+                logger.error(
+                    f"[MATCH_WORKER] API call failed for tenant_schema={tenant_schema}, "
+                    f"matcher_key={matcher_key}, status={response.status_code}, body={response.text}"
+                )
+                response.raise_for_status()
+
+            logger.info(
+                f"[MATCH_WORKER] finished job for tenant_schema={tenant_schema}, matcher_key={matcher_key}"
+            )
 
 
 async def run_worker() -> None:

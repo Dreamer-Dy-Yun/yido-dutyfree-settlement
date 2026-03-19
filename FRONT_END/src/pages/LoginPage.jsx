@@ -66,19 +66,49 @@ function LoginPage() {
     localStorage.setItem('selected_tenant_name', displayName);
   };
 
+  const resolveCompanyFromQuery = async (query) => {
+    const q = (query || '').trim();
+    if (!q) return null;
+
+    const results = await searchCompany(q, null);
+    if (!Array.isArray(results) || results.length === 0) return null;
+
+    const norm = (s) => (s || '').trim().toLowerCase();
+    const qn = norm(q);
+
+    // 1) 입력값과 정확히 일치하는 후보 우선
+    const exact = results.find((c) => norm(c.alias) === qn || norm(c.name) === qn);
+    if (exact) return exact;
+
+    // 2) 후보가 1개면 그걸로 확정(부분검색 결과라도 유일하면 안전)
+    if (results.length === 1) return results[0];
+
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
     try {
-      if (!selectedCompany) {
+      let company = selectedCompany;
+      if (!company && companyQuery.trim()) {
+        try {
+          company = await resolveCompanyFromQuery(companyQuery);
+          if (company) handleSelectCompany(company);
+        } catch {
+          // 검색 실패는 아래 공통 에러 처리로 넘김
+        }
+      }
+
+      if (!company) {
         setError('회사를 선택해주세요');
         setLoading(false);
         return;
       }
 
-      await login(email, password, selectedCompany.id);
+      await login(email, password, company.id);
       
       // 로그인 성공 시 권한에 따라 리다이렉트
       // JWT 토큰에서 권한 확인

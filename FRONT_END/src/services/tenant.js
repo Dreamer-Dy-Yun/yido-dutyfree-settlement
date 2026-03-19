@@ -183,6 +183,24 @@ export const verifyPassport = async (payload) => {
 };
 
 /**
+ * 이미지 확인 - 영수증 일괄 확인
+ * @param {string[]} ids - uuid_record 목록
+ */
+export const bulkVerifyReceipts = async (ids) => {
+  const response = await api.post('/api/tenant/data-mapping/receipts/bulk-verify', { ids });
+  return response.data;
+};
+
+/**
+ * 이미지 확인 - 여권 일괄 확인
+ * @param {string[]} ids - uuid_record 목록
+ */
+export const bulkVerifyPassports = async (ids) => {
+  const response = await api.post('/api/tenant/data-mapping/passports/bulk-verify', { ids });
+  return response.data;
+};
+
+/**
  * 이미지 확인 - hash_img 기준 영수증/여권 상세 조회
  * @param {string} hashImg
  */

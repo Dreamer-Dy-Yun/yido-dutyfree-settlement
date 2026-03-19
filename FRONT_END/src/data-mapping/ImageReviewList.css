@@ -48,17 +48,70 @@
 
 .image-review-filters {
   font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.image-review-toggle {
+/* 토글 스위치: 작업 완료/미완료 보기 */
+.image-review-switch {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   cursor: pointer;
+  font-size: 0.85rem;
+  color: #374151;
 }
 
-.image-review-toggle input {
-  margin: 0;
+.image-review-switch-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.image-review-switch-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+  background: #d1d5db;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.image-review-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.image-review-switch-input:checked + .image-review-switch-track {
+  background: #2563eb;
+}
+
+.image-review-switch-input:checked + .image-review-switch-track .image-review-switch-thumb {
+  transform: translateX(18px);
+}
+
+.image-review-switch-label {
+  user-select: none;
+}
+
+.image-review-bulk-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .image-review-status {

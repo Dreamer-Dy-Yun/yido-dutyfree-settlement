@@ -1,5 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { getReceiptList, getPassportList } from '../services/tenant';
+import {
+  getReceiptList,
+  getPassportList,
+  bulkVerifyReceipts,
+  bulkVerifyPassports,
+} from '../services/tenant';
 import ImageReviewList from './ImageReviewList';
 import ImageVerifyModal from './ImageVerifyModal';
 import './ImageReviewPanel.css';
@@ -14,6 +19,9 @@ function ImageReviewPanel({ onVerifyModalOpenChange }) {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  const [selectedIds, setSelectedIds] = useState([]);
+  const bulkMode = !isCompleted;
 
   useEffect(() => {
     if (typeof onVerifyModalOpenChange === 'function') {
@@ -30,6 +38,7 @@ function ImageReviewPanel({ onVerifyModalOpenChange }) {
           ? await getReceiptList({ isCompleted })
           : await getPassportList({ isCompleted });
       setItems(Array.isArray(data) ? data : []);
+      setSelectedIds([]);
     } catch (err) {
       setError(err?.response?.data?.detail || '목록을 불러오지 못했습니다.');
       setItems([]);
@@ -44,6 +53,7 @@ function ImageReviewPanel({ onVerifyModalOpenChange }) {
 
   const handleToggleCompleted = (value) => {
     setIsCompleted(value);
+    setSelectedIds([]);
   };
 
   const handleSelectItem = (index) => {
@@ -85,6 +95,48 @@ function ImageReviewPanel({ onVerifyModalOpenChange }) {
     });
   };
 
+  const handleToggleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  const handleToggleSelectAll = (checked) => {
+    if (!checked) {
+      setSelectedIds([]);
+      return;
+    }
+    setSelectedIds(
+      items
+        .map((item) => item.uuid_record || item.id)
+        .filter((v) => v !== undefined && v !== null),
+    );
+  };
+
+  const handleBulkConfirm = async () => {
+    if (selectedIds.length === 0) return;
+    const ok = window.confirm(
+      '일괄 확인 처리 시, 실제 이미지와 다른 데이터가 잘못 연결된 상태로 확정될 수 있습니다. 계속 진행하시겠습니까?\n잘못 연결된 데이터는 매칭 화면에서 수정이 가능합니다.',
+    );
+    if (!ok) return;
+
+    try {
+      if (mode === 'receipt') {
+        await bulkVerifyReceipts(selectedIds);
+      } else {
+        await bulkVerifyPassports(selectedIds);
+      }
+      alert(`선택된 ${selectedIds.length}건이 일괄 확인 처리되었습니다.`);
+      setSelectedIds([]);
+      await loadList();
+    } catch (err) {
+      alert(
+        err?.response?.data?.detail ||
+          '일괄 확인 처리 중 오류가 발생했습니다.',
+      );
+    }
+  };
+
   return (
     <div className="image-review-root">
       <div className="image-review-mode-toggle">
@@ -121,6 +173,11 @@ function ImageReviewPanel({ onVerifyModalOpenChange }) {
           error={error}
           onToggleCompleted={handleToggleCompleted}
           onRowClick={handleSelectItem}
+          bulkMode={bulkMode}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
+          onToggleSelectAll={handleToggleSelectAll}
+          onBulkConfirm={handleBulkConfirm}
           columns={[
             {
               key: 'dutyfree_company',
@@ -148,6 +205,11 @@ function ImageReviewPanel({ onVerifyModalOpenChange }) {
           error={error}
           onToggleCompleted={handleToggleCompleted}
           onRowClick={handleSelectItem}
+          bulkMode={bulkMode}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
+          onToggleSelectAll={handleToggleSelectAll}
+          onBulkConfirm={handleBulkConfirm}
           columns={[
             {
               key: 'country_code',

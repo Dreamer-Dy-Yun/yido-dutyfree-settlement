@@ -139,8 +139,9 @@ class VerifiedPassport(BaseModelTenant):
     coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 검증된 이미지 좌표(정규화된 좌표)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인 여부
     is_corrected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인자에 의한 변경 유무
+    verification_mode: Mapped[str] = mapped_column(String(50), nullable=True)  # 검증 방식 (none | "single" | "bulk")
     uuid_batch: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # 배치 UUID / 받아오기
-    uuid_record: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # 레코드 UUID / 생성시 부여
+    uuid_record: Mapped[str] = mapped_column(String(32), nullable=True, index=True, unique=True)  # 레코드 UUID / 생성시 부여
 
     verifier: Mapped["User | None"] = relationship("User", foreign_keys=[verifier_id], lazy="selectin")
 
@@ -163,12 +164,13 @@ class VerifiedReceipt(BaseModelTenant):
 
     dutyfree_company: Mapped[str] = mapped_column(String(30), nullable=False)  # 면세점 구분 (COMPOSITE)
     group_no: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 그룹 번호
-    receipt_no: Mapped[str] = mapped_column(String(30), nullable=False)  # 영수증 번호(교환권) (COMPOSITE)
+    receipt_no: Mapped[str] = mapped_column(String(30), nullable=False)  # 영수증 번호(교환권) (COMPOSITE), (표기용)
     country_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 국가코드
     passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 구매자 여권 번호
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 구매자 이름
     rotation: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)  # 이미지 회전 각도
     coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True, index=True)  # 검증된 이미지 좌표(정규화된 좌표)
+    normalized_receipt_no: Mapped[str] = mapped_column(String(50), nullable=True)  # 영수증 번호 정규화 (비교용)(receipt_no 에서, 하이픈, 공백등이 제거된 값값)
     verifier_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)  # 확인(변경)자 식별번호
     verifier_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 확인(변경)자 사용자명
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, index=True)  # 영수증-여권 매칭 처리 여부
@@ -176,11 +178,12 @@ class VerifiedReceipt(BaseModelTenant):
     hash_img: Mapped[str] = mapped_column(String(64), nullable=False)  # 해싱된 영수증 이미지
     is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인 여부
     is_corrected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 확인자에 의한 변경 유부
+    verification_mode: Mapped[str] = mapped_column(String(50), nullable=True)  # 검증 방식 (none | "single" | "bulk")
     uuid_batch: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # 배치 UUID
-    uuid_record: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # 레코드 UUID
+    uuid_record: Mapped[str] = mapped_column(String(32), nullable=True, index=True, unique=True)  # 레코드 UUID
 
     verifier: Mapped["User | None"] = relationship("User", foreign_keys=[verifier_id], lazy="selectin")
-
+    
     __table_args__ = (
         UniqueConstraint("dutyfree_company", "receipt_no", name="uq_verified_receipt_duty_receipt"),
     )
@@ -214,15 +217,15 @@ class Image(BaseModelTenant):
 class EDI_UNIFIED(BaseModelTenant):
     """매칭된 EDI 정보. 여권-영수증 매칭 및 이후 매칭."""
     __tablename__ = "edi_unified"
-
-    passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 매핑 당시 여권번호 스냅샷
     dutyfree_operator: Mapped[str] = mapped_column(String(30), nullable=False)  # 면세점명 (COMPOSITE)
     dutyfree_branch: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 면세지점명
     datetime_original: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 원 판매일시
     datetime_purchase: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 구입일시
+    customer_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 고객명
     group_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 그룹 번호
     receipt_no: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # 영수증 번호(교환권) (COMPOSITE, VERIFIED_RECEIPT.receipt_no 참조)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False)  # 상품코드 (COMPOSITE)
+    manufactured_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 제조일자
     original_receipt_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 원영수증 번호
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 카테고리
     brand: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 브랜드명
@@ -240,11 +243,12 @@ class EDI_UNIFIED(BaseModelTenant):
     point: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 포인트
     rebate_amount: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 리베이트 금액
     is_matched: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 매칭여부
-    uuid_passport: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # Verified_Passport.uuid_record 참조 / 안쓸수도 있음.
-    uuid_receipt: Mapped[str] = mapped_column(String(32), nullable=True, index=True)  # Verified_Receipt.uuid_record 참조 / 안쓸수도 있음음
+    system_note: Mapped[str | None] = mapped_column(Text, nullable=True)  # 시스템 메모
+    uuid_passport: Mapped[str | None] = mapped_column(String(32), ForeignKey("verified_passport.uuid_record", ondelete="SET NULL"), nullable=True, index=True)  # Verified_Passport.uuid_record 참조 / 안쓸수도 있음.
+    uuid_receipt: Mapped[str | None] = mapped_column(String(32), ForeignKey("verified_receipt.uuid_record", ondelete="SET NULL"), nullable=True, index=True)  # Verified_Receipt.uuid_record 참조 / 안쓸수도 있음음
 
     __table_args__ = (
-        UniqueConstraint("dutyfree_operator", "receipt_no", "product_code", name="uq_matched_operator_receipt_product"),
+        UniqueConstraint("dutyfree_operator", "receipt_no", "product_code", "manufactured_at", name="uq_edi_unified_operator_receipt_product_manufactured_at"),
     )
 
 # ---------------------------------------------------------------------------
@@ -257,8 +261,8 @@ class MATCHED(BaseModelTenant):
     """영수증 UUID 기준 여권 매칭 결과."""
     __tablename__ = "matched"
 
-    uuid_receipt: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # VerifiedReceipt.uuid_record
-    uuid_passport: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # 최종 선택된 VerifiedPassport.uuid_record
+    uuid_receipt: Mapped[str] = mapped_column(String(32), ForeignKey("verified_receipt.uuid_record", ondelete="CASCADE"), nullable=False, index=True)  # VerifiedReceipt.uuid_record
+    uuid_passport: Mapped[str | None] = mapped_column(String(32), ForeignKey("verified_passport.uuid_record", ondelete="SET NULL"), nullable=True, index=True)  # 최종 선택된 VerifiedPassport.uuid_record
     possible_passports: Mapped[list[str] | None] = mapped_column(ARRAY(String(32)), nullable=True)  # 후보 여권 uuid_record 리스트
     ranks: Mapped[list[float] | None] = mapped_column(ARRAY(Numeric(precision=19, scale=4)), nullable=True)  # 후보별 rank 리스트
 
@@ -285,7 +289,7 @@ class EdiSilla(BaseModelTenant):
     group_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 그룹번호
     lead_guide_name: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 대표가이드
     birth_year: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 출생연도
-    customer_name: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 고객명
+    customer_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 고객명
     bill_no: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # BILL 번호 (COMPOSITE)
     bill_status: Mapped[str | None] = mapped_column(String(50), nullable=True)  # BILL 상태
     product_location: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 상품위치
@@ -294,7 +298,7 @@ class EdiSilla(BaseModelTenant):
     product_name: Mapped[str | None] = mapped_column(String, nullable=True)  # 상품명
     product_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 상품코드 (COMPOSITE)
     ref_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # REF NO
-    aging: Mapped[float] = mapped_column(Numeric(precision=19, scale=4), nullable=False)  # Aging
+    aging: Mapped[str] = mapped_column(String(50), nullable=False)  # 제조일자로 추정. YYMMDD 형식인데 DD가 00일 수 있음
     sales_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 판매형태
     sales_quantity: Mapped[float] = mapped_column(Numeric(precision=19, scale=4), nullable=False)  # 판매수량
     unit_price_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 판매가($)
@@ -304,6 +308,7 @@ class EdiSilla(BaseModelTenant):
     net_sales_amount_krw: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 순매출액(원)
     discount_amount_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 할인액($)
     discount_amount_krw: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 할인액(원)
+    is_processed: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)  # 처리여부
 
     __table_args__ = (
         UniqueConstraint("bill_no", "product_code", "sales_quantity", "aging", name="uq_edi_silla_bill_product_quantity_aging"),
@@ -333,6 +338,7 @@ class EdiLotte(BaseModelTenant):
     guide_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 가이드코드
     sales_origin_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 수입/로컬
     group_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 단체번호
+    customer_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 고객명
     vip_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # VIP번호
     voucher_no: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 교환권번호 (COMPOSITE)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 카테고리
@@ -341,11 +347,18 @@ class EdiLotte(BaseModelTenant):
     product_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 상품구분
     product_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # 상품코드 (COMPOSITE)
     ref_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # Ref.No
+    color: Mapped[str | None] = mapped_column(String(200), nullable=True)  # Color
+    delivery_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 배송구분
+    sales_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 판매방식
+    sales_quantity: Mapped[float] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 판매수량
+    unit_price_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 판매가($)
     gross_sales_amount_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 총매출액($)
-    net_sales_amount_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 순매출액($)
     gross_sales_amount_krw: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 총매출액(원)
+    net_sales_amount_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 순매출액($)
     net_sales_amount_krw: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 순매출액(원)
-    discount_rate: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 할인율
+    discount_amount_usd: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 할인액($)
+    discount_amount_krw: Mapped[float | None] = mapped_column(Numeric(precision=19, scale=4), nullable=True)  # 할인액(원)
+    is_processed: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)  # 처리여부
 
     __table_args__ = (
         UniqueConstraint("voucher_no", "product_code", name="uq_edi_lotte_voucher_product"),

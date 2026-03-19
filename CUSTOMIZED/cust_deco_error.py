@@ -62,6 +62,9 @@ def handle_http_error(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awai
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)
+        except HTTPException:
+            # 엔드포인트에서 의도적으로 만든 HTTPException은 그대로 전달
+            raise
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
         except Exception as e:

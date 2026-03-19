@@ -6,7 +6,7 @@ from PROCESSOR_MATCHING.matchers.matcher_lotte import PRM_Lotte
 
 
 dict_matcher: dict[str, Type[PassportReceiptMatcher]] = {
-    "silla": PRM_Silla,
-    "lotte": PRM_Lotte,
+    "SILLA": PRM_Silla,
+    "LOTTE": PRM_Lotte,
 }
 

@@ -1,0 +1,116 @@
+.edi-check-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edi-check-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: flex-end;
+}
+
+.edi-check-controls .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edi-check-controls label {
+  font-size: 12px;
+  color: #666;
+}
+
+.edi-check-controls input,
+.edi-check-controls select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  min-width: 160px;
+}
+
+.edi-check-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.edi-btn {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+
+.edi-btn.primary {
+  border-color: #2f6fed;
+  background: #2f6fed;
+  color: #fff;
+}
+
+.edi-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.edi-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.edi-tab {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+}
+
+.edi-tab.active {
+  border-color: #2f6fed;
+  background: rgba(47, 111, 237, 0.08);
+}
+
+.edi-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.edi-table th,
+.edi-table td {
+  border-bottom: 1px solid #eee;
+  padding: 10px 8px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.edi-row {
+  cursor: pointer;
+}
+
+.edi-row:hover {
+  background: #fafafa;
+}
+
+.edi-detail {
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+
+.edi-muted {
+  color: #777;
+  font-size: 12px;
+}
+
+.edi-error {
+  color: #b00020;
+  font-size: 13px;
+}
+

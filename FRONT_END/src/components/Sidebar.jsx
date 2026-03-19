@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './Sidebar.css';
 import { DATA_MAPPING_TABS, getDataMappingTabPath } from '../constants/dataMappingTabs';
+import { FEE_TABS, getFeeTabPath } from '../constants/feeTabs';
 
 function Sidebar({ isAdmin, variant = 'tenant' }) {
   const navigate = useNavigate();
@@ -43,6 +44,18 @@ function Sidebar({ isAdmin, variant = 'tenant' }) {
         id: tab.id,
         label: tab.label,
         path: getDataMappingTabPath(tab.id),
+        icon: tab.icon,
+      })),
+    },
+    {
+      id: 'fee',
+      label: '수수료',
+      icon: '💰',
+      visible: true,
+      children: FEE_TABS.map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        path: getFeeTabPath(tab.id),
         icon: tab.icon,
       })),
     },
