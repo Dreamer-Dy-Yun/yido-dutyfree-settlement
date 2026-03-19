@@ -109,6 +109,36 @@
   font-size: 12px;
 }
 
+.edi-badge {
+  display: inline-block;
+  min-width: 70px;
+  text-align: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+
+.edi-badge.full {
+  background: rgba(76, 175, 80, 0.10);
+  color: #1b5e20;
+  border-color: rgba(76, 175, 80, 0.25);
+}
+
+.edi-badge.partial {
+  background: rgba(255, 193, 7, 0.18);
+  color: #7a5a00;
+  border-color: rgba(255, 193, 7, 0.35);
+}
+
+.edi-badge.unmapped {
+  background: rgba(224, 62, 62, 0.10);
+  color: #8e1d1d;
+  border-color: rgba(224, 62, 62, 0.25);
+}
+
 .edi-error {
   color: #b00020;
   font-size: 13px;

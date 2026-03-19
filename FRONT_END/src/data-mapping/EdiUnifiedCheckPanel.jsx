@@ -52,6 +52,7 @@ export default function EdiUnifiedCheckPanel() {
   const [groups, setGroups] = useState([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
@@ -75,7 +76,7 @@ export default function EdiUnifiedCheckPanel() {
         sources: source,
         statusFilter,
         page: nextPage,
-        pageSize: 50,
+        pageSize,
       });
       setGroups(res.items || []);
       setTotal(res.total || 0);
@@ -85,6 +86,56 @@ export default function EdiUnifiedCheckPanel() {
     } finally {
       setLoadingGroups(false);
     }
+  };
+
+  const lastPage = Math.max(1, Math.ceil((total || 0) / pageSize));
+
+  const clearDetail = () => {
+    setSelectedKey(null);
+    setDetailLines([]);
+    setDetailError('');
+    setDetailLoading(false);
+  };
+
+  const goToPage = async (next) => {
+    if (next < 1) return;
+    if (next > lastPage) return;
+    clearDetail();
+    setPage(next);
+    setGroupsError('');
+    setLoadingGroups(true);
+    try {
+      const res = await listEdiUnifiedGroups({
+        fromDate,
+        toDate,
+        sources: source,
+        statusFilter,
+        page: next,
+        pageSize,
+      });
+      setGroups(res.items || []);
+      setTotal(res.total || 0);
+    } catch (e) {
+      setGroupsError(e.response?.data?.detail || '목록 조회에 실패했습니다.');
+    } finally {
+      setLoadingGroups(false);
+    }
+  };
+
+  const handlePrevPage = () => goToPage(page - 1);
+  const handleNextPage = () => goToPage(page + 1);
+
+  const getStatusBadge = (g) => {
+    const hasReceipt = !!g.uuid_receipt;
+    const hasPassport = !!g.uuid_passport;
+
+    if (hasReceipt && hasPassport) {
+      return { label: '완전매핑', className: 'edi-badge full' };
+    }
+    if (hasReceipt && !hasPassport) {
+      return { label: '부분매핑', className: 'edi-badge partial' };
+    }
+    return { label: '미매핑', className: 'edi-badge unmapped' };
   };
 
   const loadDetail = async (g) => {
@@ -244,6 +295,7 @@ export default function EdiUnifiedCheckPanel() {
       <table className="edi-table">
         <thead>
           <tr>
+            <th>Status</th>
             <th>면세점</th>
             <th>영수증번호</th>
             <th>라인수</th>
@@ -255,11 +307,11 @@ export default function EdiUnifiedCheckPanel() {
         <tbody>
           {loadingGroups ? (
             <tr>
-              <td colSpan={6}>로딩 중...</td>
+              <td colSpan={7}>로딩 중...</td>
             </tr>
           ) : groups.length === 0 ? (
             <tr>
-              <td colSpan={6}>데이터가 없습니다.</td>
+              <td colSpan={7}>데이터가 없습니다.</td>
             </tr>
           ) : (
             groups.map((g) => {
@@ -271,6 +323,12 @@ export default function EdiUnifiedCheckPanel() {
                     className="edi-row"
                     onClick={() => loadDetail(g)}
                   >
+                    <td>
+                      {(() => {
+                        const st = getStatusBadge(g);
+                        return <span className={st.className}>{st.label}</span>;
+                      })()}
+                    </td>
                     <td>{g.dutyfree_operator}</td>
                     <td>{g.receipt_no}</td>
                     <td>{g.line_count}</td>
@@ -280,7 +338,7 @@ export default function EdiUnifiedCheckPanel() {
                   </tr>
                   {isOpen && (
                     <tr className="edi-detail-row">
-                      <td colSpan={6}>
+                      <td colSpan={7}>
                         {detailError && <div className="edi-error">{detailError}</div>}
                         {detailLoading ? (
                           <div>로딩 중...</div>
@@ -330,8 +388,26 @@ export default function EdiUnifiedCheckPanel() {
         </tbody>
       </table>
 
-      <div className="edi-muted">
-        총 {total}건 / 페이지 {page}
+      <div className="edi-muted" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span>
+          총 {total}건 / 페이지 {page} / {lastPage}
+        </span>
+        <span style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="edi-btn"
+            onClick={handlePrevPage}
+            disabled={loadingGroups || page <= 1}
+          >
+            이전
+          </button>
+          <button
+            className="edi-btn"
+            onClick={handleNextPage}
+            disabled={loadingGroups || page >= lastPage}
+          >
+            다음
+          </button>
+        </span>
       </div>
 
     </div>
