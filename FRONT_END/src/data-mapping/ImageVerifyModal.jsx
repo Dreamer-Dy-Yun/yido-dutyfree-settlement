@@ -1,8 +1,91 @@
 import { useEffect, useState, useMemo } from 'react';
 import ImageViewer from './ImageViewer';
-import { verifyReceipt, verifyPassport, getImageDetailsByHash } from '../services/tenant';
+import {
+  verifyReceipt,
+  verifyPassport,
+  deleteVerifiedReceipt,
+  deleteVerifiedPassport,
+  getImageDetailsByHash,
+} from '../services/tenant';
 import './ImageViewerLayout.css';
 import './ImageVerifyModal.css';
+
+function normalizeApiError(err, fallbackMessage) {
+  const detail = err?.response?.data?.detail;
+
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const joined = detail
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          if (typeof item.msg === 'string') return item.msg;
+          if (typeof item.message === 'string') return item.message;
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join(', ');
+    return joined || fallbackMessage;
+  }
+
+  if (detail && typeof detail === 'object') {
+    if (typeof detail.message === 'string' && detail.message.trim()) {
+      return detail.message;
+    }
+    if (typeof detail.code === 'string' && detail.code.trim()) {
+      return `${fallbackMessage} (${detail.code})`;
+    }
+    return fallbackMessage;
+  }
+
+  const message = err?.message;
+  if (typeof message === 'string' && message.trim()) {
+    return message;
+  }
+
+  return fallbackMessage;
+}
+
+function ConfirmDialog({
+  open,
+  message,
+  cancelText = '취소',
+  confirmText = '확인',
+  onCancel,
+  onConfirm,
+  disabled = false,
+}) {
+  if (!open) return null;
+  return (
+    <div className="image-verify-confirm-overlay">
+      <div className="image-verify-confirm-dialog">
+        <p>{message}</p>
+        <div className="image-verify-confirm-actions">
+          <button
+            type="button"
+            className="workspace-cancel-button"
+            onClick={onCancel}
+            disabled={disabled}
+          >
+            {cancelText}
+          </button>
+          <button
+            type="button"
+            className="workspace-save-button"
+            onClick={onConfirm}
+            disabled={disabled}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * 공통 이미지 검수 모달
@@ -21,8 +104,12 @@ function ImageVerifyModal({
   const [editTarget, setEditTarget] = useState(mode); // 'receipt' | 'passport'
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState(null); // 'save' | 'overwrite' | 'delete' | null
   const [error, setError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState(null);
   const [canSendToLLM, setCanSendToLLM] = useState(false);
 
   const [receiptDetail, setReceiptDetail] = useState(null);
@@ -66,7 +153,7 @@ function ImageVerifyModal({
         }
       } catch (err) {
         if (!mounted) return;
-        setError(err?.response?.data?.detail || '상세 정보를 불러오지 못했습니다.');
+        setError(normalizeApiError(err, '상세 정보를 불러오지 못했습니다.'));
       } finally {
         setShowConfirm(false);
         setCanSendToLLM(false);
@@ -104,6 +191,10 @@ function ImageVerifyModal({
     }
     setError('');
     setShowConfirm(false);
+    setShowOverwriteConfirm(false);
+    setShowDeleteConfirm(false);
+    setPendingRequest(null);
+    setSavingAction(null);
     setCanSendToLLM(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editTarget, receiptDetail, passportDetail]);
@@ -113,14 +204,23 @@ function ImageVerifyModal({
       if (!currentItem) return;
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (showConfirm) {
+        if (showOverwriteConfirm) {
+          setShowOverwriteConfirm(false);
+          setPendingRequest(null);
+        } else if (showDeleteConfirm) {
+          setShowDeleteConfirm(false);
+        } else if (showConfirm) {
           setShowConfirm(false);
         } else {
           onClose();
         }
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (showConfirm) {
+        if (showOverwriteConfirm) {
+          handleOverwriteConfirm();
+        } else if (showDeleteConfirm) {
+          handleDeleteConfirm();
+        } else if (showConfirm) {
           handleConfirm();
         } else {
           handleSubmit();
@@ -138,7 +238,7 @@ function ImageVerifyModal({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentItem, showConfirm, form, mode, onChangeIndex, onClose]);
+  }, [currentItem, showConfirm, showOverwriteConfirm, showDeleteConfirm, form, mode, onChangeIndex, onClose]);
 
   if (!currentItem) return null;
 
@@ -166,13 +266,11 @@ function ImageVerifyModal({
     setShowConfirm(true);
   };
 
-  const handleConfirm = async () => {
-    if (!currentItem) return;
-    setSaving(true);
-    setError('');
-    try {
-      if (editTarget === 'receipt' && receiptDetail) {
-        await verifyReceipt({
+  const buildVerifyRequest = () => {
+    if (editTarget === 'receipt' && receiptDetail) {
+      return {
+        target: 'receipt',
+        payload: {
           source: receiptDetail.source,
           id: receiptDetail.id,
           dutyfree_company: (form.dutyfree_company || '').toUpperCase(),
@@ -182,27 +280,123 @@ function ImageVerifyModal({
           passport_no: form.passport_no || null,
           purchaser: form.purchaser || null,
           coordinate: coordinate || null,
-        });
-      } else if (editTarget === 'passport' && passportDetail) {
-        await verifyPassport({
+        },
+      };
+    }
+    if (editTarget === 'passport' && passportDetail) {
+      return {
+        target: 'passport',
+        payload: {
           source: passportDetail.source,
           id: passportDetail.id,
           country_code: form.country_code || '',
           passport_no: form.passport_no || '',
           name: form.name || null,
           coordinate: coordinate || null,
+        },
+      };
+    }
+    throw new Error('수정할 대상 데이터가 없습니다.');
+  };
+
+  const sendVerifyRequest = async (target, payload, forceMerge = false) => {
+    const requestPayload = forceMerge ? { ...payload, force_merge: true } : payload;
+    if (target === 'receipt') {
+      return verifyReceipt(requestPayload);
+    }
+    return verifyPassport(requestPayload);
+  };
+
+  const handleConfirm = async () => {
+    if (!currentItem) return;
+    setShowConfirm(false);
+    setSaving(true);
+    setSavingAction('save');
+    setError('');
+    try {
+      const request = buildVerifyRequest();
+      await sendVerifyRequest(request.target, request.payload, false);
+      if (typeof onSaved === 'function') {
+        onSaved(currentIndex);
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      const forceMergeRequired = Boolean(detail && typeof detail === 'object' && detail.force_merge_required);
+      if (forceMergeRequired) {
+        try {
+          setPendingRequest(buildVerifyRequest());
+          setShowOverwriteConfirm(true);
+          setError('');
+        } catch (buildErr) {
+          setError(normalizeApiError(buildErr, '저장에 실패했습니다.'));
+        }
+      } else {
+        setError(normalizeApiError(err, '저장에 실패했습니다.'));
+      }
+    } finally {
+      setSaving(false);
+      setSavingAction(null);
+    }
+  };
+
+  const handleOverwriteConfirm = async () => {
+    if (!pendingRequest) return;
+    setSaving(true);
+    setSavingAction('overwrite');
+    setError('');
+    try {
+      await sendVerifyRequest(pendingRequest.target, pendingRequest.payload, true);
+      setShowOverwriteConfirm(false);
+      setPendingRequest(null);
+      if (typeof onSaved === 'function') {
+        onSaved(currentIndex);
+      }
+      alert('덮어쓰기가 성공하였습니다.');
+    } catch (err) {
+      const reason = normalizeApiError(err, '사유를 확인할 수 없습니다.');
+      setError(`덮어쓰기가 실패하였습니다. ${reason}`);
+      alert(`덮어쓰기가 실패하였습니다. ${reason}`);
+    } finally {
+      setSaving(false);
+      setSavingAction(null);
+    }
+  };
+
+  const handleDelete = () => {
+    setError('');
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    setShowDeleteConfirm(false);
+    setSaving(true);
+    setSavingAction('delete');
+    setError('');
+    try {
+      if (editTarget === 'receipt' && receiptDetail) {
+        await deleteVerifiedReceipt({
+          source: receiptDetail.source,
+          id: receiptDetail.id,
+        });
+      } else if (editTarget === 'passport' && passportDetail) {
+        await deleteVerifiedPassport({
+          source: passportDetail.source,
+          id: passportDetail.id,
         });
       } else {
-        throw new Error('수정할 대상 데이터가 없습니다.');
+        throw new Error('삭제할 대상 데이터가 없습니다.');
       }
       if (typeof onSaved === 'function') {
         onSaved(currentIndex);
       }
-      setShowConfirm(false);
+      alert('삭제가 완료되었습니다.');
     } catch (err) {
-      setError(err?.response?.data?.detail || '저장에 실패했습니다.');
+      const msg = normalizeApiError(err, '삭제에 실패했습니다.');
+      setError(msg);
+      alert(msg);
     } finally {
       setSaving(false);
+      setSavingAction(null);
     }
   };
 
@@ -448,7 +642,15 @@ function ImageVerifyModal({
                   다음 ▶
                 </button>
               </div>
-              <div className="image-verify-actions">
+              <div className="image-verify-footer-actions">
+                <button
+                  type="button"
+                  className="workspace-delete-confirm-button"
+                  onClick={handleDelete}
+                  disabled={saving}
+                >
+                  삭제
+                </button>
                 <button
                   type="button"
                   className="workspace-cancel-button"
@@ -459,42 +661,49 @@ function ImageVerifyModal({
                 </button>
                 <button
                   type="button"
-                  className="workspace-save-button image-verify-confirm-button"
+                  className="workspace-save-button"
                   onClick={handleSubmit}
                   disabled={saving}
                 >
-                  {saving ? '처리 중…' : '확인'}
+                  {savingAction === 'save' ? '처리 중…' : '확인'}
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        {showConfirm && (
-          <div className="image-verify-confirm-overlay">
-            <div className="image-verify-confirm-dialog">
-              <p>수정 내용을 저장하시겠습니까?</p>
-              <div className="image-verify-confirm-actions">
-                <button
-                  type="button"
-                  className="workspace-cancel-button"
-                  onClick={() => setShowConfirm(false)}
-                  disabled={saving}
-                >
-                  취소
-                </button>
-                <button
-                  type="button"
-                  className="workspace-save-button"
-                  onClick={handleConfirm}
-                  disabled={saving}
-                >
-                  확인
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <ConfirmDialog
+          open={showConfirm}
+          message="수정 내용을 저장하시겠습니까?"
+          cancelText="취소"
+          confirmText="확인"
+          onCancel={() => setShowConfirm(false)}
+          onConfirm={handleConfirm}
+          disabled={saving}
+        />
+
+        <ConfirmDialog
+          open={showOverwriteConfirm}
+          message="동일 데이터가 이미 존재합니다. 덮어쓰기를 진행하시겠습니까?"
+          cancelText="취소"
+          confirmText={savingAction === 'overwrite' ? '진행 중...' : '진행'}
+          onCancel={() => {
+            setShowOverwriteConfirm(false);
+            setPendingRequest(null);
+          }}
+          onConfirm={handleOverwriteConfirm}
+          disabled={saving}
+        />
+
+        <ConfirmDialog
+          open={showDeleteConfirm}
+          message={editTarget === 'receipt' ? '검증 영수증을 삭제하시겠습니까?' : '검증 여권을 삭제하시겠습니까?'}
+          cancelText="취소"
+          confirmText={savingAction === 'delete' ? '삭제 중...' : '삭제'}
+          onCancel={() => setShowDeleteConfirm(false)}
+          onConfirm={handleDeleteConfirm}
+          disabled={saving}
+        />
       </div>
     </div>
   );

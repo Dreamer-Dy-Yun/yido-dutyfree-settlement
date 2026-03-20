@@ -151,7 +151,7 @@ async def test_matching_e2e_basic_success() -> None:
     await matcher.run(locked_by=locked_by, try_fallback=False)
 
     # THEN: MATCHED 테이블에 uuid_receipt 기준 결과가 생성되었는지 확인
-    stmt_matched = select(models.MATCHED).where(models.MATCHED.uuid_receipt == uuid_receipt)
+    stmt_matched = select(models.Matched).where(models.Matched.uuid_receipt == uuid_receipt)
     result_matched = await db.execute_query(stmt_matched, schemas=[tenant_schema, public_schema])
     rows_matched = result_matched.mappings().all() if result_matched.mappings() else []
 

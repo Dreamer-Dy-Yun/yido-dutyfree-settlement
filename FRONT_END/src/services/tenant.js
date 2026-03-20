@@ -183,6 +183,32 @@ export const verifyPassport = async (payload) => {
 };
 
 /**
+ * 이미지 확인 - 검증 영수증 삭제
+ * @param {Object} payload
+ * @param {'ocr'|'verified'} payload.source
+ * @param {number} payload.id
+ */
+export const deleteVerifiedReceipt = async (payload) => {
+  const response = await api.delete('/api/tenant/data-mapping/receipts/verify', {
+    data: payload,
+  });
+  return response.data;
+};
+
+/**
+ * 이미지 확인 - 검증 여권 삭제
+ * @param {Object} payload
+ * @param {'ocr'|'verified'} payload.source
+ * @param {number} payload.id
+ */
+export const deleteVerifiedPassport = async (payload) => {
+  const response = await api.delete('/api/tenant/data-mapping/passports/verify', {
+    data: payload,
+  });
+  return response.data;
+};
+
+/**
  * 이미지 확인 - 영수증 일괄 확인
  * @param {string[]} ids - uuid_record 목록
  */

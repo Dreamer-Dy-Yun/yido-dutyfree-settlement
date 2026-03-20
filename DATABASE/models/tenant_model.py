@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from numpy import int16
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Text, Boolean, Date, DateTime, Numeric, Float, ForeignKey, UniqueConstraint, BigInteger, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
@@ -191,6 +190,67 @@ class VerifiedReceipt(BaseModelTenant):
 
 
 # ---------------------------------------------------------------------------
+# ARCHIVE_PASSPORT: 삭제된 정보 아카이빙(감사용)
+# Version: 2.0.0, 작성자: 윤대영
+# ---------------------------------------------------------------------------
+class ArchivePassport(BaseModelTenant):
+    """삭제된 정보 아카이빙(감사용)"""
+    __tablename__ = "archive_passport"
+
+    country_code: Mapped[str | None] = mapped_column(String(3), nullable=True)  # 국적 (COMPOSITE)
+    passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 여권번호 (COMPOSITE)
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 이름
+    gender: Mapped[str | None] = mapped_column(String(1), nullable=True)  # 성별 [M|F]
+    place_of_birth: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 출생지
+    date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)  # 생년월일
+    place_of_issue: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발행지
+    date_of_issue: Mapped[date | None] = mapped_column(Date, nullable=True)  # 발행일
+    authority: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 발급기관
+    date_of_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)  # 만료일
+    verifier_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 삭제자 식별번호
+    verifier_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 확인(변경)자 사용자명
+    is_processed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 영수증-여권 매칭 처리 여부
+    locked_by: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 매칭 워커 락 소유자(UUID 등)
+    hash_img: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 해싱된 여권 이미지 (SHA-256)
+    rotation: Mapped[float | None] = mapped_column(Float, nullable=True)  # 이미지 회전 각도
+    coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True)  # 검증된 이미지 좌표(정규화된 좌표)
+    is_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 확인 여부
+    is_corrected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 확인자에 의한 변경 유무
+    verification_mode: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 검증 방식 (none | "single" | "bulk")
+    uuid_batch: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 배치 UUID / 받아오기
+    uuid_record: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 레코드 UUID / 생성시 부여
+
+# ---------------------------------------------------------------------------
+# ARCHIVE_RECEIPT: 삭제된 정보 아카이빙(감사용)
+# Version: 2.0.0, 작성자: 윤대영
+# ---------------------------------------------------------------------------
+class ArchiveReceipt(BaseModelTenant):
+    """삭제된 정보 아카이빙(감사용)"""
+    __tablename__ = "archive_receipt"
+
+    dutyfree_company: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 면세점 구분 (COMPOSITE)
+    group_no: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 그룹 번호
+    receipt_no: Mapped[str | None] = mapped_column(String(30), nullable=True)  # 영수증 번호(교환권) (COMPOSITE), (표기용)
+    country_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 국가코드
+    passport_no: Mapped[str | None] = mapped_column(String(9), nullable=True)  # 구매자 여권 번호
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 구매자 이름
+    rotation: Mapped[float | None] = mapped_column(Float, nullable=True)  # 이미지 회전 각도
+    coordinate: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True)  # 검증된 이미지 좌표(정규화된 좌표)
+    normalized_receipt_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 영수증 번호 정규화 (비교용)(receipt_no 에서, 하이픈, 공백등이 제거된 값값)
+    verifier_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 확인(변경)자 식별번호
+    verifier_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 확인(변경)자 사용자명
+    is_processed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 영수증-여권 매칭 처리 여부
+    locked_by: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 매칭 워커 락 소유자(UUID 등)
+    hash_img: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 해싱된 영수증 이미지
+    is_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 확인 여부
+    is_corrected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 확인자에 의한 변경 유부
+    verification_mode: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 검증 방식 (none | "single" | "bulk")
+    uuid_batch: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 배치 UUID
+    uuid_record: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 레코드 UUID
+
+
+
+# ---------------------------------------------------------------------------
 # IMAGE: 이미지 파일 관리
 # 테이블 목적: 이미지 파일 관리
 # Version: 0.3.0, 작성자: 윤대영
@@ -214,7 +274,7 @@ class Image(BaseModelTenant):
 # 테이블 목적: EDI 정보
 # Version: 2.0.0, 작성자: 윤대영
 # ---------------------------------------------------------------------------
-class EDI_UNIFIED(BaseModelTenant):
+class EDI_Unified(BaseModelTenant):
     """매칭된 EDI 정보. 여권-영수증 매칭 및 이후 매칭."""
     __tablename__ = "edi_unified"
     dutyfree_operator: Mapped[str] = mapped_column(String(30), nullable=False)  # 면세점명 (COMPOSITE)
@@ -257,7 +317,7 @@ class EDI_UNIFIED(BaseModelTenant):
 # Version: 2.0.0, 작성자: 윤대영
 # ---------------------------------------------------------------------------
 
-class MATCHED(BaseModelTenant):
+class Matched(BaseModelTenant):
     """영수증 UUID 기준 여권 매칭 결과."""
     __tablename__ = "matched"
 

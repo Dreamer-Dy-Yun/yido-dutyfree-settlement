@@ -92,7 +92,7 @@ class EdiUnifiedService:
                     continue
 
                 await self.db.upsert_batch(
-                    table=models.EDI_UNIFIED,
+                    table=models.EDI_Unified,
                     data=df_unified,
                     schemas=self.schemas,
                     partial_commit=False,
@@ -113,9 +113,9 @@ class EdiUnifiedService:
         """
         async with self.db.open_session(schemas=self.schemas) as session:
             # 매핑 대상 EDI_UNIFIED 행 조회
-            stmt_unified = select(*models.EDI_UNIFIED.__table__.columns).where(
-                models.EDI_UNIFIED.uuid_receipt.is_(None),
-                models.EDI_UNIFIED.dutyfree_operator.in_(sources),
+            stmt_unified = select(*models.EDI_Unified.__table__.columns).where(
+                models.EDI_Unified.uuid_receipt.is_(None),
+                models.EDI_Unified.dutyfree_operator.in_(sources),
             )
             if max_rows is not None:
                 stmt_unified = stmt_unified.limit(max_rows)
@@ -179,7 +179,7 @@ class EdiUnifiedService:
             )
 
             await self.db.update_batch(
-                table=models.EDI_UNIFIED,
+                table=models.EDI_Unified,
                 data_to_update=df_update,
                 schemas=self.schemas,
                 conflict_cols=["id"],
@@ -202,10 +202,10 @@ class EdiUnifiedService:
         """
         async with self.db.open_session(schemas=self.schemas) as session:
             # uuid_receipt 는 있으나 uuid_passport 는 아직 없는 EDI_UNIFIED 행만 대상
-            stmt_unified = select(*models.EDI_UNIFIED.__table__.columns).where(
-                models.EDI_UNIFIED.uuid_receipt.is_not(None),
-                models.EDI_UNIFIED.uuid_passport.is_(None),
-                models.EDI_UNIFIED.dutyfree_operator.in_(sources),
+            stmt_unified = select(*models.EDI_Unified.__table__.columns).where(
+                models.EDI_Unified.uuid_receipt.is_not(None),
+                models.EDI_Unified.uuid_passport.is_(None),
+                models.EDI_Unified.dutyfree_operator.in_(sources),
             )
             if max_rows is not None:
                 stmt_unified = stmt_unified.limit(max_rows)
@@ -222,8 +222,8 @@ class EdiUnifiedService:
             if not uuid_receipts:
                 return
 
-            stmt_matched = select(*models.MATCHED.__table__.columns).where(
-                models.MATCHED.uuid_receipt.in_(uuid_receipts)
+            stmt_matched = select(*models.Matched.__table__.columns).where(
+                models.Matched.uuid_receipt.in_(uuid_receipts)
             )
             result_matched = await session.execute(stmt_matched)
             rows_matched = result_matched.mappings().all()
@@ -251,7 +251,7 @@ class EdiUnifiedService:
             )
 
             await self.db.update_batch(
-                table=models.EDI_UNIFIED,
+                table=models.EDI_Unified,
                 data_to_update=df_update,
                 schemas=self.schemas,
                 conflict_cols=["id"],

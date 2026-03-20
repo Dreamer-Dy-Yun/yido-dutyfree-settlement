@@ -33,6 +33,12 @@ class Export:
         include_index : 인덱스 포함 여부
         """
         buf = BytesIO()
+        # TODO(사용자 지시에 따라 작성): EDI_UNIFIED export에서 이 헬퍼를 그대로 쓰지 않은 이유 정리
+        # 1) Content-Disposition의 latin-1/filename 인코딩 이슈 때문에 filename* (UTF-8) 지원이 필요함
+        #    - 현재 구현은 headers={"Content-Disposition": f'attachment; filename="{filename}.xlsx"'} 형태라 호환성 부족
+        # 2) EDI export는 to_excel 직전 list/dict 타입 컬럼을 JSON 문자열로 정규화하는 방어 로직이 필요할 수 있음
+        #    - 현재 헬퍼는 해당 정규화를 수행하지 않음
+        # 3) EDI export는 engine="openpyxl"을 쓰고, 이 헬퍼는 engine="xlsxwriter"를 사용함(동작/포맷 차이 가능)
         with pd.ExcelWriter(buf, engine="xlsxwriter") as wb:
             if isinstance(df, dict) and all(isinstance(v, pd.DataFrame) for v in df.values()):
                 sanitizer = _sheet_name_sanitizer()

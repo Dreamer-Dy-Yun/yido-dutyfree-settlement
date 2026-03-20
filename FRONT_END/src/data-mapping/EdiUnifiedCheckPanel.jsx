@@ -22,6 +22,13 @@ const fromDateInputValue = (v) => {
   return new Date(yyyy, mm - 1, dd);
 };
 
+const formatAccountingNumber = (v) => {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  if (Number.isNaN(n)) return String(v);
+  return n.toLocaleString('ko-KR');
+};
+
 const SOURCE_OPTIONS = [
   { value: 'all', label: '전체' },
   { value: 'silla', label: '신라' },
@@ -30,9 +37,9 @@ const SOURCE_OPTIONS = [
 
 const STATUS_TABS = [
   { value: 'all', label: '전체' },
-  { value: 'full', label: '완전매핑' },
-  { value: 'partial', label: '부분매핑' },
-  { value: 'unmapped', label: '미매핑' },
+  { value: 'full', label: '완전연결' },
+  { value: 'partial', label: '부분연결' },
+  { value: 'unmapped', label: '미연결' },
 ];
 
 export default function EdiUnifiedCheckPanel() {
@@ -56,8 +63,10 @@ export default function EdiUnifiedCheckPanel() {
 
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const [downloadLoading, setDownloadLoading] = useState(false);
   const [selectedKey, setSelectedKey] = useState(null);
   const [detailLines, setDetailLines] = useState([]);
+  const [noteTooltip, setNoteTooltip] = useState({ open: false, text: '', x: 0, y: 0 });
 
   const sourcesForJob = useMemo(() => {
     if (source === 'silla') return ['silla'];
@@ -130,12 +139,28 @@ export default function EdiUnifiedCheckPanel() {
     const hasPassport = !!g.uuid_passport;
 
     if (hasReceipt && hasPassport) {
-      return { label: '완전매핑', className: 'edi-badge full' };
+      return { label: '완전연결', className: 'edi-badge full' };
     }
     if (hasReceipt && !hasPassport) {
-      return { label: '부분매핑', className: 'edi-badge partial' };
+      return { label: '부분연결', className: 'edi-badge partial' };
     }
-    return { label: '미매핑', className: 'edi-badge unmapped' };
+    return { label: '미연결', className: 'edi-badge unmapped' };
+  };
+
+  /** UUID 연결 여부: OK / 미연결 배지 */
+  const getLinkBadge = (hasUuid) =>
+    hasUuid
+      ? { label: '연결', className: 'edi-link-badge edi-link-on' }
+      : { label: '미연결', className: 'edi-link-badge edi-link-off' };
+
+  const getSystemNoteBadge = (note) =>
+    note && String(note).trim() !== ''
+      ? { label: '[...]', className: 'edi-note-badge edi-note-on' }
+      : { label: '없음', className: 'edi-note-badge edi-note-off' };
+
+  const normalizeSystemNote = (note) => {
+    const normalized = note && String(note).trim() !== '' ? String(note) : '시스템 비고가 없습니다.';
+    return normalized;
   };
 
   const loadDetail = async (g) => {
@@ -222,9 +247,12 @@ export default function EdiUnifiedCheckPanel() {
 
   const handleDownload = async () => {
     try {
+      setDownloadLoading(true);
       await downloadEdiUnifiedExcel({ fromDate, toDate, sources: source });
     } catch (e) {
       setGroupsError(e.response?.data?.detail || '엑셀 다운로드에 실패했습니다.');
+    } finally {
+      setDownloadLoading(false);
     }
   };
 
@@ -262,7 +290,14 @@ export default function EdiUnifiedCheckPanel() {
             {jobRunning ? 'EDI 매핑 실행 중...' : 'EDI 매핑 실행'}
           </button>
           <button className="edi-btn" onClick={handleDownload} disabled={loadingGroups}>
-            엑셀 다운로드
+            {downloadLoading ? (
+              <>
+                <span className="edi-spinner" aria-hidden="true" />
+                엑셀 다운로드 중...
+              </>
+            ) : (
+              '엑셀 다운로드'
+            )}
           </button>
           <button className="edi-btn" onClick={() => refreshGroups({ resetPage: true })} disabled={loadingGroups}>
             새로고침
@@ -292,26 +327,29 @@ export default function EdiUnifiedCheckPanel() {
 
       {groupsError && <div className="edi-error">{groupsError}</div>}
 
-      <table className="edi-table">
+      <table className="edi-table edi-main-table">
         <thead>
           <tr>
             <th>Status</th>
+            <th>매출일자</th>
             <th>면세점</th>
+            <th>지점</th>
+            <th>그룹번호</th>
             <th>영수증번호</th>
+            <th>고객명</th>
             <th>라인수</th>
-            <th>최근매출일자</th>
-            <th>영수증UUID</th>
-            <th>여권UUID</th>
+            <th>영수증연결</th>
+            <th>여권연결</th>
           </tr>
         </thead>
         <tbody>
           {loadingGroups ? (
             <tr>
-              <td colSpan={7}>로딩 중...</td>
+              <td colSpan={10}>로딩 중...</td>
             </tr>
           ) : groups.length === 0 ? (
             <tr>
-              <td colSpan={7}>데이터가 없습니다.</td>
+              <td colSpan={10}>데이터가 없습니다.</td>
             </tr>
           ) : (
             groups.map((g) => {
@@ -329,55 +367,115 @@ export default function EdiUnifiedCheckPanel() {
                         return <span className={st.className}>{st.label}</span>;
                       })()}
                     </td>
+                    <td
+                      title={
+                        g.datetime_purchase
+                          ? String(g.datetime_purchase).replace('T', ' ').slice(0, 19)
+                          : ''
+                      }
+                    >
+                      {g.datetime_purchase
+                        ? String(g.datetime_purchase).replace('T', ' ').slice(0, 10)
+                        : ''}
+                    </td>
                     <td>{g.dutyfree_operator}</td>
+                    <td>{g.dutyfree_branch || '—'}</td>
+                    <td>{g.group_no || '—'}</td>
                     <td>{g.receipt_no}</td>
+                    <td>{g.customer_name != null && g.customer_name !== '' ? g.customer_name : '—'}</td>
                     <td>{g.line_count}</td>
-                    <td>{g.datetime_purchase ? String(g.datetime_purchase).replace('T', ' ').slice(0, 19) : ''}</td>
-                    <td>{g.uuid_receipt || ''}</td>
-                    <td>{g.uuid_passport || ''}</td>
+                    <td>
+                      {(() => {
+                        const lb = getLinkBadge(!!g.uuid_receipt);
+                        return <span className={lb.className}>{lb.label}</span>;
+                      })()}
+                    </td>
+                    <td>
+                      {(() => {
+                        const lb = getLinkBadge(!!g.uuid_passport);
+                        return <span className={lb.className}>{lb.label}</span>;
+                      })()}
+                    </td>
                   </tr>
                   {isOpen && (
                     <tr className="edi-detail-row">
-                      <td colSpan={7}>
-                        {detailError && <div className="edi-error">{detailError}</div>}
-                        {detailLoading ? (
-                          <div>로딩 중...</div>
-                        ) : (
-                          <table className="edi-table" style={{ marginTop: 8 }}>
-                            <thead>
-                              <tr>
-                                <th>상품코드</th>
-                                <th>상품명</th>
-                                <th>수량</th>
-                                <th>총매출($)</th>
-                                <th>순매출($)</th>
-                                <th>할인($)</th>
-                                <th>고객명(EDI)</th>
-                                <th>system_note</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {detailLines.length === 0 ? (
+                      <td colSpan={10} className="edi-detail-cell">
+                        <div className="edi-detail-wrap">
+                          {detailError && <div className="edi-error">{detailError}</div>}
+                          {detailLoading ? (
+                            <div className="edi-detail-loading">로딩 중...</div>
+                          ) : (
+                            <table className="edi-table edi-detail-nested-table">
+                              <thead>
                                 <tr>
-                                  <td colSpan={8}>라인이 없습니다.</td>
+                                  <th>카테고리</th>
+                                  <th>브랜드</th>
+                                  <th>상품명</th>
+                                  <th>수량</th>
+                                  <th>총매출($)</th>
+                                  <th>순매출($)</th>
+                                  <th>할인($)</th>
+                                  <th>system_note</th>
                                 </tr>
-                              ) : (
-                                detailLines.map((r, idx) => (
-                                  <tr key={idx}>
-                                    <td>{r.product_code}</td>
-                                    <td>{r.product_name}</td>
-                                    <td>{r.quantity}</td>
-                                    <td>{r.gross_sales_amount_usd}</td>
-                                    <td>{r.net_sales_amount_usd}</td>
-                                    <td>{r.discount_amount_usd}</td>
-                                    <td>{r.customer_name}</td>
-                                    <td>{r.system_note}</td>
+                              </thead>
+                              <tbody>
+                                {detailLines.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={8} className="edi-detail-empty">
+                                      라인이 없습니다.
+                                    </td>
                                   </tr>
-                                ))
-                              )}
-                            </tbody>
-                          </table>
-                        )}
+                                ) : (
+                                  detailLines.map((r, idx) => (
+                                    <tr key={idx}>
+                                      <td>{r.category || '—'}</td>
+                                      <td>{r.brand || '—'}</td>
+                                      <td>{r.product_name}</td>
+                                      <td>{r.quantity}</td>
+                                      <td>{formatAccountingNumber(r.gross_sales_amount_usd)}</td>
+                                      <td>{formatAccountingNumber(r.net_sales_amount_usd)}</td>
+                                      <td>{formatAccountingNumber(r.discount_amount_usd)}</td>
+                                      <td>
+                                        {(() => {
+                                          const sb = getSystemNoteBadge(r.system_note);
+                                          return (
+                                            <button
+                                              type="button"
+                                              className={sb.className}
+                                              onMouseEnter={(e) => {
+                                                e.stopPropagation();
+                                                setNoteTooltip({
+                                                  open: true,
+                                                  text: normalizeSystemNote(r.system_note),
+                                                  x: e.clientX + 14,
+                                                  y: e.clientY + 14,
+                                                });
+                                              }}
+                                              onMouseMove={(e) => {
+                                                e.stopPropagation();
+                                                setNoteTooltip((prev) =>
+                                                  prev.open
+                                                    ? { ...prev, x: e.clientX + 14, y: e.clientY + 14 }
+                                                    : prev
+                                                );
+                                              }}
+                                              onMouseLeave={(e) => {
+                                                e.stopPropagation();
+                                                setNoteTooltip((prev) => ({ ...prev, open: false }));
+                                              }}
+                                            >
+                                              {sb.label}
+                                            </button>
+                                          );
+                                        })()}
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -409,6 +507,16 @@ export default function EdiUnifiedCheckPanel() {
           </button>
         </span>
       </div>
+
+      {noteTooltip.open && (
+        <div
+          className="edi-note-tooltip"
+          style={{ left: noteTooltip.x, top: noteTooltip.y }}
+        >
+          <div className="edi-note-title">system_note</div>
+          <div className="edi-note-body">{noteTooltip.text}</div>
+        </div>
+      )}
 
     </div>
   );

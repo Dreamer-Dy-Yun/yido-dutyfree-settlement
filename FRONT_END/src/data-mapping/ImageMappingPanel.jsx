@@ -396,8 +396,14 @@ function ImageMappingPanel() {
           onChangeIndex={() => {}}
           onClose={() => setVerifyModalOpen(false)}
           onSaved={() => {
+            // 삭제/변경 후 리스트(특히 지워진 row)를 즉시 갱신해서
+            // 사용자가 stale row를 다시 보려고 할 때 "못찾음" 에러가 나지 않게 한다.
             setVerifyModalOpen(false);
-            reloadCurrentDetail();
+            setDetailModalOpen(false);
+            setDetail(null);
+            setDetailError('');
+            void loadList({ filter, page: 1 });
+            void loadStatus();
           }}
           disableNavigation
         />

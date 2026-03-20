@@ -1,11 +1,12 @@
 import pandas as pd
 from typing import Literal
-from datetime import date
-from sqlalchemy import select
+from datetime import date, timedelta
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from DATABASE.dbms.db_manager import DBManager
 from DATABASE import models
+from CUSTOMIZED.cust_logger import logger
 
 
 class EdiUnifiedExporter:
@@ -34,118 +35,57 @@ class EdiUnifiedExporter:
         - uuid/id 등 내부 키는 포함하지 않음
         """
         async with self.db.open_session(schemas=self.schemas) as session:
-            # EDI_UNIFIED 기본 데이터 조회
-            stmt = select(models.EDI_UNIFIED).where(
-                models.EDI_UNIFIED.dutyfree_operator.in_(sources)
-            )
+            conds = [models.EDI_Unified.dutyfree_operator.in_(sources)]
             if from_date is not None:
-                stmt = stmt.where(models.EDI_UNIFIED.datetime_purchase >= from_date)
+                conds.append(models.EDI_Unified.datetime_purchase >= from_date)
             if to_date is not None:
-                stmt = stmt.where(models.EDI_UNIFIED.datetime_purchase <= to_date)
+                # to_date는 "해당 날짜 전체"를 포함하도록 다음날 자정 미만으로 처리
+                conds.append(models.EDI_Unified.datetime_purchase < (to_date + timedelta(days=1)))
+
+            stmt = (
+                select(
+                    models.EDI_Unified.dutyfree_operator.label("면세점"),
+                    models.EDI_Unified.dutyfree_branch.label("지점"),
+                    models.EDI_Unified.datetime_purchase.label("매출일자"),
+                    models.EDI_Unified.datetime_original.label("원매출일자"),
+                    models.EDI_Unified.receipt_no.label("영수증번호"),
+                    models.EDI_Unified.group_no.label("그룹번호"),
+                    models.EDI_Unified.customer_name.label("고객명"),
+                    models.VerifiedPassport.passport_no.label("여권번호"),
+                    models.EDI_Unified.product_code.label("상품코드"),
+                    models.EDI_Unified.product_name.label("상품명"),
+                    models.EDI_Unified.category.label("카테고리"),
+                    models.EDI_Unified.brand.label("브랜드"),
+                    models.EDI_Unified.manufactured_at.label("제조일자"),
+                    models.EDI_Unified.quantity.label("수량"),
+                    models.EDI_Unified.gross_sales_amount_usd.label("총매출액($)"),
+                    models.EDI_Unified.net_sales_amount_usd.label("순매출액($)"),
+                    models.EDI_Unified.discount_amount_usd.label("할인액($)"),
+                    models.EDI_Unified.gross_sales_amount_krw.label("총매출액(￦)"),
+                    models.EDI_Unified.net_sales_amount_krw.label("순매출액(￦)"),
+                    models.EDI_Unified.discount_amount_krw.label("할인액(￦)"),
+                    models.VerifiedReceipt.receipt_no.label("매칭 : 영수증번호"),
+                    models.VerifiedPassport.passport_no.label("매칭 : 여권번호"),
+                    models.VerifiedPassport.name.label("매칭 : 구매자"),
+                )
+                .select_from(models.EDI_Unified)
+                .outerjoin(
+                    models.VerifiedReceipt,
+                    models.EDI_Unified.uuid_receipt == models.VerifiedReceipt.uuid_record,
+                )
+                .outerjoin(
+                    models.VerifiedPassport,
+                    models.EDI_Unified.uuid_passport == models.VerifiedPassport.uuid_record,
+                )
+                .where(*conds)
+            )
 
             result = await session.execute(stmt)
             rows = result.mappings().all()
             if not rows:
                 return pd.DataFrame()
 
-            df_uni = pd.DataFrame(rows)
-
-            # VerifiedReceipt / VerifiedPassport 조인용 데이터 준비
-            uuid_receipts = df_uni["uuid_receipt"].dropna().unique().tolist() if "uuid_receipt" in df_uni.columns else []
-            uuid_passports = df_uni["uuid_passport"].dropna().unique().tolist() if "uuid_passport" in df_uni.columns else []
-
-            df_vr = pd.DataFrame()
-            df_vp = pd.DataFrame()
-
-            if uuid_receipts:
-                stmt_vr = select(models.VerifiedReceipt).where(
-                    models.VerifiedReceipt.uuid_record.in_(uuid_receipts)
-                )
-                res_vr = await session.execute(stmt_vr)
-                rows_vr = res_vr.mappings().all()
-                if rows_vr:
-                    df_vr = pd.DataFrame(rows_vr)
-
-            if uuid_passports:
-                stmt_vp = select(models.VerifiedPassport).where(
-                    models.VerifiedPassport.uuid_record.in_(uuid_passports)
-                )
-                res_vp = await session.execute(stmt_vp)
-                rows_vp = res_vp.mappings().all()
-                if rows_vp:
-                    df_vp = pd.DataFrame(rows_vp)
-
-        # pandas 상에서 조인 처리
-        df_merged = df_uni
-
-        if not df_vr.empty and "uuid_receipt" in df_merged.columns:
-            df_merged = df_merged.merge(
-                df_vr[["uuid_record", "name"]],
-                left_on="uuid_receipt",
-                right_on="uuid_record",
-                how="left",
-                suffixes=("", "_vr"),
-            )
-
-        if not df_vp.empty and "uuid_passport" in df_merged.columns:
-            df_merged = df_merged.merge(
-                df_vp[["uuid_record", "name", "passport_no"]],
-                left_on="uuid_passport",
-                right_on="uuid_record",
-                how="left",
-                suffixes=("", "_vp"),
-            )
-
-        # 고객명 및 여권번호 확정
-        name_cols = []
-        if "name_vp" in df_merged.columns:
-            name_cols.append("name_vp")
-        if "name_vr" in df_merged.columns:
-            name_cols.append("name_vr")
-        if "customer_name" in df_merged.columns:
-            name_cols.append("customer_name")
-
-        def _choose_name(row) -> str | None:
-            for col in name_cols:
-                val = row.get(col)
-                if pd.notna(val) and val != "":
-                    return val
-            return None
-
-        if name_cols:
-            df_merged["고객명"] = df_merged.apply(_choose_name, axis=1)
-        else:
-            df_merged["고객명"] = None
-
-        passport_col = "passport_no" if "passport_no" in df_merged.columns else None
-        if passport_col:
-            df_merged["여권번호"] = df_merged[passport_col]
-        else:
-            df_merged["여권번호"] = None
-
-        # 엑셀용 출력 컬럼 구성 (한글 헤더)
-        df_export = pd.DataFrame()
-        df_export["면세점"] = df_merged.get("dutyfree_operator")
-        df_export["지점"] = df_merged.get("dutyfree_branch")
-        df_export["매출일자"] = df_merged.get("datetime_purchase")
-        df_export["원매출일자"] = df_merged.get("datetime_original")
-        df_export["영수증번호"] = df_merged.get("receipt_no")
-        df_export["그룹번호"] = df_merged.get("group_no")
-        df_export["고객명"] = df_merged.get("고객명")
-        df_export["여권번호"] = df_merged.get("여권번호")
-        df_export["상품코드"] = df_merged.get("product_code")
-        df_export["상품명"] = df_merged.get("product_name")
-        df_export["카테고리"] = df_merged.get("category")
-        df_export["브랜드"] = df_merged.get("brand")
-        df_export["제조일자"] = df_merged.get("manufactured_at")
-        df_export["수량"] = df_merged.get("quantity")
-        df_export["총매출액($)"] = df_merged.get("gross_sales_amount_usd")
-        df_export["순매출액($)"] = df_merged.get("net_sales_amount_usd")
-        df_export["할인액($)"] = df_merged.get("discount_amount_usd")
-        df_export["총매출액(￦)"] = df_merged.get("gross_sales_amount_krw")
-        df_export["순매출액(￦)"] = df_merged.get("net_sales_amount_krw")
-        df_export["할인액(￦)"] = df_merged.get("discount_amount_krw")
-        df_export["시스템메모"] = df_merged.get("system_note")
-
-        return df_export
+            df_export = pd.DataFrame(rows)
+            logger.info("[EDI_UNIFIED][EXPORT] export rows=%s", len(df_export))
+            return df_export
 

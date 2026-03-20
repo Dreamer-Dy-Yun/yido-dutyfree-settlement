@@ -163,7 +163,7 @@ class PassportReceiptMatcher(ABC):
                     ~df_matched["uuid_passport"].isna(), None
                 )
             await self.db.upsert_batch(
-                table=models.MATCHED,
+                table=models.Matched,
                 data=df_matched,
                 schemas=self.schemas,
             )

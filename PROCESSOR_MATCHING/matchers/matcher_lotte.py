@@ -44,6 +44,8 @@ class PRM_Lotte(PassportReceiptMatcher):
         """
         첫글자와 마지막자 외에는 *로 마스킹. 
         """
+        if text is None or text == "":
+            return "" # 빈 문자열인 경우 빈 문자열 반환 -> 매칭 안되도록
         first_char: str = text[0]
         last_char: str = text[-1]
         if first_char == "*":
@@ -54,6 +56,8 @@ class PRM_Lotte(PassportReceiptMatcher):
 
 
     def _m_passport_number_for_df(self, text:str) -> str:
+        if text is None or text == "":
+            return "" # 빈 문자열인 경우 빈 문자열 반환 -> 매칭 안되도록
         first_4chars: str = text[0:4]
         return first_4chars + ".*"
 
@@ -62,6 +66,8 @@ class PRM_Lotte(PassportReceiptMatcher):
         """
         첫글자와 마지막자 외에는 *로 마스킹. 
         """
+        if text is None or text == "":
+            return "" # 빈 문자열인 경우 빈 문자열 반환 -> 매칭 안되도록
         first_char: str = text[0]
         last_char: str = text[-1]
         if first_char == "*":
@@ -72,6 +78,8 @@ class PRM_Lotte(PassportReceiptMatcher):
 
 
     def _m_passport_number_for_sql(self, text:str) -> str:
+        if text is None or text == "":
+            return "" # 빈 문자열인 경우 빈 문자열 반환 -> 매칭 안되도록
         first_4chars: str = text[0:4]
         return first_4chars + "%"
 
