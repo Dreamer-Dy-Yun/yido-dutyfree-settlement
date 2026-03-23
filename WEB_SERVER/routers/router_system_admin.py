@@ -21,6 +21,7 @@ from WEB_SERVER.auth.dependencies import get_current_superuser
 from WEB_SERVER.routers.settings import get_tenant_repository, get_db_manager
 from WEB_SERVER.auth import get_password_hash
 from WEB_SERVER.services.service_email import email_service, get_db_smtp_email_service
+from WEB_SERVER.services.service_tenant_deletion import TenantDeletionService
 from CUSTOMIZED.cust_deco_error import handle_http_error
 from CUSTOMIZED.cust_logger import logger
 
@@ -509,7 +510,7 @@ async def deactivate_tenant(
     }
 
 
-@router.delete("/tenants/{tenant_id}", summary="테넌트 삭제", description="테넌트를 완전히 삭제합니다. (스키마 및 모든 데이터 삭제)")
+@router.delete("/tenants/{tenant_id}", summary="테넌트 삭제", description="테넌트를 완전히 삭제합니다. (스키마/DB 및 이미지/ZIP 포함 물리 파일 삭제)")
 @handle_http_error
 async def delete_tenant(
     tenant_id: int,
@@ -542,16 +543,17 @@ async def delete_tenant(
             log_success=f"테넌트 삭제 이메일 발송 완료: {tenant.email}",
             log_error=f"테넌트 삭제 이메일 발송 실패: {tenant.email}",
         )
+
+    # 0. 테넌트 물리 폴더(이미지/ZIP 포함) 삭제
+    #    DB 스키마 drop 전에 삭제해야 "물리 데이터 잔존" 문제를 줄일 수 있습니다.
+    await TenantDeletionService.delete_tenant_files(tenant)
     
     # 1. 테넌트 스키마 및 모든 테이블 삭제 (CASCADE로 스키마 삭제 시 모든 테이블도 함께 삭제됨)
     if schema_name:
-        try:
-            # 스키마 삭제 (CASCADE 옵션으로 모든 테이블도 함께 삭제)
-            schema_quoted = f'"{schema_name}"'
-            await db.execute_query(text(f'DROP SCHEMA IF EXISTS {schema_quoted} CASCADE'), schemas=schemas)
-            logger.info(f"테넌트 스키마 '{schema_name}' 및 모든 테이블이 삭제되었습니다")
-        except Exception as e:
-            logger.warning(f"테넌트 스키마 삭제 중 오류 발생 (무시하고 계속): {e}")
+        # 스키마 삭제 (CASCADE 옵션으로 모든 테이블도 함께 삭제)
+        schema_quoted = f'"{schema_name}"'
+        await db.execute_query(text(f'DROP SCHEMA IF EXISTS {schema_quoted} CASCADE'), schemas=schemas)
+        logger.info(f"테넌트 스키마 '{schema_name}' 및 모든 테이블이 삭제되었습니다")
     
     # 3. public 스키마의 tenant 레코드 삭제
     stmt = delete(models.Tenant).where(models.Tenant.id == tenant_id)

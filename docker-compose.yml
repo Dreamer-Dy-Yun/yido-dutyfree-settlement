@@ -1,5 +1,17 @@
-# PostgreSQL + pgAdmin + Redis (DATABASE/config.py 湲곕낯媛믨낵 留욎땄)
+# PostgreSQL + pgAdmin + Redis + (선택) Nginx
+# Nginx: 호스트에서 백엔드가 10000에서 떠 있어야 함. FRONT_END/dist 빌드 후 기동 권장.
 services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: yido_nginx
+    ports:
+      - "${NGINX_HOST_PORT:-80}:80"
+    volumes:
+      - ./nginx/compose.default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${NGINX_FRONTEND_DIST:-./FRONT_END/dist}:/usr/share/nginx/html:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   postgres:
     image: postgres:16-alpine
     container_name: yido_postgres
