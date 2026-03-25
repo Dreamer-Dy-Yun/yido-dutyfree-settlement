@@ -8,7 +8,7 @@
 ############################################
 
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 import io
 import os
 import time
@@ -25,6 +25,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, func, and_, tuple_, update as sql_update, delete as sql_delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import Result
 from sqlalchemy.sql import Select
 
 from WEB_SERVER.auth.dependencies import get_current_tenant_admin, get_current_user
@@ -35,7 +36,6 @@ from WEB_SERVER.services.service_image_ocr import run_image_ocr_background
 from WEB_SERVER.services.service_match_queue import enqueue_match_job
 from WEB_SERVER.services.service_edi_unified_queue import enqueue_edi_unified_job, get_edi_unified_job_status
 from WEB_SERVER.services.verification_token import verification_token_service
-from WEB_SERVER.routers.settings import get_user_repository
 from CUSTOMIZED.cust_deco_error import handle_http_error
 from CUSTOMIZED.cust_logger import logger
 from CUSTOMIZED.cust_zip_processor import ZipProcessor
@@ -46,9 +46,10 @@ from PROCESSOR_DATA.edi_unified_service import EdiUnifiedService
 from PROCESSOR_DATA.edi_unified_export import EdiUnifiedExporter
 
 from DATABASE import models
+from DATABASE.models.base_model import BaseModel as SaBaseModel
 from DATABASE.models.tenant_model import UserRole, Matched
 from DATABASE.models.public_model import Tenant as PublicTenant
-from DATABASE.repositories.authorities import UserRepository, TenantRepository
+from DATABASE.repositories.authorities import TenantRepository
 from DATABASE.dbms import DBManager
 import pandas as pd
 from PROCESSOR_MATCHING.matcher_registry import dict_matcher
@@ -56,6 +57,8 @@ from PROCESSOR_MATCHING.matcher_registry import dict_matcher
 from WEB_SERVER.services.service_verified_archive import archive_verified_row_by_uuid
 
 router = APIRouter(prefix="/api/tenant", tags=["테넌트 관리"])
+
+T = TypeVar("T", bound=SaBaseModel)
 
 
 def _get_current_tenant_schema_from_user(current_user: models.User) -> str:
@@ -74,6 +77,8 @@ def _get_current_tenant_schemas(current_user: models.User) -> list[str]:
     return [tenant_schema, "public"]
 
 
+
+# 커서가 짠 병신같은 코드 중 하나. 코드 보자마자 나옴.###################
 async def _fetch_verify_source(
     db: "DBManager",
     schemas: list[str],
@@ -98,6 +103,17 @@ async def _fetch_verify_source(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=verified_404_msg)
     return (None, row)
+
+
+async def _fetch_with_id(
+    db: DBManager,
+    schemas: list[str],
+    model: type[T],
+    record_id: int,
+) -> T | None:
+    stmt = select(model).where(model.id == record_id)
+    result = await db.execute_query(stmt, schemas=schemas)
+    return result.scalar_one_or_none()
 
 
 def _verified_row_common(
@@ -2236,11 +2252,14 @@ async def verify_receipt(
 
 @router.delete(
     "/data-mapping/receipts/verify",
-    summary="영수증 검증 데이터 삭제",
-    description="OCR 또는 검증 소스를 기준으로 연결된 VerifiedReceipt를 아카이브 후 삭제합니다. OCR 상태는 변경하지 않습니다.",
+    summary="영수증 검수 데이터 삭제·제외",
+    description=(
+        "source='verified': 해당 VerifiedReceipt를 아카이브 후 삭제합니다(동일 이미지의 OCR 행은 이 요청에서 변경하지 않음). "
+        "source='ocr': 해당 OcrReceipt에 is_processed=True를 설정해 미완료 목록에서 제외합니다."
+    ),
 )
 @handle_http_error
-async def delete_verified_receipt(
+async def delete_receipt(
     payload: VerifyDeleteRequest,
     current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),
@@ -2266,21 +2285,14 @@ async def delete_verified_receipt(
         if not target_uuid:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제할 VerifiedReceipt uuid_record를 찾을 수 없습니다.")
 
-        await archive_verified_row_by_uuid(
-            db=db,
-            schemas=schemas,
-            verified_model=models.VerifiedReceipt,
-            archive_model=models.ArchiveReceipt,
-            uuid_record=target_uuid,
-            current_user=current_user,
-        )
+        await archive_verified_row_by_uuid(db, schemas, models.VerifiedReceipt, models.ArchiveReceipt, target_uuid, current_user)
 
         stmt_del = sql_delete(models.VerifiedReceipt).where(models.VerifiedReceipt.uuid_record == target_uuid)
         await db.execute_query(stmt_del, schemas=schemas)
 
         return {"message": "검증 영수증이 삭제되었습니다.", "uuid_record": target_uuid}
 
-    # 2) VerifiedReceipt가 없고 OCR만 있으면: is_processed=True로 처리(더 이상 검증하지 않음)
+
     if ocr_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제할 OCR 영수증 정보가 없습니다.")
 
@@ -2493,11 +2505,14 @@ async def verify_passport(
 
 @router.delete(
     "/data-mapping/passports/verify",
-    summary="여권 검증 데이터 삭제",
-    description="OCR 또는 검증 소스를 기준으로 연결된 VerifiedPassport를 아카이브 후 삭제합니다. OCR 상태는 변경하지 않습니다.",
+    summary="여권 검수 데이터 삭제·제외",
+    description=(
+        "source='verified': 해당 VerifiedPassport를 아카이브 후 삭제합니다(동일 이미지의 OCR 행은 이 요청에서 변경하지 않음). "
+        "source='ocr': 해당 OcrPassport에 is_processed=True를 설정해 미완료 목록에서 제외합니다."
+    ),
 )
 @handle_http_error
-async def delete_verified_passport(
+async def delete_passport(
     payload: VerifyDeleteRequest,
     current_user: models.User = Depends(get_current_user),
     db: DBManager = Depends(get_db_manager),

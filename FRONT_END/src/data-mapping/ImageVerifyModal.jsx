@@ -3,8 +3,8 @@ import ImageViewer from './ImageViewer';
 import {
   verifyReceipt,
   verifyPassport,
-  deleteVerifiedReceipt,
-  deleteVerifiedPassport,
+  deleteReceipt,
+  deletePassport,
   getImageDetailsByHash,
 } from '../services/tenant';
 import './ImageViewerLayout.css';
@@ -90,7 +90,7 @@ function ConfirmDialog({
 /**
  * 공통 이미지 검수 모달
  * - mode: 'receipt' | 'passport'
- * - items: 현재 필터가 적용된 리스트
+ * - items: 현재 필터가 적용된 리스트 (행에 source·id가 있으면 삭제/검수 시 상세 API보다 우선)
  */
 function ImageVerifyModal({
   mode,
@@ -117,6 +117,24 @@ function ImageVerifyModal({
   const [coordinate, setCoordinate] = useState(null);
 
   const currentItem = items[currentIndex] || null;
+
+  /**
+   * 목록에서 연 행이 source·id를 가지면 우선 사용.
+   * hash 상세 API는 verified를 우선해 내려주므로, 미완료(OCR) 줄에서 연 모달이 verified로 덮이는 문제를 방지한다.
+   * id 없는 항목(예: 매핑 화면에서 hash만 넘긴 경우)은 상세 기준으로 폴백.
+   */
+  const resolveVerifySourceId = (target) => {
+    if (target === mode && currentItem?.source != null && currentItem?.id != null) {
+      return { source: currentItem.source, id: currentItem.id };
+    }
+    if (target === 'receipt' && receiptDetail) {
+      return { source: receiptDetail.source, id: receiptDetail.id };
+    }
+    if (target === 'passport' && passportDetail) {
+      return { source: passportDetail.source, id: passportDetail.id };
+    }
+    return null;
+  };
 
   const imageHash = useMemo(() => currentItem?.image?.hash_img || '', [currentItem]);
   const initialCoordinate = useMemo(() => currentItem?.image?.coordinate || null, [currentItem]);
@@ -268,11 +286,13 @@ function ImageVerifyModal({
 
   const buildVerifyRequest = () => {
     if (editTarget === 'receipt' && receiptDetail) {
+      const sid = resolveVerifySourceId('receipt');
+      if (!sid) throw new Error('수정할 대상 데이터가 없습니다.');
       return {
         target: 'receipt',
         payload: {
-          source: receiptDetail.source,
-          id: receiptDetail.id,
+          source: sid.source,
+          id: sid.id,
           dutyfree_company: (form.dutyfree_company || '').toUpperCase(),
           group_no: form.group_no || null,
           receipt_no: form.receipt_no || '',
@@ -284,11 +304,13 @@ function ImageVerifyModal({
       };
     }
     if (editTarget === 'passport' && passportDetail) {
+      const sid = resolveVerifySourceId('passport');
+      if (!sid) throw new Error('수정할 대상 데이터가 없습니다.');
       return {
         target: 'passport',
         payload: {
-          source: passportDetail.source,
-          id: passportDetail.id,
+          source: sid.source,
+          id: sid.id,
           country_code: form.country_code || '',
           passport_no: form.passport_no || '',
           name: form.name || null,
@@ -373,16 +395,14 @@ function ImageVerifyModal({
     setSavingAction('delete');
     setError('');
     try {
-      if (editTarget === 'receipt' && receiptDetail) {
-        await deleteVerifiedReceipt({
-          source: receiptDetail.source,
-          id: receiptDetail.id,
-        });
-      } else if (editTarget === 'passport' && passportDetail) {
-        await deleteVerifiedPassport({
-          source: passportDetail.source,
-          id: passportDetail.id,
-        });
+      if (editTarget === 'receipt') {
+        const sid = resolveVerifySourceId('receipt');
+        if (!sid) throw new Error('삭제할 대상 데이터가 없습니다.');
+        await deleteReceipt({ source: sid.source, id: sid.id });
+      } else if (editTarget === 'passport') {
+        const sid = resolveVerifySourceId('passport');
+        if (!sid) throw new Error('삭제할 대상 데이터가 없습니다.');
+        await deletePassport({ source: sid.source, id: sid.id });
       } else {
         throw new Error('삭제할 대상 데이터가 없습니다.');
       }

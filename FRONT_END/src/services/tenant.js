@@ -183,12 +183,12 @@ export const verifyPassport = async (payload) => {
 };
 
 /**
- * 이미지 확인 - 검증 영수증 삭제
+ * 이미지 확인 - 영수증 검수 데이터 삭제(OCR 제외 처리 또는 Verified 삭제)
  * @param {Object} payload
  * @param {'ocr'|'verified'} payload.source
  * @param {number} payload.id
  */
-export const deleteVerifiedReceipt = async (payload) => {
+export const deleteReceipt = async (payload) => {
   const response = await api.delete('/api/tenant/data-mapping/receipts/verify', {
     data: payload,
   });
@@ -196,12 +196,12 @@ export const deleteVerifiedReceipt = async (payload) => {
 };
 
 /**
- * 이미지 확인 - 검증 여권 삭제
+ * 이미지 확인 - 여권 검수 데이터 삭제(OCR 제외 처리 또는 Verified 삭제)
  * @param {Object} payload
  * @param {'ocr'|'verified'} payload.source
  * @param {number} payload.id
  */
-export const deleteVerifiedPassport = async (payload) => {
+export const deletePassport = async (payload) => {
   const response = await api.delete('/api/tenant/data-mapping/passports/verify', {
     data: payload,
   });

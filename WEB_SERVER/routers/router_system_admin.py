@@ -12,7 +12,7 @@ from datetime import datetime
 import hashlib
 from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text, select, func, update, delete
 import secrets
 import string
@@ -91,13 +91,24 @@ class ServiceAccountUpdateRequest(BaseModel):
 
 
 class LLMApiKeyCreateRequest(BaseModel):
+    """public.llm_api_key — purpose는 NOT NULL, 클라이언트가 반드시 전달 (빈 값은 422)."""
+
+    purpose: str = Field(..., min_length=1, description="LLM 용도 (예: OCR)")
     llm_provider: str
     llm_model: str
     api_key: str
     is_active: bool = False
 
+    @field_validator("purpose", mode="before")
+    @classmethod
+    def strip_purpose(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
 
 class LLMApiKeyUpdateRequest(BaseModel):
+    purpose: str | None = None
     llm_provider: str | None = None
     llm_model: str | None = None
     api_key: str | None = None
