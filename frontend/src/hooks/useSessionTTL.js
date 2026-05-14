@@ -7,6 +7,7 @@ import { subscribeSessionTTL } from '../services/sessionTTL';
  */
 export default function useSessionTTL() {
   const [ttl, setTtl] = useState(null);
+  const hasTtl = ttl !== null;
 
   // 서버에서 TTL 헤더가 갱신될 때마다 최신 값 반영
   useEffect(() => {
@@ -18,7 +19,7 @@ export default function useSessionTTL() {
 
   // 클라이언트 측에서 1초 단위로 카운트다운
   useEffect(() => {
-    if (ttl === null) return;
+    if (!hasTtl) return;
 
     const intervalId = setInterval(() => {
       setTtl((prev) => {
@@ -28,8 +29,7 @@ export default function useSessionTTL() {
     }, 1000);
 
     return () => clearInterval(intervalId);
-    // ttl이 null -> 값으로 바뀔 때만 타이머를 세팅하기 위해 boolean 의존성 사용
-  }, [ttl !== null]);
+  }, [hasTtl]);
 
   const minutes =
     ttl !== null && Number.isFinite(ttl) ? Math.floor(ttl / 60) : null;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getServiceAccountDetail, createServiceAccount, updateServiceAccount } from '../services/systemAdminApi';
 import './ServiceAccountDetailPage.css';
@@ -20,13 +20,7 @@ function ServiceAccountDetailPage() {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (!isNew) {
-      loadAccountDetail();
-    }
-  }, [accountId]);
-
-  const loadAccountDetail = async () => {
+  const loadAccountDetail = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getServiceAccountDetail(accountId);
@@ -44,7 +38,13 @@ function ServiceAccountDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [accountId]);
+
+  useEffect(() => {
+    if (!isNew) {
+      loadAccountDetail();
+    }
+  }, [isNew, loadAccountDetail]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;

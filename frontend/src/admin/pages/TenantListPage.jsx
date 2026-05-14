@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getTenants, getPendingTenants } from '../services/systemAdminApi';
 import TenantCard from '../components/TenantCard';
@@ -12,7 +12,7 @@ function TenantListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  const getFilterFromLocation = () => {
+  const filterFromLocation = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
     const isActiveParam = searchParams.get('is_active');
     if (location.pathname === '/admin/tenants/pending') {
@@ -25,25 +25,20 @@ function TenantListPage() {
       return 'inactive';
     }
     return 'all';
-  };
+  }, [location.pathname, location.search]);
   
-  const [filter, setFilter] = useState(getFilterFromLocation);
+  const [filter, setFilter] = useState(filterFromLocation);
   const [search, setSearch] = useState('');
   const [skip, setSkip] = useState(0);
   const [limit] = useState(20);
 
   // 사이드바/URL 이동 시 탭 상태를 URL 기준으로 동기화
   useEffect(() => {
-    const nextFilter = getFilterFromLocation();
-    setFilter(nextFilter);
+    setFilter(filterFromLocation);
     setSkip(0);
-  }, [location.pathname, location.search]);
+  }, [filterFromLocation]);
 
-  useEffect(() => {
-    loadTenants();
-  }, [filter, skip]);
-
-  const loadTenants = async () => {
+  const loadTenants = useCallback(async () => {
     try {
       setLoading(true);
       let data;
@@ -66,7 +61,11 @@ function TenantListPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, limit, search, skip]);
+
+  useEffect(() => {
+    loadTenants();
+  }, [loadTenants]);
 
   const handleViewDetail = (tenantId) => {
     navigate(`/admin/tenants/${tenantId}`);

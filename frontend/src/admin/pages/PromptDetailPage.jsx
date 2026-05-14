@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getPromptDetail } from '../services/systemAdminApi';
 import './PromptDetailPage.css';
@@ -10,11 +10,7 @@ function PromptDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    loadDetail();
-  }, [promptId]);
-
-  const loadDetail = async () => {
+  const loadDetail = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -25,7 +21,11 @@ function PromptDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [promptId]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
 
   const handleClone = () => {
     if (!row) return;

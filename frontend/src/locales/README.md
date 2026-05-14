@@ -4,7 +4,7 @@ UI display strings that are shared across components live here.
 
 | File | Responsibility |
 | --- | --- |
-| `KO.ts` | Korean UI text constants. Components import this module instead of keeping repeated Korean literals inline. |
+| `KO.js` | Korean UI text constants. Components import this module instead of keeping repeated Korean literals inline. |
 
 ## Boundary
 

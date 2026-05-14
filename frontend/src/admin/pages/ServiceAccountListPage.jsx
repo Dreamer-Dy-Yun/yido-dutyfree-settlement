@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getServiceAccounts, updateServiceAccount, deleteServiceAccount } from '../services/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
@@ -12,21 +12,21 @@ function ServiceAccountListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const getFilterFromLocation = () => {
+  const filterFromLocation = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
     const isActive = searchParams.get('is_active');
     if (isActive === 'true') return 'active';
     if (isActive === 'false') return 'inactive';
     return 'all';
-  };
+  }, [location.search]);
 
-  const getRoleFromLocation = () => {
+  const roleFromLocation = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
     return searchParams.get('role') || '';
-  };
+  }, [location.search]);
 
-  const [filter, setFilter] = useState(getFilterFromLocation);
-  const [roleFilter, setRoleFilter] = useState(getRoleFromLocation);
+  const [filter, setFilter] = useState(filterFromLocation);
+  const [roleFilter, setRoleFilter] = useState(roleFromLocation);
 
   const formatCreatedAt = (account) => {
     const raw = account?.created_at || account?.db_created_at;
@@ -36,15 +36,11 @@ function ServiceAccountListPage() {
   };
 
   useEffect(() => {
-    setFilter(getFilterFromLocation());
-    setRoleFilter(getRoleFromLocation());
-  }, [location.pathname, location.search]);
+    setFilter(filterFromLocation);
+    setRoleFilter(roleFromLocation);
+  }, [filterFromLocation, roleFromLocation]);
 
-  useEffect(() => {
-    loadAccounts();
-  }, [filter, roleFilter]);
-
-  const loadAccounts = async () => {
+  const loadAccounts = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getServiceAccounts({
@@ -58,7 +54,11 @@ function ServiceAccountListPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, roleFilter]);
+
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
 
   const handleViewDetail = (accountId) => {
     navigate(`/admin/service-accounts/${accountId}`);

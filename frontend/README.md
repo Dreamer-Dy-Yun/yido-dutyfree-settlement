@@ -28,7 +28,7 @@ npm run build
 | `src/common/components/` | cross-flow shared components such as protected routes |
 | `src/hooks/` | shared React hooks |
 | `src/constants/` | tab and option constants |
-| `src/locales/` | shared UI display text constants, currently Korean strings in `KO.ts` |
+| `src/locales/` | shared UI display text constants, currently Korean strings in `KO.js` |
 | `src/utils/` | frontend utility functions |
 
 ## API Boundary

@@ -17,9 +17,11 @@ Tenant data-mapping screens and workflow-specific components live here.
 | `ImageMappingTable.jsx` | Matching result table, filters, empty/loading states, and pagination controls. |
 | `MappingDetailModal.jsx` | Matched receipt/passport detail viewer and edit entry points. |
 | `EdiUnifiedCheckPanel.jsx` | EDI unified data check, filtering, job status polling, and export workflow. |
+| `edi-unified/` | EDI unified panel controls, result table, and tooltip subcomponents. |
+| `image-verify/` | Image verification modal header, fields, dialogs, shortcuts, and request helpers. |
 
 ## Boundary
 
 - Components in this folder call backend only through `src/services/tenant.js` or `src/services/ediUnified.js`.
-- Shared Korean UI text is imported from `src/locales/KO.ts`; avoid reintroducing duplicated Korean literals for the same workflow.
+- Shared Korean UI text is imported from `src/locales/KO.js`; avoid reintroducing duplicated Korean literals for the same workflow.
 - Geometry calculations stay in `imageViewerGeometry.js`; React state and browser resource ownership stay in viewer hooks/components.

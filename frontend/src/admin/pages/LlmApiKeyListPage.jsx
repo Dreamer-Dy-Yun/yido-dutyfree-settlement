@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   getLlmApiKeys,
@@ -14,14 +14,14 @@ function LlmApiKeyListPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const getFilterFromLocation = () => {
+  const filterFromLocation = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
     const isActive = searchParams.get('is_active');
     if (isActive === 'true') return 'active';
     if (isActive === 'false') return 'inactive';
     return 'all';
-  };
-  const [filter, setFilter] = useState(getFilterFromLocation);
+  }, [location.search]);
+  const [filter, setFilter] = useState(filterFromLocation);
   const formatCreatedAt = (row) => {
     const raw = row?.created_at || row?.db_created_at;
     if (!raw) return '-';
@@ -29,7 +29,7 @@ function LlmApiKeyListPage() {
     return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('ko-KR');
   };
 
-  const loadRows = async () => {
+  const loadRows = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -42,15 +42,15 @@ function LlmApiKeyListPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter]);
 
   useEffect(() => {
-    setFilter(getFilterFromLocation());
-  }, [location.pathname, location.search]);
+    setFilter(filterFromLocation);
+  }, [filterFromLocation]);
 
   useEffect(() => {
     loadRows();
-  }, [filter]);
+  }, [loadRows]);
 
   const navigateWithFilter = (nextFilter) => {
     const params = new URLSearchParams();

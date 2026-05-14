@@ -1,7 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getTenantDetail, approveTenant, rejectTenant, deleteTenant, updateTenant } from '../services/systemAdminApi';
+import TenantDeleteModal from './tenant-detail/TenantDeleteModal';
+import TenantDetailEditForm from './tenant-detail/TenantDetailEditForm';
+import TenantDetailReadView from './tenant-detail/TenantDetailReadView';
+import TenantRejectModal from './tenant-detail/TenantRejectModal';
 import './TenantDetailPage.css';
+
+const toTenantForm = (tenant) => ({
+  name: tenant.name || '',
+  alias: tenant.alias || '',
+  contact: tenant.contact || '',
+  email: tenant.email || '',
+  address: tenant.address || '',
+  is_active: tenant.is_active !== undefined ? tenant.is_active : false,
+});
 
 function TenantDetailPage() {
   const navigate = useNavigate();
@@ -25,63 +38,40 @@ function TenantDetailPage() {
   });
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    loadTenantDetail();
-  }, [tenantId]);
-
-  const loadTenantDetail = async () => {
+  const loadTenantDetail = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getTenantDetail(tenantId);
       setTenant(data);
-      setFormData({
-        name: data.name || '',
-        alias: data.alias || '',
-        contact: data.contact || '',
-        email: data.email || '',
-        address: data.address || '',
-        is_active: data.is_active !== undefined ? data.is_active : false,
-      });
+      setFormData(toTenantForm(data));
       setError(null);
     } catch (err) {
       setError(err.response?.data?.detail || '테넌트 정보를 불러오는데 실패했습니다');
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantId]);
+
+  useEffect(() => {
+    loadTenantDetail();
+  }, [loadTenantDetail]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
   };
 
-  const handleEdit = () => {
-    setIsEditing(true);
-  };
-
   const handleCancel = () => {
-    if (window.confirm('수정을 취소하시겠습니까? 변경사항이 저장되지 않습니다.')) {
-      setIsEditing(false);
-      // 원래 데이터로 복원
-      if (tenant) {
-        setFormData({
-          name: tenant.name || '',
-          alias: tenant.alias || '',
-          contact: tenant.contact || '',
-          email: tenant.email || '',
-          address: tenant.address || '',
-          is_active: tenant.is_active !== undefined ? tenant.is_active : false,
-        });
-      }
-    }
+    if (!window.confirm('수정을 취소하시겠습니까? 변경사항이 저장되지 않습니다.')) return;
+    setIsEditing(false);
+    if (tenant) setFormData(toTenantForm(tenant));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
     if (!formData.name.trim()) {
       alert('회사명을 입력해주세요.');
       return;
@@ -90,23 +80,22 @@ function TenantDetailPage() {
     try {
       setSaving(true);
       const updateData = {};
-      // 수정 가능한 필드만 포함
       if (formData.name !== tenant.name) updateData.name = formData.name;
       if (formData.alias !== (tenant.alias || '')) updateData.alias = formData.alias || null;
       if (formData.contact !== (tenant.contact || '')) updateData.contact = formData.contact || null;
       if (formData.email !== (tenant.email || '')) updateData.email = formData.email || null;
       if (formData.address !== (tenant.address || '')) updateData.address = formData.address || null;
       if (formData.is_active !== tenant.is_active) updateData.is_active = formData.is_active;
-      
+
       if (Object.keys(updateData).length === 0) {
         alert('변경된 내용이 없습니다.');
         return;
       }
-      
+
       await updateTenant(tenantId, updateData);
       alert('테넌트 정보가 수정되었습니다.');
       setIsEditing(false);
-      loadTenantDetail();
+      await loadTenantDetail();
     } catch (err) {
       console.error('Update error:', err);
       alert(err.response?.data?.detail || '수정에 실패했습니다');
@@ -116,14 +105,11 @@ function TenantDetailPage() {
   };
 
   const handleApprove = async () => {
-    if (!window.confirm('이 테넌트를 승인하시겠습니까?')) {
-      return;
-    }
-
+    if (!window.confirm('이 테넌트를 승인하시겠습니까?')) return;
     try {
       await approveTenant(tenantId);
       alert('승인 완료!');
-      loadTenantDetail();
+      await loadTenantDetail();
     } catch (err) {
       alert(err.response?.data?.detail || '승인에 실패했습니다');
     }
@@ -134,15 +120,8 @@ function TenantDetailPage() {
       alert('거부 사유를 입력해주세요.');
       return;
     }
-
-    // 최종 확인: 승인 거부 시 삭제됨을 알림
-    const finalConfirm = window.confirm(
-      '마지막으로 승인을 거부하면 삭제 됩니다.\n정말 거부하시겠습니까?'
-    );
-    
-    if (!finalConfirm) {
-      return;
-    }
+    const finalConfirm = window.confirm('마지막으로 승인을 거부하면 삭제 됩니다.\n정말 거부하시겠습니까?');
+    if (!finalConfirm) return;
 
     try {
       await rejectTenant(tenantId, rejectReason);
@@ -184,21 +163,12 @@ function TenantDetailPage() {
     );
   }
 
-  if (error) {
+  if (error || !tenant) {
     return (
       <div className="common-page tenant-detail-page">
-        <div className="common-card common-state error">에러: {error}</div>
-        <button className="common-btn common-btn-secondary" onClick={() => navigate('/admin/tenants')}>
-          목록으로 돌아가기
-        </button>
-      </div>
-    );
-  }
-
-  if (!tenant) {
-    return (
-      <div className="common-page tenant-detail-page">
-        <div className="common-card common-state error">테넌트를 찾을 수 없습니다</div>
+        <div className="common-card common-state error">
+          {error ? `에러: ${error}` : '테넌트를 찾을 수 없습니다'}
+        </div>
         <button className="common-btn common-btn-secondary" onClick={() => navigate('/admin/tenants')}>
           목록으로 돌아가기
         </button>
@@ -226,7 +196,7 @@ function TenantDetailPage() {
           )}
           {tenant.is_db_built === true && !isEditing && (
             <>
-              <button className="common-btn common-btn-primary" onClick={handleEdit}>
+              <button className="common-btn common-btn-primary" onClick={() => setIsEditing(true)}>
                 수정
               </button>
               <button className="common-btn common-btn-danger" onClick={() => setShowDeleteModal(true)}>
@@ -248,320 +218,41 @@ function TenantDetailPage() {
       </div>
 
       {!isEditing ? (
-        // 읽기 모드
-        <div className="tenant-detail-content">
-          <div className="common-card detail-section">
-            <h2>기본 정보</h2>
-            <div className="detail-grid">
-              <div className="detail-item">
-                <span className="label">회사명</span>
-                <span className="value">{tenant.name}</span>
-              </div>
-              {tenant.alias && (
-                <div className="detail-item">
-                  <span className="label">별칭</span>
-                  <span className="value">{tenant.alias}</span>
-                </div>
-              )}
-              {tenant.business_no && (
-                <div className="detail-item">
-                  <span className="label">사업자번호</span>
-                  <span className="value">{tenant.business_no}</span>
-                </div>
-              )}
-              {tenant.country_code && (
-                <div className="detail-item">
-                  <span className="label">국가 코드</span>
-                  <span className="value">{tenant.country_code}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="common-card detail-section">
-            <h2>연락처 정보</h2>
-            <div className="detail-grid">
-              {tenant.contact && (
-                <div className="detail-item">
-                  <span className="label">연락처</span>
-                  <span className="value">{tenant.contact}</span>
-                </div>
-              )}
-              {tenant.email && (
-                <div className="detail-item">
-                  <span className="label">이메일</span>
-                  <span className="value">{tenant.email}</span>
-                </div>
-              )}
-              {tenant.address && (
-                <div className="detail-item">
-                  <span className="label">주소</span>
-                  <span className="value">{tenant.address}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="common-card detail-section">
-            <h2>시스템 정보</h2>
-            <div className="detail-grid">
-              <div className="detail-item">
-                <span className="label">스키마명</span>
-                <span className="value">{tenant.schema_name}</span>
-              </div>
-              <div className="detail-item">
-                <span className="label">루트 경로</span>
-                <span className="value">{tenant.dir_base}</span>
-              </div>
-              <div className="detail-item">
-                <span className="label">활성화 여부</span>
-                <span className={`value status-badge ${tenant.is_active ? 'active' : 'inactive'}`}>
-                  {tenant.is_active ? '활성' : '비활성'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="common-card detail-section">
-            <h2>등록 정보</h2>
-            <div className="detail-grid">
-              {tenant.created_at && (
-                <div className="detail-item">
-                  <span className="label">등록일시</span>
-                  <span className="value">{new Date(tenant.created_at).toLocaleString('ko-KR')}</span>
-                </div>
-              )}
-              {tenant.updated_at && (
-                <div className="detail-item">
-                  <span className="label">수정일시</span>
-                  <span className="value">{new Date(tenant.updated_at).toLocaleString('ko-KR')}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <TenantDetailReadView tenant={tenant} />
       ) : (
-        // 수정 모드
-        <form id="tenant-form" onSubmit={handleSubmit} className="tenant-form">
-          <div className="tenant-detail-content">
-            <div className="common-card detail-section">
-              <h2>기본 정보</h2>
-              <div className="form-grid">
-                <div className="form-item">
-                  <label>회사명 <span className="required">*</span></label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div className="form-item">
-                  <label>별칭</label>
-                  <input
-                    type="text"
-                    name="alias"
-                    value={formData.alias}
-                    onChange={handleChange}
-                  />
-                </div>
-                <div className="form-item">
-                  <label>사업자번호</label>
-                  <input
-                    type="text"
-                    value={tenant.business_no || ''}
-                    disabled
-                    className="disabled-input"
-                  />
-                </div>
-                <div className="form-item">
-                  <label>국가 코드</label>
-                  <input
-                    type="text"
-                    value={tenant.country_code || ''}
-                    disabled
-                    className="disabled-input"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="common-card detail-section">
-              <h2>연락처 정보</h2>
-              <div className="form-grid">
-                <div className="form-item">
-                  <label>연락처</label>
-                  <input
-                    type="text"
-                    name="contact"
-                    value={formData.contact}
-                    onChange={handleChange}
-                  />
-                </div>
-                <div className="form-item">
-                  <label>이메일</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                  />
-                </div>
-                <div className="form-item full-width">
-                  <label>주소</label>
-                  <input
-                    type="text"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleChange}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="common-card detail-section">
-              <h2>시스템 정보</h2>
-              <div className="form-grid">
-                <div className="form-item">
-                  <label>스키마명</label>
-                  <input
-                    type="text"
-                    value={tenant.schema_name || ''}
-                    disabled
-                    className="disabled-input"
-                  />
-                </div>
-                <div className="form-item">
-                  <label>루트 경로</label>
-                  <input
-                    type="text"
-                    value={tenant.dir_base || ''}
-                    disabled
-                    className="disabled-input"
-                  />
-                </div>
-                <div className="form-item">
-                  <label>
-                    <input
-                      type="checkbox"
-                      name="is_active"
-                      checked={formData.is_active}
-                      onChange={handleChange}
-                    />
-                    활성화
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div className="common-card detail-section">
-              <h2>등록 정보</h2>
-              <div className="form-grid">
-                {tenant.created_at && (
-                  <div className="form-item">
-                    <label>등록일시</label>
-                    <input
-                      type="text"
-                      value={new Date(tenant.created_at).toLocaleString('ko-KR')}
-                      disabled
-                      className="disabled-input"
-                    />
-                  </div>
-                )}
-                {tenant.updated_at && (
-                  <div className="form-item">
-                    <label>수정일시</label>
-                    <input
-                      type="text"
-                      value={new Date(tenant.updated_at).toLocaleString('ko-KR')}
-                      disabled
-                      className="disabled-input"
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </form>
+        <TenantDetailEditForm
+          tenant={tenant}
+          formData={formData}
+          saving={saving}
+          onChange={handleChange}
+          onSubmit={handleSubmit}
+        />
       )}
 
       {showRejectModal && (
-        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>테넌트 거부</h3>
-            <p>거부 사유를 입력해주세요:</p>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="거부 사유를 입력하세요..."
-              rows="4"
-            />
-            <div className="modal-actions">
-              <button
-                className="common-btn common-btn-secondary"
-                onClick={() => {
-                  setShowRejectModal(false);
-                  setRejectReason('');
-                }}
-              >
-                취소
-              </button>
-              <button
-                className="common-btn common-btn-danger"
-                onClick={handleReject}
-                disabled={!rejectReason.trim()}
-              >
-                거부
-              </button>
-            </div>
-          </div>
-        </div>
+        <TenantRejectModal
+          rejectReason={rejectReason}
+          onChangeReason={setRejectReason}
+          onClose={() => {
+            setShowRejectModal(false);
+            setRejectReason('');
+          }}
+          onReject={handleReject}
+        />
       )}
 
       {showDeleteModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => {
+        <TenantDeleteModal
+          deleteReason={deleteReason}
+          deleting={deleting}
+          onChangeReason={setDeleteReason}
+          onClose={() => {
             if (deleting) return;
             setShowDeleteModal(false);
+            setDeleteReason('');
           }}
-        >
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>테넌트 삭제</h3>
-            <p style={{ color: '#dc2626', fontWeight: 600, marginBottom: '12px' }}>
-              ⚠️ 주의: 삭제된 데이터는 복구할 수 없습니다.
-            </p>
-            <p>삭제 사유를 입력해주세요:</p>
-            <textarea
-              value={deleteReason}
-              onChange={(e) => setDeleteReason(e.target.value)}
-              placeholder="삭제 사유를 입력하세요..."
-              rows="4"
-              disabled={deleting}
-            />
-            <div className="modal-actions">
-              <button
-                className="common-btn common-btn-secondary"
-                onClick={() => {
-                  if (deleting) return;
-                  setShowDeleteModal(false);
-                  setDeleteReason('');
-                }}
-                disabled={deleting}
-              >
-                취소
-              </button>
-              <button
-                className="common-btn common-btn-danger"
-                onClick={handleDelete}
-                disabled={deleting || !deleteReason.trim()}
-              >
-                {deleting ? '삭제 중...' : '삭제'}
-              </button>
-            </div>
-          </div>
-        </div>
+          onDelete={handleDelete}
+        />
       )}
     </div>
   );

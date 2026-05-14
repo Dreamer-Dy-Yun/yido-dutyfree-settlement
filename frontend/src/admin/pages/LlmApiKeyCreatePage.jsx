@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createLlmApiKey, getLlmApiKeyDetail, updateLlmApiKey } from '../services/systemAdminApi';
 import './LlmApiKeyCreatePage.css';
@@ -18,12 +18,7 @@ function LlmApiKeyCreatePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (!isEdit) return;
-    loadDetail();
-  }, [isEdit, apiKeyId]);
-
-  const loadDetail = async () => {
+  const loadDetail = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -40,7 +35,12 @@ function LlmApiKeyCreatePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiKeyId]);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    loadDetail();
+  }, [isEdit, loadDetail]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
