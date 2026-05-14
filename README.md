@@ -3,9 +3,17 @@
 The frontend is a React + Vite application for tenant users and system administrators.
 This worktree is structured as the frontend repository root.
 
+## Repository Root Rule
+
+Run all frontend commands from this directory. The application source now lives at the repository root, so do not recreate a nested `frontend/` source folder.
+
+The current branch is `frontend`; CI or deployment workflows for this split frontend branch should watch root-level paths such as `src/**`, `public/**`, `index.html`, `package.json`, `pnpm-lock.yaml`, and `vite.config.js`.
+
 ## Commands
 
 ```bash
+corepack enable
+corepack prepare pnpm@11.1.1 --activate
 pnpm install
 copy .env.example .env
 pnpm run dev

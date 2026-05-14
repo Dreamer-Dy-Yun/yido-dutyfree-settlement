@@ -22,7 +22,7 @@ This document is the handoff guide for the frontend agent that will create the G
 - Prefer release-directory deployment with an atomic `dist` symlink switch.
 - Verify `/` returns `200` after deployment.
 - Verify `/api/auth/me` returns `401` without login, proving nginx reaches the backend.
-- When the final frontend repository is created, keep this workflow at repo root.
+- Keep this workflow at the frontend repository root. If this branch later becomes a standalone repository, switch the trigger branch from `frontend` to the repository default branch.
 
 ## Runtime Model
 
@@ -75,7 +75,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - frontend
     paths:
       - "src/**"
       - "public/**"
@@ -128,6 +128,8 @@ jobs:
 ```
 
 The draft direct deploy is acceptable for the first implementation. For production, prefer uploading to a timestamped release directory and switching a symlink after upload succeeds.
+
+`DEPLOY_PATH` is a server runtime path, not a source checkout path. It can keep `/srv/yido/frontend/dist` even though the source repository no longer has a nested `frontend/` directory.
 
 ## Server Target
 

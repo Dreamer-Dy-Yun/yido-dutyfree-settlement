@@ -10,6 +10,7 @@ This folder contains current documentation for the frontend worktree.
 - The Vite app was moved from `frontend/` to the worktree root.
 - Backend runtime folders were removed from this frontend worktree.
 - Generated frontend folders such as `node_modules` and `dist` were not moved.
+- Path impact was checked after flattening: tracked source files no longer live under `frontend/`, and deploy/CI docs now target root-level frontend paths.
 - Dependencies were reinstalled with `pnpm install --frozen-lockfile`.
 - `pnpm run lint` passed.
 - `VITE_API_BASE_URL=/api pnpm run build` passed.
@@ -25,3 +26,4 @@ This folder contains current documentation for the frontend worktree.
 | --- | --- |
 | `README.md` | frontend documentation index and worktree state |
 | `FRONTEND_GITHUB_ACTIONS_DEPLOY_PLAN.md` | frontend GitHub Actions static build/deploy implementation guide |
+| `PATH_FLATTEN_IMPACT.md` | impact checklist for the move from nested `frontend/` source paths to the repository root |
