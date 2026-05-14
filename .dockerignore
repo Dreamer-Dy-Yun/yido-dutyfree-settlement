@@ -1,25 +1,21 @@
 .git/
-.gitignore
 .env
 .env.*
 !.env.example
 
-venv/
-.venv/
-env/
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 .pytest_cache/
 .ruff_cache/
 
-frontend/
-FRONT_END/
-node_modules/
-dist/
+.venv/
+venv/
+env/
 build/
+dist/
+*.egg-info/
 
 *.log
-.DS_Store
-.idea/
-.vscode/
-
+DATABASE/dbms.zip

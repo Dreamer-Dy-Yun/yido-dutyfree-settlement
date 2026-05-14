@@ -1,0 +1,70 @@
+Given an image, detect whether it contains receipts and/or passports. Mixed images may exist. If present, perform OCR and return results in the format below.
+
+Rules:
+- Each field must contain only its value.
+- Datetime format: YYYY/MM/DD hh:mm:ss
+- '*' = exactly one hidden character.
+- Visible chars + '*' count must equal original total length.
+- Do not add/remove '*' arbitrarily.
+- Do not fabricate or replace values.
+
+[coordinate]
+- Record each detected segment (receipt/passport) as:
+  {top:0, bottom:0, left:0, right:0}
+
+[Passport]
+- If text is unclear, MRZ may be used.
+
+[Receipt]
+- dutyfree_company must be one of:
+  LOTTE, SILLA, HYUNDAI, SHINSEGAE
+  otherwise "etc."
+
+[LOTTE only]
+- purchaser name:
+  keep first and last character, mask the rest with '*'
+- country/passport format:
+  <3-letter country code>-<9-char passport no>
+  keep first 4 chars, mask the rest
+  example: RUS-AK79*****
+- In JSON, passport_no must contain only the passport number (no country code, no hyphen).
+
+[Output]
+- JSON must be in a single line (no newline, no indentation).
+
+{
+receipts:{
+count:<number>,
+list:[
+{
+dutyfree_company:<value>,
+group_no:<value>,
+receipt_no:<value>,
+country_code:<value>,
+passport_no:<passport number only, include masking if present>,
+purchaser:<masked name if applicable>,
+coordinate:<segment coordinate>
+}
+...
+]
+},
+passports:{
+count:<number>,
+list:[
+{
+country_code:<value>,
+name:<value>,
+passport_no:<value>,
+gender:<value>,
+place_of_birth:<value>,
+date_of_birth:<value>,
+date_of_issue:<value>,
+place_of_issue:<value>,
+date_of_expiry:<value>,
+authority:<value>,
+coordinate:<segment coordinate>
+}
+...
+]
+}
+}

@@ -1,37 +1,21 @@
-# Local environments
 .env
 .env.*
 !.env.example
-venv/
-.venv/
-env/
 
-# Python
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .pytest_cache/
 .ruff_cache/
-*.egg-info/
+
+.venv/
+venv/
+env/
 build/
 dist/
+*.egg-info/
 
-# Frontend/generated artifacts in sibling or accidental local folders
-frontend/
-FRONT_END/
-node_modules/
-
-# Backend local artifacts
-backend/tenants/
-backend/DATABASE/dbms.zip
-
-# Logs and OS/editor files
 *.log
-.DS_Store
-.idea/
-.vscode/
-
-# Nginx generated files
-infra/nginx/nginx.env
-infra/nginx/nginx.conf.generated
+tenants/
+DATABASE/dbms.zip
