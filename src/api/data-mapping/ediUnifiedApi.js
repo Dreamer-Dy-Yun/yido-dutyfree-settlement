@@ -1,4 +1,4 @@
-import { tenantApiClient } from './client';
+import { tenantApiClient } from '../client/apiClient';
 
 const formatDate = (date) => {
   if (!date) return null;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getServiceAccountDetail, createServiceAccount, updateServiceAccount } from '../../api/systemAdminApi';
+import { getServiceAccountDetail, createServiceAccount, updateServiceAccount } from '../../api/admin/systemAdminApi';
+import { notifyUser } from '../../utils/userFeedback';
 import './ServiceAccountDetailPage.css';
 
 function ServiceAccountDetailPage() {
@@ -58,12 +59,12 @@ function ServiceAccountDetailPage() {
     e.preventDefault();
     
     if (!formData.e_mail) {
-      alert('이메일을 입력해주세요.');
+      notifyUser('이메일을 입력해주세요.');
       return;
     }
     
     if (isNew && !formData.password) {
-      alert('비밀번호를 입력해주세요.');
+      notifyUser('비밀번호를 입력해주세요.');
       return;
     }
 
@@ -72,7 +73,7 @@ function ServiceAccountDetailPage() {
       
       if (isNew) {
         await createServiceAccount(formData);
-        alert('서비스 어카운트가 등록되었습니다.');
+        notifyUser('서비스 어카운트가 등록되었습니다.');
       } else {
         // 수정 시 비밀번호가 비어있으면 제외
         const updateData = { ...formData };
@@ -80,12 +81,12 @@ function ServiceAccountDetailPage() {
           delete updateData.password;
         }
         await updateServiceAccount(accountId, updateData);
-        alert('서비스 어카운트 정보가 수정되었습니다.');
+        notifyUser('서비스 어카운트 정보가 수정되었습니다.');
       }
       
       navigate('/admin/service-accounts');
     } catch (err) {
-      alert(err.response?.data?.detail || '저장에 실패했습니다');
+      notifyUser(err.response?.data?.detail || '저장에 실패했습니다');
     } finally {
       setSaving(false);
     }

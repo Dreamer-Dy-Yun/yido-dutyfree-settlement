@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { logout, getCurrentUser } from '../api/authApi';
+import { logout, getCurrentUser } from '../api/auth/authApi';
 import {
   getTenantUsers,
   createTenantUser,
@@ -9,10 +9,11 @@ import {
   deleteTenantUser,
   resetUserPassword,
   getUsage,
-} from '../api/tenantApi';
+} from '../api/tenant/tenantApi';
 import Sidebar from '../components/Sidebar';
 import SessionHeader from '../components/SessionHeader';
 import CommonTabsRow from '../components/CommonTabsRow';
+import { confirmUserAction, notifyUser } from '../utils/userFeedback';
 import WorkspaceUsersSection from './workspace/WorkspaceUsersSection';
 import WorkspaceUsageSection from './workspace/WorkspaceUsageSection';
 import WorkspaceUserModal from './workspace/WorkspaceUserModal';
@@ -156,7 +157,7 @@ function WorkspacePage() {
 
   const handleUserActivation = async (user) => {
     const actionLabel = user.is_active ? '비활성화' : '활성화';
-    if (!window.confirm(`정말 이 유저를 ${actionLabel}하시겠습니까?`)) return;
+    if (!confirmUserAction(`정말 이 유저를 ${actionLabel}하시겠습니까?`)) return;
     try {
       await userActivate(user.id, !user.is_active);
       await loadUsers();
@@ -196,11 +197,11 @@ function WorkspacePage() {
 
   const handleResetPassword = async (userId) => {
     const message = '해당 유저의 비밀번호를 임시 비밀번호로 재설정하고,\n등록된 이메일로 발송하시겠습니까?';
-    if (!window.confirm(message)) return;
+    if (!confirmUserAction(message)) return;
 
     try {
       await resetUserPassword(userId);
-      alert('임시 비밀번호가 등록된 이메일로 발송되었습니다');
+      notifyUser('임시 비밀번호가 등록된 이메일로 발송되었습니다');
     } catch (err) {
       setError(err.response?.data?.detail || '비밀번호 재설정에 실패했습니다');
     }

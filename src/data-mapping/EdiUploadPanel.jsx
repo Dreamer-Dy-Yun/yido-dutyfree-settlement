@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { uploadEdiFile } from '../api/tenantApi';
+import { uploadEdiFile } from '../api/data-mapping/dataMappingApi';
 
 const EDI_SOURCES = [
   { value: 'lotte', label: 'Lotte' },

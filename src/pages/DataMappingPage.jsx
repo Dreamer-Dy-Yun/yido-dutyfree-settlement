@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getCurrentUser, logout } from '../api/authApi';
-import { getImageOcrProgress } from '../api/tenantApi';
+import { getCurrentUser, logout } from '../api/auth/authApi';
+import { getImageOcrProgress } from '../api/data-mapping/dataMappingApi';
 import Sidebar from '../components/Sidebar';
 import SessionHeader from '../components/SessionHeader';
 import CommonTabsRow from '../components/CommonTabsRow';

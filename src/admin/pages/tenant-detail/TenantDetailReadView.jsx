@@ -1,3 +1,5 @@
+import { formatKoDateTime } from '../../../utils/dateFormat';
+
 function DetailItem({ label, value, children }) {
   return (
     <div className="detail-item">
@@ -46,10 +48,10 @@ function TenantDetailReadView({ tenant }) {
         <h2>등록 정보</h2>
         <div className="detail-grid">
           {tenant.created_at && (
-            <DetailItem label="등록일시" value={new Date(tenant.created_at).toLocaleString('ko-KR')} />
+            <DetailItem label="등록일시" value={formatKoDateTime(tenant.created_at)} />
           )}
           {tenant.updated_at && (
-            <DetailItem label="수정일시" value={new Date(tenant.updated_at).toLocaleString('ko-KR')} />
+            <DetailItem label="수정일시" value={formatKoDateTime(tenant.updated_at)} />
           )}
         </div>
       </div>

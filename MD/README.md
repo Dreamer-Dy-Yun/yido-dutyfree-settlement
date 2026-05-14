@@ -11,6 +11,8 @@ This folder contains current documentation for the frontend worktree.
 - Backend runtime folders were removed from this frontend worktree.
 - Generated frontend folders such as `node_modules` and `dist` were not moved.
 - Path impact was checked after flattening: tracked source files no longer live under `frontend/`, and deploy/CI docs now target root-level frontend paths.
+- API files are split by boundary under `src/api/{client,auth,tenant,data-mapping,admin}`.
+- Browser `alert`/`confirm` calls are centralized behind `src/utils/userFeedback.js`.
 - Dependencies were reinstalled with `pnpm install --frozen-lockfile`.
 - `pnpm run lint` passed.
 - `pnpm run test:run` now runs Vitest boundary tests.

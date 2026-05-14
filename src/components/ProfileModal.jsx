@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { notifyUser } from '../utils/userFeedback';
 import './ProfileModal.css';
 
 const MODAL_VIEW = 'view';
@@ -115,11 +116,11 @@ function ProfileModal({
       setModalMode(MODAL_VIEW);
       setPasswordForEdit('');
       closeModal();
-      alert('정보가 수정되었습니다.');
+      notifyUser('정보가 수정되었습니다.');
     } catch {
       const message = '수정에 실패했습니다.';
       setModalError(message);
-      alert(message);
+      notifyUser(message);
     } finally {
       setSaving(false);
     }

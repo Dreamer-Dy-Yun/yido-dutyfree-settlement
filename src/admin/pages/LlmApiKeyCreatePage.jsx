@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createLlmApiKey, getLlmApiKeyDetail, updateLlmApiKey } from '../../api/systemAdminApi';
+import { createLlmApiKey, getLlmApiKeyDetail, updateLlmApiKey } from '../../api/admin/systemAdminApi';
+import { notifyUser } from '../../utils/userFeedback';
 import './LlmApiKeyCreatePage.css';
 
 function LlmApiKeyCreatePage() {
@@ -76,7 +77,7 @@ function LlmApiKeyCreatePage() {
           payload.api_key = formData.api_key.trim();
         }
         await updateLlmApiKey(apiKeyId, payload);
-        alert('API KEY가 수정되었습니다.');
+        notifyUser('API KEY가 수정되었습니다.');
       } else {
         await createLlmApiKey({
           purpose: formData.purpose.trim(),
@@ -85,7 +86,7 @@ function LlmApiKeyCreatePage() {
           api_key: formData.api_key.trim(),
           is_active: formData.is_active,
         });
-        alert('API KEY가 등록되었습니다.');
+        notifyUser('API KEY가 등록되었습니다.');
       }
       navigate('/admin/llm-api-keys');
     } catch (err) {

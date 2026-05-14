@@ -4,8 +4,8 @@ import {
   clearTenantSession,
   getAdminToken,
   getTenantToken,
-} from './authTokenStore';
-import { updateSessionTTLFromResponse } from './sessionTtlStore';
+} from '../auth/authTokenStore';
+import { updateSessionTTLFromResponse } from '../auth/sessionTtlStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:10000';
 

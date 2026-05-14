@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
 import ImageViewer from './ImageViewer';
-import { verifyReceipt, verifyPassport, deleteReceipt, deletePassport } from '../api/tenantApi';
+import { verifyReceipt, verifyPassport, deleteReceipt, deletePassport } from '../api/data-mapping/dataMappingApi';
 import { KO } from '../locales/KO';
 import { normalizeApiError } from '../utils/normalizeApiError';
+import { notifyUser } from '../utils/userFeedback';
 import ImageVerifyDataCards from './image-verify/ImageVerifyDataCards';
 import ImageVerifyDialogs from './image-verify/ImageVerifyDialogs';
 import ImageVerifyFields from './image-verify/ImageVerifyFields';
@@ -166,12 +167,12 @@ function ImageVerifyModal({
       if (typeof onSaved === 'function') {
         onSaved(currentIndex);
       }
-      alert(text.messages.overwriteSuccess);
+      notifyUser(text.messages.overwriteSuccess);
     } catch (err) {
       const reason = normalizeApiError(err, text.errors.unknownReason);
       const message = text.messages.overwriteFailed(reason);
       setError(message);
-      alert(message);
+      notifyUser(message);
     } finally {
       setSaving(false);
       setSavingAction(null);
@@ -203,11 +204,11 @@ function ImageVerifyModal({
       if (typeof onSaved === 'function') {
         onSaved(currentIndex);
       }
-      alert(text.messages.deleteSuccess);
+      notifyUser(text.messages.deleteSuccess);
     } catch (err) {
       const msg = normalizeApiError(err, text.errors.deleteFailed);
       setError(msg);
-      alert(msg);
+      notifyUser(msg);
     } finally {
       setSaving(false);
       setSavingAction(null);
@@ -267,7 +268,7 @@ function ImageVerifyModal({
               canSendToLLM={canSendToLLM}
               onChangeTarget={setEditTarget}
               onChangeField={handleChange}
-              onTryAiOcr={() => alert(text.messages.aiOcrPreparing)}
+              onTryAiOcr={() => notifyUser(text.messages.aiOcrPreparing)}
             />
 
             {error && <div className="image-verify-error">{error}</div>}

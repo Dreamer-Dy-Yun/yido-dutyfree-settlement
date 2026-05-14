@@ -22,6 +22,6 @@ Tenant data-mapping screens and workflow-specific components live here.
 
 ## Boundary
 
-- Components in this folder call backend only through `src/api/tenantApi.js` or `src/api/ediUnifiedApi.js`.
+- Components in this folder call backend only through `src/api/data-mapping/`.
 - Shared Korean UI text is imported from `src/locales/KO.js`; avoid reintroducing duplicated Korean literals for the same workflow.
 - Geometry calculations stay in `imageViewerGeometry.js`; React state and browser resource ownership stay in viewer hooks/components.

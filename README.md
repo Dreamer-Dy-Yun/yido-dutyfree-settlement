@@ -29,7 +29,7 @@ pnpm run build
 | Path | Responsibility |
 | --- | --- |
 | `src/App.jsx` | route registration for tenant and system admin flows |
-| `src/api/` | backend API boundary, axios clients, token/session utilities, and domain API functions |
+| `src/api/` | backend API boundary split by client, auth, tenant, data-mapping, and admin domains |
 | `src/admin/` | system admin pages, layout, and common admin components |
 | `src/pages/` | tenant/user pages such as login, workspace, data mapping, fee |
 | `src/data-mapping/` | EDI upload panels, image review list/viewer, viewer geometry/hooks, verification modal, matching panel |
@@ -52,3 +52,4 @@ Frontend package management is standardized on pnpm. Keep `pnpm-lock.yaml` as th
 Known large workflow files have been split below the 300-line target by component/workflow boundary, including image verification, EDI unified check, tenant detail, and workspace management screens.
 
 `pnpm run test:run` runs Vitest, not lint. Keep boundary tests close to the module they protect, especially API/session utilities and workflow request builders.
+Browser alert/confirm usage is wrapped in `src/utils/userFeedback.js`; components should not call those globals directly.

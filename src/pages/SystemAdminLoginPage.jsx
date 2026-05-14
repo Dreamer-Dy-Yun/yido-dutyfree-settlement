@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { systemAdminLogin } from '../api/authApi';
+import { systemAdminLogin } from '../api/auth/authApi';
 import './SystemAdminLoginPage.css';
 
 function SystemAdminLoginPage() {

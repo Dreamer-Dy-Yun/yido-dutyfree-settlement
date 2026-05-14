@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, searchCompany } from '../api/authApi';
-import { getPostLoginRedirectPath } from '../api/authTokenStore';
+import { login, searchCompany } from '../api/auth/authApi';
+import { getPostLoginRedirectPath } from '../api/auth/authTokenStore';
 import {
   getCompanyDisplayName,
   readSelectedTenant,
   storeSelectedTenant,
-} from '../api/tenantSelectionStore';
+} from '../api/auth/tenantSelectionStore';
 import './LoginPage.css';
 
 function LoginPage() {

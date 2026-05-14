@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getPromptDetail } from '../../api/systemAdminApi';
+import { getPromptDetail } from '../../api/admin/systemAdminApi';
 import './PromptDetailPage.css';
 
 function PromptDetailPage() {

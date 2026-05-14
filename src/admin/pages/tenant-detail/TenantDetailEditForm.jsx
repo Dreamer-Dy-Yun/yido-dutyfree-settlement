@@ -1,3 +1,5 @@
+import { formatKoDateTime } from '../../../utils/dateFormat';
+
 function TenantDetailEditForm({ tenant, formData, saving, onChange, onSubmit }) {
   return (
     <form id="tenant-form" onSubmit={onSubmit} className="tenant-form">
@@ -76,7 +78,7 @@ function TenantDetailEditForm({ tenant, formData, saving, onChange, onSubmit }) 
                 <label>등록일시</label>
                 <input
                   type="text"
-                  value={new Date(tenant.created_at).toLocaleString('ko-KR')}
+                  value={formatKoDateTime(tenant.created_at)}
                   disabled
                   className="disabled-input"
                 />
@@ -87,7 +89,7 @@ function TenantDetailEditForm({ tenant, formData, saving, onChange, onSubmit }) 
                 <label>수정일시</label>
                 <input
                   type="text"
-                  value={new Date(tenant.updated_at).toLocaleString('ko-KR')}
+                  value={formatKoDateTime(tenant.updated_at)}
                   disabled
                   className="disabled-input"
                 />

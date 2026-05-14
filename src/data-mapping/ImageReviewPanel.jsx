@@ -4,8 +4,9 @@ import {
   getPassportList,
   bulkVerifyReceipts,
   bulkVerifyPassports,
-} from '../api/tenantApi';
+} from '../api/data-mapping/dataMappingApi';
 import { normalizeApiError } from '../utils/normalizeApiError';
+import { confirmUserAction, notifyUser } from '../utils/userFeedback';
 import ImageReviewList from './ImageReviewList';
 import ImageVerifyModal from './ImageVerifyModal';
 import './ImageReviewPanel.css';
@@ -116,7 +117,7 @@ function ImageReviewPanel({ onVerifyModalOpenChange }) {
 
   const handleBulkConfirm = async () => {
     if (selectedIds.length === 0) return;
-    const ok = window.confirm(
+    const ok = confirmUserAction(
       '일괄 확인 처리 시, 실제 이미지와 다른 데이터가 잘못 연결된 상태로 확정될 수 있습니다. 계속 진행하시겠습니까?\n잘못 연결된 데이터는 매칭 화면에서 수정이 가능합니다.',
     );
     if (!ok) return;
@@ -127,11 +128,11 @@ function ImageReviewPanel({ onVerifyModalOpenChange }) {
       } else {
         await bulkVerifyPassports(selectedIds);
       }
-      alert(`선택된 ${selectedIds.length}건이 일괄 확인 처리되었습니다.`);
+      notifyUser(`선택된 ${selectedIds.length}건이 일괄 확인 처리되었습니다.`);
       setSelectedIds([]);
       await loadList();
     } catch (err) {
-      alert(normalizeApiError(err, '일괄 확인 처리 중 오류가 발생했습니다.'));
+      notifyUser(normalizeApiError(err, '일괄 확인 처리 중 오류가 발생했습니다.'));
     }
   };
 

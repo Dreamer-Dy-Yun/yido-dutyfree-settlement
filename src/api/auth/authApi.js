@@ -1,4 +1,4 @@
-import { adminApiClient, tenantApiClient } from './client';
+import { adminApiClient, tenantApiClient } from '../client/apiClient';
 import {
   clearAdminSession,
   clearTenantSession,

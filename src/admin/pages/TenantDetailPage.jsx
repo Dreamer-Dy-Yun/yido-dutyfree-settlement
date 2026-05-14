@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getTenantDetail, approveTenant, rejectTenant, deleteTenant, updateTenant } from '../../api/systemAdminApi';
+import { getTenantDetail, approveTenant, rejectTenant, deleteTenant, updateTenant } from '../../api/admin/systemAdminApi';
 import TenantDeleteModal from './tenant-detail/TenantDeleteModal';
 import TenantDetailEditForm from './tenant-detail/TenantDetailEditForm';
 import TenantDetailReadView from './tenant-detail/TenantDetailReadView';
 import TenantRejectModal from './tenant-detail/TenantRejectModal';
+import { confirmUserAction, notifyUser } from '../../utils/userFeedback';
 import './TenantDetailPage.css';
 
 const toTenantForm = (tenant) => ({
@@ -65,7 +66,7 @@ function TenantDetailPage() {
   };
 
   const handleCancel = () => {
-    if (!window.confirm('수정을 취소하시겠습니까? 변경사항이 저장되지 않습니다.')) return;
+    if (!confirmUserAction('수정을 취소하시겠습니까? 변경사항이 저장되지 않습니다.')) return;
     setIsEditing(false);
     if (tenant) setFormData(toTenantForm(tenant));
   };
@@ -73,7 +74,7 @@ function TenantDetailPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      alert('회사명을 입력해주세요.');
+      notifyUser('회사명을 입력해주세요.');
       return;
     }
 
@@ -88,68 +89,68 @@ function TenantDetailPage() {
       if (formData.is_active !== tenant.is_active) updateData.is_active = formData.is_active;
 
       if (Object.keys(updateData).length === 0) {
-        alert('변경된 내용이 없습니다.');
+        notifyUser('변경된 내용이 없습니다.');
         return;
       }
 
       await updateTenant(tenantId, updateData);
-      alert('테넌트 정보가 수정되었습니다.');
+      notifyUser('테넌트 정보가 수정되었습니다.');
       setIsEditing(false);
       await loadTenantDetail();
     } catch (err) {
       console.error('Update error:', err);
-      alert(err.response?.data?.detail || '수정에 실패했습니다');
+      notifyUser(err.response?.data?.detail || '수정에 실패했습니다');
     } finally {
       setSaving(false);
     }
   };
 
   const handleApprove = async () => {
-    if (!window.confirm('이 테넌트를 승인하시겠습니까?')) return;
+    if (!confirmUserAction('이 테넌트를 승인하시겠습니까?')) return;
     try {
       await approveTenant(tenantId);
-      alert('승인 완료!');
+      notifyUser('승인 완료!');
       await loadTenantDetail();
     } catch (err) {
-      alert(err.response?.data?.detail || '승인에 실패했습니다');
+      notifyUser(err.response?.data?.detail || '승인에 실패했습니다');
     }
   };
 
   const handleReject = async () => {
     if (!rejectReason.trim()) {
-      alert('거부 사유를 입력해주세요.');
+      notifyUser('거부 사유를 입력해주세요.');
       return;
     }
-    const finalConfirm = window.confirm('마지막으로 승인을 거부하면 삭제 됩니다.\n정말 거부하시겠습니까?');
+    const finalConfirm = confirmUserAction('마지막으로 승인을 거부하면 삭제 됩니다.\n정말 거부하시겠습니까?');
     if (!finalConfirm) return;
 
     try {
       await rejectTenant(tenantId, rejectReason);
-      alert('거부 완료. 테넌트가 삭제되었습니다.');
+      notifyUser('거부 완료. 테넌트가 삭제되었습니다.');
       setShowRejectModal(false);
       setRejectReason('');
       navigate('/admin/tenants');
     } catch (err) {
-      alert(err.response?.data?.detail || '거부에 실패했습니다');
+      notifyUser(err.response?.data?.detail || '거부에 실패했습니다');
     }
   };
 
   const handleDelete = async () => {
     if (deleting) return;
     if (!deleteReason.trim()) {
-      alert('삭제 사유를 입력해주세요.');
+      notifyUser('삭제 사유를 입력해주세요.');
       return;
     }
 
     try {
       setDeleting(true);
       await deleteTenant(tenantId, deleteReason);
-      alert('삭제 완료');
+      notifyUser('삭제 완료');
       setShowDeleteModal(false);
       setDeleteReason('');
       navigate('/admin/tenants');
     } catch (err) {
-      alert(err.response?.data?.detail || '삭제에 실패했습니다');
+      notifyUser(err.response?.data?.detail || '삭제에 실패했습니다');
     } finally {
       setDeleting(false);
     }

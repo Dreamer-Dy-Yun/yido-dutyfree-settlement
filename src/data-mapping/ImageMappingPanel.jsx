@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { getMatchStatus, postMatchAttempt, getMatches, getMatchDetail } from '../api/tenantApi';
+import { getMatchStatus, postMatchAttempt, getMatches, getMatchDetail } from '../api/data-mapping/dataMappingApi';
 import { KO } from '../locales/KO';
+import { notifyUser } from '../utils/userFeedback';
 import ImageMappingStatus from './ImageMappingStatus';
 import ImageMappingTable from './ImageMappingTable';
 import MappingDetailModal from './MappingDetailModal';
@@ -127,7 +128,7 @@ function ImageMappingPanel() {
   const handleMatchAttempt = async () => {
     if (isRunning) return;
     if (!status || status.unmatched_count === 0) {
-      alert(text.noUnmatchedData);
+      notifyUser(text.noUnmatchedData);
       return;
     }
     try {
@@ -136,7 +137,7 @@ function ImageMappingPanel() {
       startMatchPolling();
     } catch (err) {
       console.error('Failed to trigger match attempt:', err);
-      alert(text.triggerFailed);
+      notifyUser(text.triggerFailed);
       setIsRunning(false);
     }
   };

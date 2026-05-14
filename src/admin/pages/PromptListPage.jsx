@@ -4,8 +4,10 @@ import {
   getPrompts,
   updatePrompt,
   deletePrompt,
-} from '../../api/systemAdminApi';
+} from '../../api/admin/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
+import { formatRecordTimestamp } from '../../utils/dateFormat';
+import { confirmUserAction, notifyUser } from '../../utils/userFeedback';
 import CommonDataTable from '../components/CommonDataTable';
 
 function PromptListPage() {
@@ -22,13 +24,6 @@ function PromptListPage() {
     return 'all';
   }, [location.search]);
   const [filter, setFilter] = useState(filterFromLocation);
-
-  const formatCreatedAt = (row) => {
-    const raw = row?.created_at || row?.db_created_at;
-    if (!raw) return '-';
-    const dt = new Date(raw);
-    return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('ko-KR');
-  };
 
   const loadRows = useCallback(async () => {
     try {
@@ -65,14 +60,14 @@ function PromptListPage() {
   };
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`삭제하시겠습니까?\npurpose=${row.purpose}\ntype=${row.type || '-'}`)) {
+    if (!confirmUserAction(`삭제하시겠습니까?\npurpose=${row.purpose}\ntype=${row.type || '-'}`)) {
       return;
     }
     try {
       await deletePrompt(row.id);
       await loadRows();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Prompt 삭제에 실패했습니다.');
+      notifyUser(err.response?.data?.detail || 'Prompt 삭제에 실패했습니다.');
     }
   };
 
@@ -81,7 +76,7 @@ function PromptListPage() {
       await updatePrompt(row.id, { is_active: nextActive });
       await loadRows();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Prompt 상태 변경에 실패했습니다.');
+      notifyUser(err.response?.data?.detail || 'Prompt 상태 변경에 실패했습니다.');
     }
   };
 
@@ -113,7 +108,7 @@ function PromptListPage() {
               { key: 'purpose', label: 'Purpose' },
               { key: 'type', label: 'Type', render: (row) => row.type || '-' },
               { key: 'note', label: 'Note', render: (row) => row.note || '-' },
-              { key: 'created_at', label: '등록일', render: (row) => formatCreatedAt(row) },
+              { key: 'created_at', label: '등록일', render: (row) => formatRecordTimestamp(row) },
               { key: 'active', label: 'Active', render: (row) => (row.is_active ? 'Y' : 'N') },
               {
                 key: 'actions',

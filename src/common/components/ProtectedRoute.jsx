@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router-dom';
-import { isAuthenticated, isSuperuser } from '../../api/authApi';
+import { isAuthenticated, isSuperuser } from '../../api/auth/authApi';
 
 /**
  * 보호된 라우트 컴포넌트

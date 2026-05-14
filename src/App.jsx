@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { isSuperuser } from './api/authApi';
+import { isSuperuser } from './api/auth/authApi';
 import LoginPage from './pages/LoginPage';
 import SystemAdminLoginPage from './pages/SystemAdminLoginPage';
 import CompanyRegisterPage from './pages/CompanyRegisterPage';

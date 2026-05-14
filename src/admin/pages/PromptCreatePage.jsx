@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { createPrompt } from '../../api/systemAdminApi';
+import { createPrompt } from '../../api/admin/systemAdminApi';
+import { notifyUser } from '../../utils/userFeedback';
 import './PromptCreatePage.css';
 
 function PromptCreatePage() {
@@ -80,7 +81,7 @@ function PromptCreatePage() {
         note: formData.note.trim() || null,
         is_active: formData.is_active,
       });
-      alert('Prompt가 등록되었습니다.');
+      notifyUser('Prompt가 등록되었습니다.');
       setIsClonedDraft(false);
       navigate('/admin/prompts');
     } catch (err) {

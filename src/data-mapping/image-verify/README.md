@@ -17,7 +17,7 @@ Image verification modal subcomponents live here.
 
 ## Boundary
 
-- `ImageVerifyModal.jsx` owns save/delete orchestration and calls backend only through `src/api/tenantApi.js`.
+- `ImageVerifyModal.jsx` owns save/delete orchestration and calls backend only through `src/api/data-mapping/dataMappingApi.js`.
 - Components in this folder render modal UI only and receive data/actions through props.
 - Keyboard behavior stays in `useImageVerifyShortcuts.js`; UI text comes from `src/locales/KO.js`.
 - Request payload changes must update `imageVerifyRequestBuilders.test.js` with the expected API contract.

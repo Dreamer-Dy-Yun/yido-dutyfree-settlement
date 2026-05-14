@@ -4,8 +4,10 @@ import {
   getLlmApiKeys,
   updateLlmApiKey,
   deleteLlmApiKey,
-} from '../../api/systemAdminApi';
+} from '../../api/admin/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
+import { formatRecordTimestamp } from '../../utils/dateFormat';
+import { confirmUserAction, notifyUser } from '../../utils/userFeedback';
 import CommonDataTable from '../components/CommonDataTable';
 
 function LlmApiKeyListPage() {
@@ -22,13 +24,6 @@ function LlmApiKeyListPage() {
     return 'all';
   }, [location.search]);
   const [filter, setFilter] = useState(filterFromLocation);
-  const formatCreatedAt = (row) => {
-    const raw = row?.created_at || row?.db_created_at;
-    if (!raw) return '-';
-    const dt = new Date(raw);
-    return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('ko-KR');
-  };
-
   const loadRows = useCallback(async () => {
     try {
       setLoading(true);
@@ -70,22 +65,22 @@ function LlmApiKeyListPage() {
       });
       await loadRows();
     } catch (err) {
-      alert(err.response?.data?.detail || '상태 변경에 실패했습니다.');
+      notifyUser(err.response?.data?.detail || '상태 변경에 실패했습니다.');
     }
   };
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`삭제하시겠습니까?\nprovider=${row.llm_provider}, model=${row.llm_model}`)) {
+    if (!confirmUserAction(`삭제하시겠습니까?\nprovider=${row.llm_provider}, model=${row.llm_model}`)) {
       return;
     }
-    if (!window.confirm('정말 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.')) {
+    if (!confirmUserAction('정말 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.')) {
       return;
     }
     try {
       await deleteLlmApiKey(row.id);
       await loadRows();
     } catch (err) {
-      alert(err.response?.data?.detail || 'LLM API KEY 삭제에 실패했습니다.');
+      notifyUser(err.response?.data?.detail || 'LLM API KEY 삭제에 실패했습니다.');
     }
   };
 
@@ -118,7 +113,7 @@ function LlmApiKeyListPage() {
               { key: 'llm_provider', label: 'Provider' },
               { key: 'llm_model', label: 'Model' },
               { key: 'api_key', label: 'API KEY', render: (row) => row.api_key },
-              { key: 'created_at', label: '등록일', render: (row) => formatCreatedAt(row) },
+              { key: 'created_at', label: '등록일', render: (row) => formatRecordTimestamp(row) },
               { key: 'active', label: 'Active', render: (row) => (row.is_active ? 'Y' : 'N') },
               {
                 key: 'actions',

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import SessionHeader from '../components/SessionHeader';
 import CommonTabsRow from '../components/CommonTabsRow';
-import { getCurrentUser, logout } from '../api/authApi';
+import { getCurrentUser, logout } from '../api/auth/authApi';
 import { DEFAULT_FEE_TAB, FEE_TABS } from '../constants/feeTabs';
 import './FeePage.css';
 

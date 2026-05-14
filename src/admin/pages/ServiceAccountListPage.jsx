@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getServiceAccounts, updateServiceAccount, deleteServiceAccount } from '../../api/systemAdminApi';
+import { getServiceAccounts, updateServiceAccount, deleteServiceAccount } from '../../api/admin/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
+import { formatRecordTimestamp } from '../../utils/dateFormat';
+import { confirmUserAction, notifyUser } from '../../utils/userFeedback';
 import CommonDataTable from '../components/CommonDataTable';
 import './ServiceAccountListPage.css';
 
@@ -27,13 +29,6 @@ function ServiceAccountListPage() {
 
   const [filter, setFilter] = useState(filterFromLocation);
   const [roleFilter, setRoleFilter] = useState(roleFromLocation);
-
-  const formatCreatedAt = (account) => {
-    const raw = account?.created_at || account?.db_created_at;
-    if (!raw) return '-';
-    const dt = new Date(raw);
-    return Number.isNaN(dt.getTime()) ? '-' : dt.toLocaleString('ko-KR');
-  };
 
   useEffect(() => {
     setFilter(filterFromLocation);
@@ -80,38 +75,38 @@ function ServiceAccountListPage() {
   };
 
   const handleDelete = async (accountId) => {
-    if (!confirm('이 서비스 어카운트를 삭제하시겠습니까?')) return;
+    if (!confirmUserAction('이 서비스 어카운트를 삭제하시겠습니까?')) return;
     
     try {
       await deleteServiceAccount(accountId);
-      alert('서비스 어카운트가 삭제되었습니다');
+      notifyUser('서비스 어카운트가 삭제되었습니다');
       loadAccounts();
     } catch (err) {
-      alert(err.response?.data?.detail || '삭제에 실패했습니다');
+      notifyUser(err.response?.data?.detail || '삭제에 실패했습니다');
     }
   };
 
   const handleDeactivate = async (accountId) => {
-    if (!confirm('이 서비스 어카운트를 비활성화하시겠습니까?')) return;
+    if (!confirmUserAction('이 서비스 어카운트를 비활성화하시겠습니까?')) return;
 
     try {
       await updateServiceAccount(accountId, { is_active: false });
-      alert('서비스 어카운트가 비활성화되었습니다');
+      notifyUser('서비스 어카운트가 비활성화되었습니다');
       loadAccounts();
     } catch (err) {
-      alert(err.response?.data?.detail || '비활성화에 실패했습니다');
+      notifyUser(err.response?.data?.detail || '비활성화에 실패했습니다');
     }
   };
 
   const handleActivate = async (accountId) => {
-    if (!confirm('이 서비스 어카운트를 활성화하시겠습니까?')) return;
+    if (!confirmUserAction('이 서비스 어카운트를 활성화하시겠습니까?')) return;
 
     try {
       await updateServiceAccount(accountId, { is_active: true });
-      alert('서비스 어카운트가 활성화되었습니다');
+      notifyUser('서비스 어카운트가 활성화되었습니다');
       loadAccounts();
     } catch (err) {
-      alert(err.response?.data?.detail || '활성화에 실패했습니다');
+      notifyUser(err.response?.data?.detail || '활성화에 실패했습니다');
     }
   };
 
@@ -163,7 +158,7 @@ function ServiceAccountListPage() {
               { key: 'email', label: '이메일', render: (account) => account.e_mail },
               { key: 'role', label: '역할' },
               { key: 'description', label: '설명', render: (account) => account.description || '-' },
-              { key: 'created_at', label: '등록일', render: (account) => formatCreatedAt(account) },
+              { key: 'created_at', label: '등록일', render: (account) => formatRecordTimestamp(account) },
               {
                 key: 'status',
                 label: '상태',

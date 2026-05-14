@@ -10,4 +10,4 @@ Cross-flow shared components live here.
 ## Boundary
 
 - Components in this folder should not fetch backend data directly.
-- Auth decisions are read through `src/api/authApi.js` so tests can mock the auth boundary.
+- Auth decisions are read through `src/api/auth/authApi.js` so tests can mock the auth boundary.

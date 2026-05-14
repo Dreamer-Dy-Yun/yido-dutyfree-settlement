@@ -1,10 +1,10 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isAuthenticated, isSuperuser } from '../../api/authApi';
+import { isAuthenticated, isSuperuser } from '../../api/auth/authApi';
 import ProtectedRoute from './ProtectedRoute';
 
-vi.mock('../../api/authApi', () => ({
+vi.mock('../../api/auth/authApi', () => ({
   isAuthenticated: vi.fn(),
   isSuperuser: vi.fn(),
 }));

@@ -11,5 +11,5 @@ Tenant workspace subcomponents live here.
 
 ## Boundary
 
-- `WorkspacePage.jsx` owns data loading, mutation handlers, and routing.
+- `WorkspacePage.jsx` owns data loading, mutation handlers, and routing through `src/api/tenant/`.
 - Components in this folder render workspace UI only and receive all data/actions through props.
