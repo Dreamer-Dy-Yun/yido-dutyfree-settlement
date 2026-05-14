@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getTenants, getPendingTenants } from '../services/systemAdminApi';
+import { getTenants, getPendingTenants } from '../../api/systemAdminApi';
 import TenantCard from '../components/TenantCard';
 import CommonTabsRow from '../../components/CommonTabsRow';
 import './TenantListPage.css';

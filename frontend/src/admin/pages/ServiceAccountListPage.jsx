@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getServiceAccounts, updateServiceAccount, deleteServiceAccount } from '../services/systemAdminApi';
+import { getServiceAccounts, updateServiceAccount, deleteServiceAccount } from '../../api/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
 import CommonDataTable from '../components/CommonDataTable';
 import './ServiceAccountListPage.css';

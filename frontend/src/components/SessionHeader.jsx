@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import useSessionTTL from '../hooks/useSessionTTL';
-import { verifyPassword, updateMyProfile, changePassword } from '../services/auth';
+import { verifyPassword, updateMyProfile, changePassword } from '../api/authApi';
 import ProfileModal from './ProfileModal';
 import AppHeader from './AppHeader';
 

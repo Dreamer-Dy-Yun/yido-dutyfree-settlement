@@ -20,8 +20,8 @@ pnpm run build
 | Path | Responsibility |
 | --- | --- |
 | `src/App.jsx` | route registration for tenant and system admin flows |
-| `src/services/` | API access layer; UI components should call backend through this layer |
-| `src/admin/` | system admin pages, layout, common admin components, admin API wrapper |
+| `src/api/` | backend API boundary, axios clients, token/session utilities, and domain API functions |
+| `src/admin/` | system admin pages, layout, and common admin components |
 | `src/pages/` | tenant/user pages such as login, workspace, data mapping, fee |
 | `src/data-mapping/` | EDI upload panels, image review list/viewer, viewer geometry/hooks, verification modal, matching panel |
 | `src/components/` | shared tenant UI shell components |
@@ -33,7 +33,7 @@ pnpm run build
 
 ## API Boundary
 
-Components should not create axios calls directly. Add or adjust API calls in `src/services/` first, then consume those functions from pages, panels, hooks, or components.
+Components should not create axios or fetch calls directly. Add or adjust API calls in `src/api/` first, then consume those functions from pages, panels, hooks, or components.
 
 ## Refactor Notes
 

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import ImageViewer from './ImageViewer';
-import { verifyReceipt, verifyPassport, deleteReceipt, deletePassport } from '../services/tenant';
+import { verifyReceipt, verifyPassport, deleteReceipt, deletePassport } from '../api/tenantApi';
 import { KO } from '../locales/KO';
 import { normalizeApiError } from '../utils/normalizeApiError';
 import ImageVerifyDataCards from './image-verify/ImageVerifyDataCards';

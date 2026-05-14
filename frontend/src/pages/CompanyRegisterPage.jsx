@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { registerCompany } from '../services/auth';
+import { registerCompany } from '../api/authApi';
 import './CompanyRegisterPage.css';
 
 function CompanyRegisterPage() {

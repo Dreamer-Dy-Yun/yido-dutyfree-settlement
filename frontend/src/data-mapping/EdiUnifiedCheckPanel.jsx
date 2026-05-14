@@ -5,7 +5,7 @@ import {
   listEdiUnifiedGroups,
   getEdiUnifiedGroupDetail,
   downloadEdiUnifiedExcel,
-} from '../services/ediUnified';
+} from '../api/ediUnifiedApi';
 import EdiNoteTooltip from './edi-unified/EdiNoteTooltip';
 import EdiUnifiedControls from './edi-unified/EdiUnifiedControls';
 import EdiUnifiedGroupTable from './edi-unified/EdiUnifiedGroupTable';

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createLlmApiKey, getLlmApiKeyDetail, updateLlmApiKey } from '../services/systemAdminApi';
+import { createLlmApiKey, getLlmApiKeyDetail, updateLlmApiKey } from '../../api/systemAdminApi';
 import './LlmApiKeyCreatePage.css';
 
 function LlmApiKeyCreatePage() {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getTenantDetail, approveTenant, rejectTenant, deleteTenant, updateTenant } from '../services/systemAdminApi';
+import { getTenantDetail, approveTenant, rejectTenant, deleteTenant, updateTenant } from '../../api/systemAdminApi';
 import TenantDeleteModal from './tenant-detail/TenantDeleteModal';
 import TenantDetailEditForm from './tenant-detail/TenantDetailEditForm';
 import TenantDetailReadView from './tenant-detail/TenantDetailReadView';

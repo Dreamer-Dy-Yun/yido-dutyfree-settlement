@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { createPrompt } from '../services/systemAdminApi';
+import { createPrompt } from '../../api/systemAdminApi';
 import './PromptCreatePage.css';
 
 function PromptCreatePage() {

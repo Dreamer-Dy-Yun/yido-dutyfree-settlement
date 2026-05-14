@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { logout, getCurrentUser } from '../services/auth';
+import { logout, getCurrentUser } from '../api/authApi';
 import {
   getTenantUsers,
   createTenantUser,
@@ -9,7 +9,7 @@ import {
   deleteTenantUser,
   resetUserPassword,
   getUsage,
-} from '../services/tenant';
+} from '../api/tenantApi';
 import Sidebar from '../components/Sidebar';
 import SessionHeader from '../components/SessionHeader';
 import CommonTabsRow from '../components/CommonTabsRow';

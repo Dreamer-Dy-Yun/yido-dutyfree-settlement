@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getSystemStats } from '../services/systemAdminApi';
+import { getSystemStats } from '../../api/systemAdminApi';
 import './SystemAdminDashboard.css';
 
 function SystemAdminDashboard() {

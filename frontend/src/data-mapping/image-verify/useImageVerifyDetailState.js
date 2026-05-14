@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getImageDetailsByHash } from '../../services/tenant';
+import { getImageDetailsByHash } from '../../api/tenantApi';
 import { normalizeApiError } from '../../utils/normalizeApiError';
 
 function useImageVerifyDetailState({ mode, currentItem, onResetTransient }) {

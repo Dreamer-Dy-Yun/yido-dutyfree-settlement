@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getMatchStatus, postMatchAttempt, getMatches, getMatchDetail } from '../services/tenant';
+import { getMatchStatus, postMatchAttempt, getMatches, getMatchDetail } from '../api/tenantApi';
 import { KO } from '../locales/KO';
 import ImageMappingStatus from './ImageMappingStatus';
 import ImageMappingTable from './ImageMappingTable';

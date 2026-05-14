@@ -4,7 +4,7 @@ import {
   getLlmApiKeys,
   updateLlmApiKey,
   deleteLlmApiKey,
-} from '../services/systemAdminApi';
+} from '../../api/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
 import CommonDataTable from '../components/CommonDataTable';
 

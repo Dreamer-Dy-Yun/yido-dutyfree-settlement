@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCurrentUser, logout } from '../services/auth';
+import { getCurrentUser, logout } from '../api/authApi';
 import Sidebar from '../components/Sidebar';
 import SessionHeader from '../components/SessionHeader';
 import './TenantManagementPage.css';

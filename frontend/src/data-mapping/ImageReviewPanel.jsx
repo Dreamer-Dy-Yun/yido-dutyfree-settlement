@@ -4,7 +4,7 @@ import {
   getPassportList,
   bulkVerifyReceipts,
   bulkVerifyPassports,
-} from '../services/tenant';
+} from '../api/tenantApi';
 import { normalizeApiError } from '../utils/normalizeApiError';
 import ImageReviewList from './ImageReviewList';
 import ImageVerifyModal from './ImageVerifyModal';

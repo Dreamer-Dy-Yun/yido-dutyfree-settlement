@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { uploadImageZip } from '../services/tenant';
+import { uploadImageZip } from '../api/tenantApi';
 
 function ImageZipUploadPanel() {
   const [imageFile, setImageFile] = useState(null);

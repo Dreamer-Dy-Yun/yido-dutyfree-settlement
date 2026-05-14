@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getServiceAccountDetail, createServiceAccount, updateServiceAccount } from '../services/systemAdminApi';
+import { getServiceAccountDetail, createServiceAccount, updateServiceAccount } from '../../api/systemAdminApi';
 import './ServiceAccountDetailPage.css';
 
 function ServiceAccountDetailPage() {

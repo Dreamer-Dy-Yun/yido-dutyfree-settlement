@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { subscribeSessionTTL } from '../services/sessionTTL';
+import { subscribeSessionTTL } from '../api/sessionTtlStore';
 
 /**
  * 백엔드에서 내려주는 X-Session-Expires-In 헤더 기반

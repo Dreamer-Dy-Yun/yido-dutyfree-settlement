@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import api from '../services/api';
+import { getImageBlobByHash } from '../api/tenantApi';
 import { ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './imageViewerGeometry';
 
 export function useContainerSize(containerRef) {
@@ -65,8 +65,8 @@ export function useImageBlobUrl(imageHash) {
 
     (async () => {
       try {
-        const res = await api.get(`/api/tenant/data-mapping/image/${imageHash}`, { responseType: 'blob' });
-        const url = URL.createObjectURL(res.data);
+        const blob = await getImageBlobByHash(imageHash);
+        const url = URL.createObjectURL(blob);
         revokedUrl = url;
         setImageUrl(url);
       } catch {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, searchCompany } from '../services/auth';
+import { login, searchCompany } from '../api/authApi';
 import './LoginPage.css';
 
 function LoginPage() {

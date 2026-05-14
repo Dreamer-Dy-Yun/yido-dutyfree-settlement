@@ -6,7 +6,7 @@ import {
   verifyPassword,
   updateSystemAdminProfile,
   changePassword,
-} from '../../services/auth';
+} from '../../api/authApi';
 import useSessionTTL from '../../hooks/useSessionTTL';
 import ProfileModal from '../../components/ProfileModal';
 import Sidebar from '../../components/Sidebar';
