@@ -1,8 +1,0 @@
-@import './ImageReviewList.css';
-
-.image-review-root {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
