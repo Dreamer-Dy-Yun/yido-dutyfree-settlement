@@ -18,6 +18,7 @@ This folder contains business workflow modules used by routers, background tasks
 | `service_verified_archive.py` | Archive helpers for deleted/changed verified receipt/passport rows. |
 | `service_xxxxx.py` | Older or placeholder matching service. Confirm usage before extending. |
 | `verification_token.py` | Email verification token generation, storage, lookup, and deletion. |
+| `test_queue_services.py` | Unit coverage for Redis queue payload/status contracts using a fake Redis client. |
 | `test_service_email.py` | Unit test for verification email composition/sending behavior. |
 | `__init__.py` | Service package exports. |
 

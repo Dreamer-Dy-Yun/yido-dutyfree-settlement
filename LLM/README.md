@@ -16,6 +16,7 @@ This folder owns the LLM provider abstraction, request/response DTOs, exceptions
 | --- | --- |
 | `ChatGPT/` | ChatGPT/OpenAI-compatible implementation of the LLM interface. |
 | `prompt/` | Prompt text files used during OCR/LLM experiments or setup. |
+| `tests/` | Unit tests for LLM DTO and request validation contracts. |
 
 ## Boundary Notes
 

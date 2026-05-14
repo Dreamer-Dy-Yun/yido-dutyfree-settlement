@@ -8,6 +8,7 @@ This folder owns OCR execution over image records and parsing of LLM OCR respons
 | --- | --- |
 | `image_ocr_runner.py` | Loads unprocessed images, calls configured LLM, parses results, updates image/OCR/usage tables. |
 | `yido_parser.py` | Parses LLM response JSON into receipt, passport, and usage DataFrames. |
+| `tests/` | Unit tests for OCR result parsing contracts. |
 
 ## Boundary Notes
 

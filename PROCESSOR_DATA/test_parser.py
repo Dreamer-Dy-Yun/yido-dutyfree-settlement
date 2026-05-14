@@ -1,92 +1,76 @@
-import io
-from pathlib import Path
+import pandas as pd
 
-import pytest
-
-from CUSTOMIZED.cust_excel_processor import ExcelProcessor
 from PROCESSOR_DATA.parsers.edi_lotte import EdiLotte
 from PROCESSOR_DATA.parsers.edi_silla import EdiSilla
-from PROCESSOR_DATA.patch import fix_invalid_datetime_in_xlsx_bytes
 
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-EXCEL_PATH_LOTTE = _SCRIPT_DIR / "testdata" / "testdata_for_edi_lotte.xlsx"
-EXCEL_PATH_SILLA = _SCRIPT_DIR / "testdata" / "testdata_for_edi_silla.xlsx"
+def _source_row(processor, overrides_by_target):
+    row = {}
+    for source_col, (target_col, dtype) in processor.column_spec().items():
+        if target_col in overrides_by_target:
+            row[source_col] = overrides_by_target[target_col]
+        elif dtype == "Int64":
+            row[source_col] = 1
+        elif dtype == "float64":
+            row[source_col] = 10.5
+        elif dtype.startswith("datetime64"):
+            row[source_col] = "2025-01-02"
+        else:
+            row[source_col] = f"{target_col}-value"
+    return row
 
 
-def _load_flattened_excel(excel_path: str):
-    """
-    테스트와 수동 실행에서 공통으로 쓰는 헬퍼.
-    """
-    excel_processor = ExcelProcessor(excel_path, header=[0, 1])
-    return excel_processor.flatten_columns().to_dataframe()
+def test_edi_lotte_parse_and_unified_contract():
+    processor = EdiLotte()
+    row = _source_row(
+        processor,
+        {
+            "branch": "Myeongdong",
+            "original_sales_date": "2025-01-01",
+            "sales_date": "2025-01-02",
+            "customer_name": "Customer A",
+            "group_no": "G-1",
+            "voucher_no": "V-001",
+            "product_code": "SKU-001",
+            "sales_quantity": 2.0,
+        },
+    )
+
+    parsed = processor.set_data(pd.DataFrame([row])).parse()
+    unified = processor.to_unified(parsed)
+
+    assert parsed.loc[0, "voucher_no"] == "V-001"
+    assert parsed.loc[0, "product_code"] == "SKU-001"
+    assert unified.loc[0, "dutyfree_operator"] == "LOTTE"
+    assert unified.loc[0, "receipt_no"] == "V-001"
+    assert unified.loc[0, "product_code"] == "SKU-001"
+    assert unified.loc[0, "manufactured_at"] is None
 
 
-def _load_silla_excel(excel_path: Path | str):
-    """신라 엑셀: patch.py로 20250417T000000 형식 수정 후 로드."""
-    path = Path(excel_path)
-    with open(path, "rb") as f:
-        patched = fix_invalid_datetime_in_xlsx_bytes(f.read())
-    excel_processor = ExcelProcessor(io.BytesIO(patched), header=[0, 1])
-    return excel_processor.flatten_columns().to_dataframe()
+def test_edi_silla_parse_and_unified_contract_with_dd00_aging():
+    processor = EdiSilla()
+    row = _source_row(
+        processor,
+        {
+            "branch": "Seoul",
+            "original_sales_date": "2025-01-01",
+            "sales_date": "2025-01-02",
+            "customer_name": "Customer B",
+            "group_no": "G-2",
+            "bill_no": "B-001",
+            "product_code": "SKU-002",
+            "aging": "250100",
+            "sales_quantity": 3.0,
+        },
+    )
 
+    parsed = processor.set_data(pd.DataFrame([row])).parse()
+    unified = processor.to_unified(parsed)
 
-@pytest.mark.skipif(not EXCEL_PATH_LOTTE.exists(), reason="롯데 테스트 데이터 파일 없음")
-def test_edi_lotte_parse_not_empty():
-    """
-    - 엑셀 전처리 결과가 비어 있지 않은지
-    - EdiLotte 파싱 결과가 비어 있지 않은지
-    - 최소 한 개 이상의 컬럼이 생성되는지
-    를 검증하는 기본 자동화 테스트.
-    """
-    df = _load_flattened_excel(str(EXCEL_PATH_LOTTE))
-
-    edi_lotte_df = EdiLotte().set_original_data(df).parse()
-
-    # 기본 검증
-    assert not df.empty
-    assert not edi_lotte_df.empty
-    assert len(edi_lotte_df.columns) > 0
-
-
-@pytest.mark.skipif(not EXCEL_PATH_SILLA.exists(), reason="신라 테스트 데이터 파일 없음")
-def test_edi_silla_parse_not_empty():
-    """
-    - 엑셀 전처리 결과가 비어 있지 않은지
-    - EdiSilla 파싱 결과가 비어 있지 않은지
-    - 최소 한 개 이상의 컬럼이 생성되는지
-    를 검증하는 기본 자동화 테스트.
-    """
-    df = _load_silla_excel(EXCEL_PATH_SILLA)
-
-    edi_silla_df = EdiSilla().set_original_data(df).parse()
-
-    # 기본 검증
-    assert not df.empty
-    assert not edi_silla_df.empty
-    assert len(edi_silla_df.columns) > 0
-
-
-if __name__ == "__main__":
-    # 수동으로 돌려보고 싶을 때는 그대로 실행하면 샘플이 출력되도록 유지
-    if EXCEL_PATH_LOTTE.exists():
-        df_lotte = _load_flattened_excel(str(EXCEL_PATH_LOTTE))
-        edi_lotte_df = EdiLotte().set_original_data(df_lotte).parse()
-        print("=== Parsed EDI_Lotte head ===")
-        print(edi_lotte_df.head())
-        print("\n=== Parsed EDI_Lotte columns ===")
-        for column in edi_lotte_df.columns:
-            print(column)
-    else:
-        print(f"(EDI_Lotte 스킵: {EXCEL_PATH_LOTTE} 없음)")
-
-    if EXCEL_PATH_SILLA.exists():
-        df_silla = _load_silla_excel(EXCEL_PATH_SILLA)
-        edi_silla_df = EdiSilla().set_original_data(df_silla).parse()
-        print("\n=== Parsed EDI_Silla head ===")
-        print(edi_silla_df.head())
-        print("\n=== Parsed EDI_Silla columns ===")
-        for column in edi_silla_df.columns:
-            print(column)
-    else:
-        print(f"\n(EDI_Silla 스킵: {EXCEL_PATH_SILLA} 없음)")
+    assert parsed.loc[0, "bill_no"] == "B-001"
+    assert parsed.loc[0, "aging"] == "250100"
+    assert unified.loc[0, "dutyfree_operator"] == "SILLA"
+    assert unified.loc[0, "receipt_no"] == "B-001"
+    assert unified.loc[0, "product_code"] == "SKU-002"
+    assert unified.loc[0, "manufactured_at"] == pd.Timestamp("2025-01-01")
+    assert unified.loc[0, "system_note"] is None

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from typing import Any, Dict
 
@@ -24,7 +24,7 @@ def enqueue_match_job(
         "tenant_schema": tenant_schema,
         "requested_by": requested_by,
         "try_fallback": bool(try_fallback),
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     # LPUSH 로 큐에 job JSON 등록 (간단한 FIFO 큐)

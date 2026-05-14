@@ -45,7 +45,7 @@ class EdiLotte(EdiProcessor):
 
     def _drop_total_row(self) -> pd.DataFrame:
         df = self.data
-        if not isinstance(df.iloc[-1, 0], (int, float)):
+        if not pd.api.types.is_number(df.iloc[-1, 0]):
             # 합계 행 제거
             df = df.iloc[:-1]
         return df

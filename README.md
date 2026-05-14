@@ -81,6 +81,7 @@ These files exceed the default 300-line guideline and should be treated delibera
 ## Tests
 
 The default test run is unit-level only. DB/Redis integration tests are not collected by default, so the default result should not contain skipped tests.
+The default suite covers shared utilities, DB manager conflict-key selection, LLM DTO validation, EDI parser contracts, OCR result parsing, Redis queue payload contracts, and email composition.
 
 ```bash
 ..\venv\Scripts\python.exe -m pytest -q

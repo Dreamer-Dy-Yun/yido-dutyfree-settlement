@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import uuid
 from typing import Any, Dict, List, Literal
@@ -33,7 +33,7 @@ def enqueue_edi_unified_job(
     - fill_passport: uuid_passport 채우기 수행 여부
     """
     job_id = uuid.uuid4().hex
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
     src = sources or ["SILLA", "LOTTE"]
 
     job: Dict[str, Any] = {

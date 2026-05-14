@@ -37,10 +37,11 @@ class ExcelProcessor:
         for header_column in df_columns.tolist():
             col_name : list[str] = []
             for level in header_column:
-                if level.startswith("Unnamed"):
+                level_text = str(level)
+                if level_text.startswith("Unnamed"):
                     pass
                 else:
-                    col_name.append(str(level))
+                    col_name.append(level_text)
             col_names.append(delimiter.join(col_name))
 
         return col_names

@@ -137,7 +137,8 @@ class EdiSilla(EdiProcessor):
         self._normalize_manufactured_at_and_system_note(df, df_unified)
 
         # 빈 문자열 system_note 는 None 으로 정리
-        df_unified["system_note"] = df_unified["system_note"].replace("", None)
+        df_unified["system_note"] = df_unified["system_note"].astype(object)
+        df_unified.loc[df_unified["system_note"] == "", "system_note"] = None
 
         return df_unified
 
