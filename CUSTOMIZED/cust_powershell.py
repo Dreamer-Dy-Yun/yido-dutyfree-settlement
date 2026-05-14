@@ -593,7 +593,7 @@ class ToJson(ConsumerExpr):
 if __name__ == "__main__":
     # Find
 
-    dir_source_base = Path("D:\BLIZZARD")
+    dir_source_base = Path(r"D:\BLIZZARD")
 
     cmd_source = Get_ChildItem(dir_source_base).build() # 5.0 이상 대상.
     cmd_condition = Filter.container("directory")

@@ -10,7 +10,9 @@
 
 import pytest
 import hashlib
+import json
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from CUSTOMIZED.cust_hasher import Hasher
 
@@ -42,6 +44,27 @@ class TestHasher:
         
         expected = hashlib.sha256("123".encode('utf-8')).digest()
         assert hasher.value == expected
+
+    def test_hash_dict_uses_canonical_json(self):
+        """dict 해시는 key 순서와 관계없이 같은 JSON 문자열 기준으로 계산"""
+        dict_left = {
+            "b": "한글",
+            "a": 1,
+            "when": datetime(2026, 5, 14, 9, 30, 0),
+        }
+        dict_right = {
+            "when": datetime(2026, 5, 14, 9, 30, 0),
+            "a": 1,
+            "b": "한글",
+        }
+
+        left_hash = Hasher().hash(dict_left).value
+        right_hash = Hasher().hash(dict_right).value
+        expected_payload = json.dumps(dict_left, sort_keys=True, ensure_ascii=False, default=str)
+        expected = hashlib.sha256(expected_payload.encode("utf-8")).digest()
+
+        assert left_hash == expected
+        assert right_hash == expected
 
     def test_hash_file(self):
         """파일 해시 테스트"""

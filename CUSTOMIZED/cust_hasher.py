@@ -11,9 +11,11 @@
 #        2026.02.25 : 해시 값 비교 시 문자열 비교 가능하도록 수정 등
 #        2026.03.03 : overload 적용 등
 #        2026.03.04 : 파일 해시 시, 청킹 추가
+#        2026.05.14 : Codex - dict 입력 JSON canonical 해시 지원 추가
 ############################################
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Self, Any, overload
 
@@ -52,7 +54,11 @@ class Hasher:
     def hash(self, contents: Path, chunk_size : int = 1024 * 1024, ignore_errors: bool = True) -> Self:
         pass
 
-    def hash(self, contents: bytes | int | str | Path, chunk_size : int = 1024 * 1024, ignore_errors: bool = True) -> Self:
+    @overload
+    def hash(self, contents: dict[str, Any], ignore_errors: bool = True) -> Self:
+        pass
+
+    def hash(self, contents: bytes | int | str | Path | dict[str, Any], chunk_size : int = 1024 * 1024, ignore_errors: bool = True) -> Self:
         try:
             if isinstance(contents, Path):
                 return self._hash_file(contents, chunk_size)
@@ -62,8 +68,10 @@ class Hasher:
                 return self._hash_string(contents)
             elif isinstance(contents, int):
                 return self._hash_int(contents)
+            elif isinstance(contents, dict):
+                return self._hash_json(contents)
             else:
-                raise TypeError(f"contents must be Path or bytes or str or int, got {type(contents)!r}")
+                raise TypeError(f"contents must be Path or bytes or str or int or dict, got {type(contents)!r}")
         except Exception as e:
             if ignore_errors:
                 return self
@@ -84,6 +92,10 @@ class Hasher:
     def _hash_int(self, int: int) -> Self:
         self._hashed_value = hashlib.sha256(str(int).encode(self._encoding)).digest()
         return self
+
+    def _hash_json(self, dict_data: dict[str, Any]) -> Self:
+        json_data = json.dumps(dict_data, sort_keys=True, ensure_ascii=False, default=str)
+        return self._hash_string(json_data)
 
 
     def _hash_file(self, path_file: Path, chunk_size : int = 1024 * 1024) -> Self:

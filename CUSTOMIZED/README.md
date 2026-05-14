@@ -10,7 +10,7 @@ This folder contains shared utility modules used across the backend.
 | `cust_deco_error.py` | Error-handling and query-param decorator helpers used by routes. |
 | `cust_deco_retry.py` | Async retry decorator helper. |
 | `cust_excel_processor.py` | Excel processing utilities. |
-| `cust_hasher.py` | Hashing helpers for strings, bytes, files, and comparisons. |
+| `cust_hasher.py` | Hashing helpers for strings, bytes, files, dict JSON payloads, and comparisons. |
 | `cust_iterator.py` | Iterator helper utilities. |
 | `cust_linux.py` | Linux command/helper utilities. |
 | `cust_logger.py` | Shared logger configuration. |

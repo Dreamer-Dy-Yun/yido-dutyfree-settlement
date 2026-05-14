@@ -86,10 +86,9 @@ class YidoParser:
             "purchaser": (receipt.get("purchaser") or "").strip().upper() or None,
             "coordinate": receipt.get("coordinate"),  # JSON 형식
         }
-        hash_source = json.dumps(dict_temp, sort_keys=True, ensure_ascii=False, default=str)
         return {
             **dict_temp,
-            "hash_ocr_result": Hasher().hash(hash_source).value.hex(),
+            "hash_ocr_result": Hasher().hash(dict_temp).value.hex(),
             "uuid_batch": self._uuid_batch,
             "uuid_record": uuid.uuid4().hex,
         }
@@ -108,10 +107,9 @@ class YidoParser:
             "authority": (passport.get("authority") or "").strip() or None,
             "coordinate": passport.get("coordinate"),  # JSON 형식
         }
-        hash_source = json.dumps(dict_temp, sort_keys=True, ensure_ascii=False, default=str)
         return {
             **dict_temp,
-            "hash_ocr_result": Hasher().hash(hash_source).value.hex(),
+            "hash_ocr_result": Hasher().hash(dict_temp).value.hex(),
             "uuid_batch": self._uuid_batch,
             "uuid_record": uuid.uuid4().hex,
         }
