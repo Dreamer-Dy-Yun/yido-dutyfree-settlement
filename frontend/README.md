@@ -6,11 +6,11 @@ It is now structured so this folder can become its own repository later.
 ## Commands
 
 ```bash
-npm install
+pnpm install
 copy .env.example .env
-npm run dev
-npm run lint
-npm run build
+pnpm run dev
+pnpm run lint
+pnpm run build
 ```
 
 `VITE_API_BASE_URL` defaults to `http://localhost:10000` when not set.
@@ -37,11 +37,7 @@ Components should not create axios calls directly. Add or adjust API calls in `s
 
 ## Refactor Notes
 
-Several frontend files still exceed the 300-line target. Split them by component/workflow boundary, not by arbitrary line count:
+Frontend package management is standardized on pnpm. Keep `pnpm-lock.yaml` as the single dependency lockfile and do not add npm or yarn lockfiles.
+`pnpm-workspace.yaml` records approved dependency build scripts; keep `esbuild` approved so Vite can install reproducibly under pnpm 11.
 
-- `src/data-mapping/ImageVerifyModal.jsx`
-- `src/admin/pages/TenantDetailPage.jsx`
-- `src/data-mapping/EdiUnifiedCheckPanel.jsx`
-- `src/pages/WorkspacePage.jsx`
-
-`src/data-mapping/ImageViewer.jsx`, `src/data-mapping/ImageMappingPanel.jsx`, and `src/pages/DataMappingPage.jsx` are now below the 300-line target after extracting viewer geometry/hooks, matching status/table components, and upload panels.
+Known large workflow files have been split below the 300-line target by component/workflow boundary, including image verification, EDI unified check, tenant detail, and workspace management screens.
