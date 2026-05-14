@@ -10,4 +10,8 @@ This folder contains matching integration coverage.
 
 ## Execution
 
-This test is skipped by default unless `RUN_DB_TESTS=1` because it requires local DB/Redis/schema setup.
+This test is not collected by default because it requires local DB/Redis/schema setup.
+
+```bash
+..\venv\Scripts\python.exe -m pytest -q --run-db-tests PROCESSOR_MATCHING/tests
+```

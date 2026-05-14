@@ -80,9 +80,22 @@ These files exceed the default 300-line guideline and should be treated delibera
 
 ## Tests
 
-`pytest.ini` collects tests from concrete backend folders. Tests that need local PostgreSQL/Redis are skipped unless `RUN_DB_TESTS=1` is set.
+The default test run is unit-level only. DB/Redis integration tests are not collected by default, so the default result should not contain skipped tests.
 
 ```bash
+..\venv\Scripts\python.exe -m pytest -q
+```
+
+Run integration tests only when a local PostgreSQL/Redis/schema environment is ready:
+
+```bash
+..\venv\Scripts\python.exe -m pytest -q --run-db-tests
+```
+
+The environment variable form is also supported:
+
+```bash
+$env:RUN_DB_TESTS = "1"
 ..\venv\Scripts\python.exe -m pytest -q
 ```
 

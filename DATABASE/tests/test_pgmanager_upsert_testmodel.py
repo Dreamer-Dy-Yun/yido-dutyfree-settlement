@@ -18,8 +18,11 @@ import pytest
 import pandas as pd
 
 from DATABASE.models import BaseModel
-from DATABASE.models.public_model import TestModel
+from DATABASE.models.public_model import TestModel as DBTestModel
 from DATABASE.dbms.postgre.pg_manager import DataBaseMaker, PGDBManager
+
+
+pytestmark = pytest.mark.integration
 
 
 # 개발용 로컬 DB 기준
@@ -85,7 +88,7 @@ async def test_upsert_without_non_nullable_column(pg_manager: PGDBManager) -> No
             }
         ]
     )
-    inserted = await pg_manager._upsert_dataframe(TestModel, df_seed)
+    inserted = await pg_manager._upsert_dataframe(DBTestModel, df_seed)
     assert inserted == 1
 
     # 2) non-nullable(b) 제외하고 upsert
@@ -98,7 +101,7 @@ async def test_upsert_without_non_nullable_column(pg_manager: PGDBManager) -> No
             }
         ]
     )
-    upserted = await pg_manager._upsert_dataframe(TestModel, df_upsert_min)
+    upserted = await pg_manager._upsert_dataframe(DBTestModel, df_upsert_min)
     assert upserted == 1
 
     # 3) 결과 검증

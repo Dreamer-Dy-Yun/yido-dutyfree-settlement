@@ -17,6 +17,9 @@ from DATABASE.models.public_model import TestModel as DBTestModel
 from DATABASE.dbms.postgre.pg_manager import DataBaseMaker, PGDBManager
 
 
+pytestmark = pytest.mark.integration
+
+
 # 개발용 로컬 DB 기준
 DB_NAME = "dev"
 DB_USER = "admin"

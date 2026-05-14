@@ -8,6 +8,9 @@ from PROCESSOR_MATCHING.matchers.matcher_lotte import PRM_Lotte
 from PROCESSOR_MATCHING.run_match_worker import _create_db_manager
 
 
+pytestmark = pytest.mark.integration
+
+
 TEST_TENANT_SCHEMA_ENV = "TEST_TENANT_SCHEMA"
 DEFAULT_TEST_TENANT_SCHEMA = "test_tenant_matching"
 DEFAULT_PUBLIC_SCHEMA = "public"

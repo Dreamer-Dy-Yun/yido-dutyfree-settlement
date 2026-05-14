@@ -15,8 +15,14 @@ This folder contains DB manager tests.
 
 ## Execution
 
-By default, integration tests are skipped unless `RUN_DB_TESTS=1`.
+By default, DB integration tests are not collected. This keeps the normal backend check focused on tests that can run without local PostgreSQL/Redis.
 
 ```bash
 ..\venv\Scripts\python.exe -m pytest -q
+```
+
+Collect and run DB integration tests only when the local DB environment is ready:
+
+```bash
+..\venv\Scripts\python.exe -m pytest -q --run-db-tests
 ```

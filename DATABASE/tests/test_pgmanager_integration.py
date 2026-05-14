@@ -13,6 +13,9 @@ from DATABASE.models.public_model import Tenant
 from DATABASE.dbms.postgre.pg_manager import DataBaseMaker, PGDBManager
 
 
+pytestmark = pytest.mark.integration
+
+
 # 테스트용 DB 접속 정보 (개발용 로컬 DB 기준)
 DB_NAME = "dev"
 DB_USER = "admin"
