@@ -44,6 +44,7 @@
 #                    - pg_dataframe.py: DataFrame conversion
 #                    - pg_constraints.py: metadata constraint cache
 #                    - pg_identifiers.py: PostgreSQL identifier quoting
+#       2026.05.15 : mixin 상속 제거, composition component 주입 구조로 변경
 # TODO : Steaming용 모듈 작성 고려
 # TODO : 임의의 스키마 내 테이블 일괄 변경 (퍼블릭, 테넌트 스키마(스키마 미지정) 모두 가능)
 # TODO : PGDBManager.convert_df_by_model() 추가. 테스트 완료시 기존 함수 삭제 (구현 : 2026.03.19)
@@ -62,7 +63,7 @@ asyncpg 사용시 유니코드 문제로 비동기로 pg 접속이 안될 수 �
 from __future__ import annotations
 
 import urllib
-from typing import Any, Optional, TypeVar
+from typing import Any, AsyncContextManager, TypeVar
 
 from pandas import DataFrame
 from sqlalchemy import Column, text
@@ -72,23 +73,16 @@ from sqlalchemy.sql.elements import Executable
 
 from CUSTOMIZED.cust_logger import logger
 from DATABASE.dbms import DBManager
-from DATABASE.dbms.postgre.pg_batch import BatchWriterMixin
-from DATABASE.dbms.postgre.pg_constraints import ConstraintInspectorMixin
+from DATABASE.dbms.postgre.pg_batch import BatchResult
+from DATABASE.dbms.postgre.pg_components import PGManagerComponents
 from DATABASE.dbms.postgre.pg_database import DataBaseMaker
-from DATABASE.dbms.postgre.pg_dataframe import DataFrameConverterMixin
-from DATABASE.dbms.postgre.pg_schema import SchemaManagerMixin
+from DATABASE.dbms.postgre.pg_dataframe import PGDataFrameConverter
 
 
 TableModel = TypeVar("TableModel", bound=DeclarativeBase)
 
 
-class PGDBManager(
-    SchemaManagerMixin,
-    BatchWriterMixin,
-    DataFrameConverterMixin,
-    ConstraintInspectorMixin,
-    DBManager,
-):
+class PGDBManager(DBManager):
     """PostgreSQL 비동기 DB manager.
 
     이 클래스는 외부 공개 API를 유지하는 facade다. 세부 책임은 같은 패키지의
@@ -111,19 +105,12 @@ class PGDBManager(
         self.password = password
         self.host = host
         self.port = port
-        self.async_engine: Optional[AsyncEngine] = None
-        self.session_maker: Optional[sessionmaker] = None
+        self.async_engine: AsyncEngine | None = None
+        self.session_maker: sessionmaker[AsyncSession] | None = None
         self.base_model: type[DeclarativeBase] = base_model
         self.client_encoding = ""
         self.schemas: list[str] | None = None
-
-        self.unique_constraints: dict[str, list[list[str]]] = {}
-        self.primary_constraints: dict[str, list[list[str]]] = {}
-        self.foreign_key_constraints: dict[str, list[list[str]]] = {}
-        self.nullable_columns: dict[str, list[str]] = {}
-        self.not_null_columns: dict[str, list[str]] = {}
-        self.unique_keys: dict[str, list[str]] = {}
-        self.primary_keys: dict[str, list[str]] = {}
+        self._init_components()
 
         self.initialize_engine(
             self.db_name,
@@ -158,6 +145,26 @@ class PGDBManager(
         self.async_engine = create_async_engine(uri, echo=False, pool_size=pool_size, max_overflow=max_overflow)
         self.session_maker = sessionmaker(bind=self.async_engine, class_=AsyncSession, expire_on_commit=False)
 
+    def _init_components(self) -> None:
+        self._components: PGManagerComponents = PGManagerComponents(self)
+
+    def _components_ref(self) -> PGManagerComponents:
+        components = self.__dict__.get("_components")
+        if components is None:
+            components = PGManagerComponents(self)
+            self._components = components
+        return components
+
+    def _engine(self) -> AsyncEngine:
+        if self.async_engine is None:
+            raise RuntimeError("PostgreSQL async engine is not initialized.")
+        return self.async_engine
+
+    def _session_factory(self) -> sessionmaker[AsyncSession]:
+        if self.session_maker is None:
+            raise RuntimeError("PostgreSQL session maker is not initialized.")
+        return self.session_maker
+
     async def dispose_pool(self) -> None:
         if self.async_engine:
             await self.async_engine.dispose()
@@ -169,7 +176,7 @@ class PGDBManager(
         params: dict | list[dict] | None = None,
         schemas: list[str] | None = None,
     ) -> Any:
-        async with self.session_maker() as session:
+        async with self._session_factory()() as session:
             try:
                 await self._set_session_schemas(session, schemas)
                 result = await session.execute(text(query) if isinstance(query, str) else query, params or {})
@@ -179,6 +186,95 @@ class PGDBManager(
                 await session.rollback()
                 logger.exception(f"Query execution error: {exc}")
                 raise
+
+    async def set_schemas(self, schemas: list[str] | None = None) -> PGDBManager:
+        return await self._components_ref().schema_manager.set_schemas(schemas)
+
+    async def exist_schemas(self, schemas: list[str], raise_error: bool = False) -> bool:
+        return await self._components_ref().schema_manager.exist_schemas(schemas, raise_error)
+
+    async def exists_schema(self, schema: str) -> bool:
+        return await self._components_ref().schema_manager.exists_schema(schema)
+
+    async def create_schema(self, schema: str) -> bool:
+        return await self._components_ref().schema_manager.create_schema(schema)
+
+    async def drop_schema(self, schema: str) -> bool:
+        return await self._components_ref().schema_manager.drop_schema(schema)
+
+    async def _set_session_schemas(self, session: AsyncSession, schemas: list[str] | None = None) -> None:
+        await self._components_ref().schema_manager._set_session_schemas(session, schemas)
+
+    async def get_all_schemas(self) -> list[str]:
+        return await self._components_ref().schema_manager.get_all_schemas()
+
+    async def copy_tables_of_schema(self, schema_to_make: str, schemas_for_fk: list[str] | None = None) -> int:
+        return await self._components_ref().schema_manager.copy_tables_of_schema(schema_to_make, schemas_for_fk)
+
+    async def truncate_table(self, table: type[DeclarativeBase], restart_identity: bool = True, cascade: bool = True) -> bool:
+        return await self._components_ref().schema_manager.truncate_table(table, restart_identity, cascade)
+
+    def __getattr__(self, name: str) -> Any:
+        return self._components_ref().resolve(name)
+
+    async def upsert_batch(
+        self,
+        table: type[DeclarativeBase],
+        data: DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        params_per_chunk: int = 30000,
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+        session: AsyncSession | None = None,
+    ) -> BatchResult:
+        return await self._components_ref().batch_writer.upsert_batch(
+            table, data, schemas, conflict_cols, try_convert, session, params_per_chunk, allow_infinity, partial_commit
+        )
+
+    async def update_batch(
+        self,
+        table: type[DeclarativeBase],
+        data_to_update: DataFrame | None = None,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        params_per_chunk: int = 10000,
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+        session: AsyncSession | None = None,
+        data: DataFrame | None = None,
+    ) -> BatchResult:
+        return await self._components_ref().batch_writer.update_batch(
+            table, data_to_update, schemas, conflict_cols, try_convert, session, params_per_chunk, allow_infinity, partial_commit, data
+        )
+
+    @staticmethod
+    def convert_datetime_for_db(df: DataFrame, deep_copy: bool = True) -> DataFrame:
+        return PGDataFrameConverter.convert_datetime_for_db(df, deep_copy)
+
+    @staticmethod
+    def convert_numeric_for_db(
+        df: DataFrame,
+        set_none_as: float | int | None = None,
+        allow_infinity: bool = True,
+        deep_copy: bool = True,
+    ) -> DataFrame:
+        return PGDataFrameConverter.convert_numeric_for_db(df, set_none_as, allow_infinity, deep_copy)
+
+    @staticmethod
+    def convert_string_cols_by_model(df: DataFrame, model: type[DeclarativeBase]) -> DataFrame:
+        return PGDataFrameConverter.convert_string_cols_by_model(df, model)
+
+    def open_session(self, schemas: list[str] | None = None) -> AsyncContextManager[AsyncSession]:
+        return self._components_ref().schema_manager.open_session(schemas)
+
+    async def create_tables(self, schema: str | None = None) -> int:
+        return await self._components_ref().schema_manager.create_tables(schema)
+
+    async def drop_tables(self, schema: str | None = None) -> int:
+        return await self._components_ref().schema_manager.drop_tables(schema)
 
 
 __all__ = ["DataBaseMaker", "PGDBManager"]

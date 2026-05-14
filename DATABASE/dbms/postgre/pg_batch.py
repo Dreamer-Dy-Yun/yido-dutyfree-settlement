@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import overload
+from typing import TYPE_CHECKING, overload
 
 import pandas as pd
 from pandas import DataFrame
@@ -11,10 +11,27 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ColumnElement, Executable
 
-from DATABASE.dbms.postgre.pg_batch_executor import BatchExecutionMixin, BatchResult
+from DATABASE.dbms.postgre.pg_batch_executor import BatchResult, PGBatchExecutor
+from DATABASE.dbms.postgre.pg_constraints import PGConstraintInspector
+from DATABASE.dbms.postgre.pg_dataframe import PGDataFrameConverter
+
+if TYPE_CHECKING:
+    from DATABASE.dbms.postgre.pg_manager import PGDBManager
 
 
-class BatchWriterMixin(BatchExecutionMixin):
+class PGBatchWriter:
+    def __init__(
+        self,
+        manager: PGDBManager,
+        converter: PGDataFrameConverter,
+        constraints: PGConstraintInspector,
+        executor: PGBatchExecutor,
+    ) -> None:
+        self.manager = manager
+        self.converter = converter
+        self.constraints = constraints
+        self.executor = executor
+
     @overload
     async def upsert_batch(
         self,
@@ -62,8 +79,8 @@ class BatchWriterMixin(BatchExecutionMixin):
         if session is not None:
             return await self._upsert_dataframe_core(table, df, session, rows_per_batch, conflict_cols, partial_commit=False)
 
-        async with self.session_maker() as session:
-            await self._set_session_schemas(session, schemas)
+        async with self.manager._session_factory()() as session:
+            await self.manager._set_session_schemas(session, schemas)
             try:
                 result = await self._upsert_dataframe_core(table, df, session, rows_per_batch, conflict_cols, partial_commit)
                 if not partial_commit:
@@ -84,6 +101,34 @@ class BatchWriterMixin(BatchExecutionMixin):
     ) -> int:
         result = await self.upsert_batch(table, df, schemas, conflict_cols, try_convert)
         return int(result["cnt_success_rows"])
+
+    @overload
+    async def update_batch(
+        self,
+        table: type[DeclarativeBase],
+        data_to_update: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        params_per_chunk: int = 10000,
+        allow_infinity: bool = True,
+        partial_commit: bool = True,
+    ) -> BatchResult:
+        ...
+
+    @overload
+    async def update_batch(
+        self,
+        table: type[DeclarativeBase],
+        data_to_update: pd.DataFrame,
+        schemas: list[str] | None = None,
+        conflict_cols: list[str] | None = None,
+        try_convert: bool = True,
+        session: AsyncSession | None = None,
+        params_per_chunk: int = 10000,
+        allow_infinity: bool = True,
+    ) -> BatchResult:
+        ...
 
     async def update_batch(
         self,
@@ -106,8 +151,8 @@ class BatchWriterMixin(BatchExecutionMixin):
         if session is not None:
             return await self._update_dataframe_core(table, df, session, rows_per_batch, conflict_cols, partial_commit=False)
 
-        async with self.session_maker() as session:
-            await self._set_session_schemas(session, schemas)
+        async with self.manager._session_factory()() as session:
+            await self.manager._set_session_schemas(session, schemas)
             try:
                 result = await self._update_dataframe_core(table, df, session, rows_per_batch, conflict_cols, partial_commit)
                 if not partial_commit:
@@ -132,7 +177,7 @@ class BatchWriterMixin(BatchExecutionMixin):
             return DataFrame()
         if len(data.columns) == 0:
             raise ValueError("DataFrame has no columns.")
-        return self._convert_df_for_db(data, table, try_convert=try_convert, allow_infinity=allow_infinity)
+        return self.converter._convert_df_for_db(data, table, try_convert=try_convert, allow_infinity=allow_infinity)
 
     def _rows_per_batch(self, df: pd.DataFrame, params_per_chunk: int) -> int:
         if len(df) == 0:
@@ -140,7 +185,7 @@ class BatchWriterMixin(BatchExecutionMixin):
         return max(1, params_per_chunk // max(1, len(df.columns)))
 
     def _validate_conflict_cols(self, conflict_cols: list[str] | None, table: type[DeclarativeBase]) -> None:
-        if conflict_cols and not self._is_valid_conflict_cols(conflict_cols, table):
+        if conflict_cols and not self.constraints._is_valid_conflict_cols(conflict_cols, table):
             raise ValueError(f"Invalid conflict columns: {conflict_cols}")
 
     async def _upsert_dataframe_core(
@@ -178,7 +223,7 @@ class BatchWriterMixin(BatchExecutionMixin):
             upsert_stmt = self._build_upsert_statement(table, batch, conflict_cols)
             await session.execute(upsert_stmt)
 
-        return await self._execute_batches(df, session, rows_per_batch, partial_commit, execute_batch)
+        return await self.executor.execute_batches(df, session, rows_per_batch, partial_commit, execute_batch)
 
     async def _execute_update_batches(
         self,
@@ -194,10 +239,10 @@ class BatchWriterMixin(BatchExecutionMixin):
             if update_stmt is not None:
                 await session.execute(update_stmt)
 
-        return await self._execute_batches(df, session, rows_per_batch, partial_commit, execute_batch)
+        return await self.executor.execute_batches(df, session, rows_per_batch, partial_commit, execute_batch)
 
     def _build_upsert_statement(self, table: type[DeclarativeBase], df: pd.DataFrame, conflict_cols: list[str] | None = None) -> Executable:
-        uniqs = conflict_cols or self._get_most_suitable_unique_keys(table, df)
+        uniqs = conflict_cols or self.constraints._get_most_suitable_unique_keys(table, df)
         df_filtered = self._filter_model_columns(table, df)
         rows = df_filtered.to_dict(orient="records")
         stmt: Insert = insert(table).values(rows)
@@ -216,7 +261,7 @@ class BatchWriterMixin(BatchExecutionMixin):
         df: pd.DataFrame,
         conflict_cols: list[str] | None = None,
     ) -> Executable | None:
-        uniqs = conflict_cols or self._get_most_suitable_unique_keys(table, df)
+        uniqs = conflict_cols or self.constraints._get_most_suitable_unique_keys(table, df)
         df_filtered = self._filter_model_columns(table, df)
         missing_keys = [key for key in uniqs if key not in df_filtered.columns]
         if missing_keys:
@@ -251,3 +296,5 @@ class BatchWriterMixin(BatchExecutionMixin):
     def _filter_model_columns(table: type[DeclarativeBase], df: pd.DataFrame) -> DataFrame:
         model_columns = [col.name for col in table.__table__.columns]
         return df[[col for col in model_columns if col in df.columns]]
+
+__all__ = ["BatchResult", "PGBatchWriter"]

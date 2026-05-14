@@ -8,7 +8,7 @@ from sqlalchemy import Boolean, Date, DateTime, Float, Integer, JSON, Numeric, S
 from sqlalchemy.orm import DeclarativeBase
 
 
-class DataFrameConverterMixin:
+class PGDataFrameConverter:
     @staticmethod
     def convert_datetime_for_db(df: pd.DataFrame, deep_copy: bool = True) -> pd.DataFrame:
         """datetime 컬럼만 DB 입력 가능한 Python datetime/None 값으로 변환한다."""
@@ -153,3 +153,6 @@ class DataFrameConverterMixin:
     @staticmethod
     def _fix_cols_json(series: pd.Series) -> pd.Series:
         return series.astype(object).where(pd.notna(series), None)
+
+
+__all__ = ["PGDataFrameConverter"]
