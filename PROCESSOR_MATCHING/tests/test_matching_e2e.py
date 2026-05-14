@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import insert, select, text
 
 from DATABASE import models
-from PROCESSOR_MATCHING.matcher import PRM_Lotte
+from PROCESSOR_MATCHING.matchers.matcher_lotte import PRM_Lotte
 from PROCESSOR_MATCHING.run_match_worker import _create_db_manager
 
 
