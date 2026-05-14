@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import pandas as pd
+from typing import TypeAlias, TypeVar
+
 from sqlalchemy import ForeignKeyConstraint, PrimaryKeyConstraint, Table, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase
-from typing import TypeAlias, TypeVar
 
 
 ColumnNames: TypeAlias = list[str]
@@ -11,14 +12,24 @@ ConstraintColumns: TypeAlias = list[list[str]]
 CacheValue = TypeVar("CacheValue", ColumnNames, ConstraintColumns)
 
 
-class ConstraintInspectorMixin:
-    unique_constraints: dict[str, ConstraintColumns]
-    primary_constraints: dict[str, ConstraintColumns]
-    foreign_key_constraints: dict[str, ConstraintColumns]
-    nullable_columns: dict[str, ColumnNames]
-    not_null_columns: dict[str, ColumnNames]
-    unique_keys: dict[str, ColumnNames]
-    primary_keys: dict[str, ColumnNames]
+class PGConstraintInspector:
+    def __init__(
+        self,
+        unique_constraints: dict[str, ConstraintColumns] | None = None,
+        primary_constraints: dict[str, ConstraintColumns] | None = None,
+        foreign_key_constraints: dict[str, ConstraintColumns] | None = None,
+        nullable_columns: dict[str, ColumnNames] | None = None,
+        not_null_columns: dict[str, ColumnNames] | None = None,
+        unique_keys: dict[str, ColumnNames] | None = None,
+        primary_keys: dict[str, ColumnNames] | None = None,
+    ) -> None:
+        self.unique_constraints = unique_constraints if unique_constraints is not None else {}
+        self.primary_constraints = primary_constraints if primary_constraints is not None else {}
+        self.foreign_key_constraints = foreign_key_constraints if foreign_key_constraints is not None else {}
+        self.nullable_columns = nullable_columns if nullable_columns is not None else {}
+        self.not_null_columns = not_null_columns if not_null_columns is not None else {}
+        self.unique_keys = unique_keys if unique_keys is not None else {}
+        self.primary_keys = primary_keys if primary_keys is not None else {}
 
     @staticmethod
     def _table_key(table_or_model: Table | type[DeclarativeBase]) -> str:
@@ -131,3 +142,6 @@ class ConstraintInspectorMixin:
     def _store_table_cache(self, store: dict[str, CacheValue], table: Table, value: CacheValue) -> None:
         store[self._table_key(table)] = value
         store.setdefault(table.name, value)
+
+
+__all__ = ["ColumnNames", "ConstraintColumns", "PGConstraintInspector"]

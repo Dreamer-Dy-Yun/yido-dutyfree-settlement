@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, TypeAlias
+from typing import Any, Awaitable, Callable, TypeAlias, TypedDict
 
 import pandas as pd
 from pandas import DataFrame
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-BatchResult: TypeAlias = dict[str, int | DataFrame | list[str]]
 BatchExecutor: TypeAlias = Callable[[pd.DataFrame], Awaitable[None]]
 
 
-class BatchExecutionMixin:
-    async def _execute_batches(
+class BatchResult(TypedDict):
+    cnt_success_rows: int
+    cnt_failed_rows: int
+    df_failed: DataFrame
+    errors: list[str]
+
+
+class PGBatchExecutor:
+    async def execute_batches(
         self,
         df: pd.DataFrame,
         session: AsyncSession,
@@ -59,3 +65,6 @@ class BatchExecutionMixin:
         orig: Any = getattr(exc, "orig", None)
         message = str(orig) if orig else str(exc)
         return f"[batch={batch_index}] {type(exc).__name__}: {message}"
+
+
+__all__ = ["BatchExecutor", "BatchResult", "PGBatchExecutor"]
