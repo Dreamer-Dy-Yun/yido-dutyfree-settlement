@@ -1,0 +1,181 @@
+.common-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.common-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  padding: 12px;
+}
+
+.common-card-header {
+  padding: 20px 24px;
+}
+
+.common-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.common-tabs {
+  display: flex;
+  gap: 10px;
+  padding: 6px 8px 2px;
+  margin-bottom: 20px;
+}
+
+.common-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.common-tabs-row .common-tabs {
+  margin-bottom: 0;
+}
+
+.common-tabs-row .common-tabs.btn {
+  margin-left: auto;
+}
+
+.common-tabs button {
+  padding: 12px 24px;
+  font-size: 16px;
+}
+
+.common-tabs.btn button {
+  padding: 12px 24px;
+  border-radius: 80px;
+  font-size: 16px;
+  background: #16a34a;
+  border: 2px solid #16a34a;
+  color: #fff;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.common-tabs.btn button:hover:not(:disabled) {
+  background: #15803d;
+  border-color: #15803d;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.15);
+  filter: brightness(1.01);
+}
+
+.common-tabs.btn button:active:not(:disabled) {
+  background: #166534;
+  border-color: #166534;
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
+}
+
+.common-tabs.btn button:focus-visible {
+  outline: 2px solid #16a34a;
+  outline-offset: 2px;
+}
+
+.common-tabs.tab button {
+  background: #fff;
+  border: 2px solid #e0e0e0;
+  border-radius: 5px 20px 0 0;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s;
+}
+
+.common-tabs.tab button:hover {
+  background: #f8f9fa;
+}
+
+.common-tabs.tab button.active {
+  background: #667eea;
+  border-color: #667eea;
+  color: #fff;
+}
+
+.common-btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 2px solid #e0e0e0;
+  background: #fff;
+  color: #333;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.common-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.common-btn-primary {
+  background: #667eea;
+  border-color: #667eea;
+  color: #fff;
+}
+
+.common-btn-primary:hover:not(:disabled) {
+  background: #5568d3;
+  border-color: #5568d3;
+}
+
+.common-btn-secondary:hover:not(:disabled) {
+  background: #f8f9fa;
+}
+
+.common-btn-success {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #fff;
+}
+
+.common-btn-success:hover:not(:disabled) {
+  background: #16a34a;
+  border-color: #16a34a;
+}
+
+.common-btn-danger {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+}
+
+.common-btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.common-table-wrap {
+  overflow-x: auto;
+}
+
+.common-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.common-table th,
+.common-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  font-size: 14px;
+}
+
+.common-state {
+  padding: 24px;
+  text-align: center;
+  font-size: 15px;
+}
+
+.common-state.error {
+  color: #d32f2f;
+}

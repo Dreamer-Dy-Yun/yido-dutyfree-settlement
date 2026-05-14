@@ -1,0 +1,76 @@
+.tenant-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.tenant-card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.tenant-card.pending {
+  border-left: 4px solid #ff9800;
+}
+
+.tenant-card.active {
+  border-left: 4px solid #4caf50;
+}
+
+.tenant-card.rejected {
+  border-left: 4px solid #f44336;
+}
+
+.tenant-card-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.tenant-alias {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+}
+
+.tenant-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.tenant-date {
+  font-size: 0.9rem;
+  color: #666;
+  white-space: nowrap;
+}
+
+.status-badge {
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.status-badge.active {
+  background-color: #4caf50;
+  color: white;
+}
+
+.status-badge.pending {
+  background-color: #ff9800;
+  color: white;
+}
+
+.status-badge.rejected {
+  background-color: #f44336;
+  color: white;
+}

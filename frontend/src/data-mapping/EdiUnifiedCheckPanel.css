@@ -1,0 +1,343 @@
+.edi-check-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edi-check-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: flex-end;
+}
+
+.edi-check-controls .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edi-check-controls label {
+  font-size: 12px;
+  color: #666;
+}
+
+.edi-check-controls input,
+.edi-check-controls select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  min-width: 160px;
+}
+
+.edi-check-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.edi-btn {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+
+.edi-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(47, 111, 237, 0.2);
+  border-top-color: #2f6fed;
+  border-radius: 999px;
+  display: inline-block;
+  animation: edi-spin 0.8s linear infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@keyframes edi-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.edi-btn.primary {
+  border-color: #2f6fed;
+  background: #2f6fed;
+  color: #fff;
+}
+
+.edi-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.edi-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.edi-tab {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+}
+
+.edi-tab.active {
+  border-color: #2f6fed;
+  background: rgba(47, 111, 237, 0.08);
+}
+
+.edi-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.edi-table th,
+.edi-table td {
+  border-bottom: 1px solid #eee;
+  padding: 10px 8px;
+  text-align: left;
+  font-size: 13px;
+}
+
+/* 그룹 목록(메인) 테이블 — 헤더를 살짝만 구분 */
+.edi-main-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.edi-main-table thead th {
+  background: #f8f9fb;
+  color: #1e293b;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* fixed 레이아웃에서 열 width 미지정 시 남는 폭이 열들에 나뉘며 짧은 셀도 넓게 보일 수 있음 → 2열(매출일자)만 폭 고정 */
+.edi-main-table thead th:nth-child(2),
+.edi-main-table tbody td:nth-child(2) {
+  width: 150px;
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edi-main-table thead th:nth-child(1),
+.edi-main-table tbody td:nth-child(1) {
+  width: 96px;
+}
+
+.edi-row {
+  cursor: pointer;
+}
+
+.edi-row:hover {
+  background: #fafafa;
+}
+
+/* 펼친 상세: 리스트와 구분 (연한 배경 + 왼쪽 악센트) */
+.edi-detail-row > .edi-detail-cell {
+  padding: 0;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+  background: #f5f8fc;
+}
+
+.edi-detail-wrap {
+  padding: 10px 14px 14px 16px;
+  border-left: 4px solid #2f6fed;
+  border-radius: 0 8px 8px 0;
+  background: rgba(240, 245, 252, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(47, 111, 237, 0.12);
+}
+
+.edi-detail-loading {
+  padding: 12px 4px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* 중첩 라인 테이블: 카드형 + 헤더 톤 분리 */
+.edi-detail-nested-table {
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #d1dae6;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.edi-detail-nested-table th,
+.edi-detail-nested-table td {
+  border-bottom: 1px solid #e8edf4;
+}
+
+.edi-detail-nested-table thead th {
+  background: #e8eef7;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 8px;
+}
+
+.edi-detail-nested-table tbody td {
+  font-size: 12px;
+  padding: 8px;
+  background: #fff;
+}
+
+.edi-detail-nested-table tbody tr:nth-child(even) td {
+  background: #fafbfd;
+}
+
+.edi-detail-nested-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.edi-detail-empty {
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+  padding: 16px 8px !important;
+}
+
+.edi-detail {
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+
+.edi-muted {
+  color: #777;
+  font-size: 12px;
+}
+
+.edi-badge {
+  display: inline-block;
+  min-width: 70px;
+  text-align: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+
+.edi-badge.full {
+  background: rgba(76, 175, 80, 0.10);
+  color: #1b5e20;
+  border-color: rgba(76, 175, 80, 0.25);
+}
+
+.edi-badge.partial {
+  background: rgba(255, 193, 7, 0.18);
+  color: #7a5a00;
+  border-color: rgba(255, 193, 7, 0.35);
+}
+
+.edi-badge.unmapped {
+  background: rgba(224, 62, 62, 0.10);
+  color: #8e1d1d;
+  border-color: rgba(224, 62, 62, 0.25);
+}
+
+/* 영수증/여권 UUID 연결 배지 (목록) */
+.edi-link-badge {
+  display: inline-block;
+  min-width: 52px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+  border: 1px solid transparent;
+}
+
+.edi-link-badge.edi-link-on {
+  background: rgba(46, 125, 50, 0.12);
+  color: #1b5e20;
+  border-color: rgba(46, 125, 50, 0.35);
+}
+
+.edi-link-badge.edi-link-off {
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.28);
+}
+
+.edi-note-badge {
+  display: inline-block;
+  min-width: 52px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background-clip: padding-box;
+}
+
+.edi-note-badge.edi-note-on {
+  background: rgba(224, 62, 62, 0.14);
+  color: #8e1d1d;
+  border-color: rgba(224, 62, 62, 0.3);
+}
+
+.edi-note-badge.edi-note-off {
+  background: rgba(148, 163, 184, 0.12);
+  color: #64748b;
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.edi-note-tooltip {
+  position: fixed;
+  z-index: 1200;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(40vh, 360px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  padding: 10px 12px;
+  pointer-events: none;
+}
+
+.edi-note-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.edi-note-body {
+  font-size: 13px;
+  color: #1f2937;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.edi-error {
+  color: #b00020;
+  font-size: 13px;
+}
+

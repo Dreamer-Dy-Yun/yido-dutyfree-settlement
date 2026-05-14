@@ -1,0 +1,212 @@
+.profile-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.profile-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.profile-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.profile-modal-header h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.profile-modal-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #6b7280;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.profile-modal-close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.profile-modal-body {
+  padding: 20px;
+}
+
+.profile-modal-dl {
+  margin: 0 0 20px;
+  font-size: 0.875rem;
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px 20px;
+  align-items: baseline;
+}
+
+.profile-modal-dl dt {
+  margin: 0;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.profile-modal-dl dd {
+  margin: 0;
+  color: #111827;
+}
+
+.profile-modal-btn-edit {
+  width: 100%;
+  padding: 10px 16px;
+  background: #111827;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.profile-modal-btn-edit:hover {
+  background: #374151;
+}
+
+.profile-modal-password-hint {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.profile-modal-password-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.profile-modal-password-input:focus {
+  outline: none;
+  border-color: #111827;
+}
+
+.profile-modal-error {
+  margin: 0 0 12px;
+  font-size: 0.8125rem;
+  color: #dc2626;
+}
+
+.profile-modal-pw-match {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  color: #059669;
+}
+
+.profile-modal-pw-mismatch {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  color: #dc2626;
+}
+
+.profile-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.profile-modal-btn-primary {
+  padding: 8px 16px;
+  background: #111827;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.profile-modal-btn-primary:hover:not(:disabled) {
+  background: #374151;
+}
+
+.profile-modal-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.profile-modal-btn-secondary {
+  padding: 8px 16px;
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.profile-modal-btn-secondary:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.profile-modal-edit-form label {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.profile-modal-edit-form .profile-modal-muted {
+  font-weight: 400;
+  color: #9ca3af;
+  margin-left: 4px;
+}
+
+.profile-modal-edit-form input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+.profile-modal-edit-form input.profile-modal-input-disabled {
+  background: #f3f4f6;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+.profile-modal-edit-form input:focus {
+  outline: none;
+  border-color: #111827;
+}

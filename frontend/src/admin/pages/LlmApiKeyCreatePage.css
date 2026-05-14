@@ -1,0 +1,74 @@
+@import './CommonUI.css';
+
+.llm-api-key-create-page {
+  gap: 12px;
+}
+
+.llm-api-key-create-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.llm-api-key-create-header h1 {
+  margin: 0;
+  font-size: 20px;
+  color: #333;
+}
+
+.llm-api-key-create-form {
+  padding: 24px;
+}
+
+.llm-api-key-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.llm-api-key-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.llm-api-key-form-item label {
+  font-weight: 600;
+  color: #555;
+}
+
+.llm-api-key-form-item input,
+.llm-api-key-form-item select {
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.llm-api-key-form-item input:focus,
+.llm-api-key-form-item select:focus {
+  outline: none;
+  border-color: #16a34a;
+}
+
+.llm-api-key-full-width {
+  grid-column: 1 / -1;
+}
+
+.llm-api-key-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.llm-api-key-checkbox-label input[type='checkbox'] {
+  width: auto;
+}
+
+.llm-api-key-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
