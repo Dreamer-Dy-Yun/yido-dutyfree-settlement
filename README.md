@@ -18,6 +18,7 @@ pnpm install
 copy .env.example .env
 pnpm run dev
 pnpm run lint
+pnpm run test:run
 pnpm run build
 ```
 
@@ -49,3 +50,5 @@ Frontend package management is standardized on pnpm. Keep `pnpm-lock.yaml` as th
 `pnpm-workspace.yaml` records approved dependency build scripts; keep `esbuild` approved so Vite can install reproducibly under pnpm 11.
 
 Known large workflow files have been split below the 300-line target by component/workflow boundary, including image verification, EDI unified check, tenant detail, and workspace management screens.
+
+`pnpm run test:run` runs Vitest, not lint. Keep boundary tests close to the module they protect, especially API/session utilities and workflow request builders.

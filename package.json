@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test:run": "eslint .",
+    "test": "vitest",
+    "test:run": "vitest run",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",
+    "@testing-library/react": "16.3.2",
     "@types/react": "19.2.10",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.1.2",
@@ -26,6 +28,8 @@
     "eslint-plugin-react-hooks": "7.0.1",
     "eslint-plugin-react-refresh": "0.4.26",
     "globals": "16.5.0",
-    "vite": "7.3.1"
+    "jsdom": "29.1.1",
+    "vite": "7.3.1",
+    "vitest": "4.1.6"
   }
 }

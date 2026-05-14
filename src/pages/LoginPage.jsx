@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login, searchCompany } from '../api/authApi';
+import { getPostLoginRedirectPath } from '../api/authTokenStore';
+import {
+  getCompanyDisplayName,
+  readSelectedTenant,
+  storeSelectedTenant,
+} from '../api/tenantSelectionStore';
 import './LoginPage.css';
 
 function LoginPage() {
@@ -17,15 +23,10 @@ function LoginPage() {
 
   useEffect(() => {
     // 이전에 선택해 둔 회사가 있으면 기본 선택으로 사용
-    const tenantId = localStorage.getItem('selected_tenant_id');
-    const tenantName = localStorage.getItem('selected_tenant_name');
-    if (tenantId && tenantName) {
-      setSelectedCompany({
-        id: parseInt(tenantId, 10),
-        name: tenantName,
-        alias: null,
-      });
-      setCompanyQuery(tenantName);
+    const tenant = readSelectedTenant();
+    if (tenant) {
+      setSelectedCompany(tenant);
+      setCompanyQuery(getCompanyDisplayName(tenant));
     }
   }, []);
 
@@ -56,14 +57,11 @@ function LoginPage() {
   };
 
   const handleSelectCompany = (company) => {
-    const displayName = company.alias || company.name;
+    const displayName = getCompanyDisplayName(company);
     setSelectedCompany(company);
     setCompanyQuery(displayName);
     setCompanyResults([]);
-
-    // 기존 흐름과의 호환을 위해 로컬 스토리지에도 저장
-    localStorage.setItem('selected_tenant_id', company.id);
-    localStorage.setItem('selected_tenant_name', displayName);
+    storeSelectedTenant(company);
   };
 
   const resolveCompanyFromQuery = async (query) => {
@@ -109,38 +107,7 @@ function LoginPage() {
       }
 
       await login(email, password, company.id);
-      
-      // 로그인 성공 시 권한에 따라 리다이렉트
-      // JWT 토큰에서 권한 확인
-      const token = localStorage.getItem('access_token');
-      if (token) {
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          // 시스템 어드민인 경우 /admin으로 이동
-          if (payload.is_superuser === true || payload.role === 'system_admin') {
-            navigate('/admin');
-            return;
-          }
-        } catch {
-          // 토큰 파싱 실패 시 기본 동작
-        }
-      }
-      
-      // 테넌트 관리자만 대시보드 유저관리로 이동, 일반 유저는 데이터 매핑으로 이동
-      if (token) {
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          if (payload.role === 'admin') {
-            navigate('/dashboard');
-          } else {
-            navigate('/dashboard/data-mapping');
-          }
-          return;
-        } catch {
-          // 토큰 파싱 실패 시 데이터 매핑으로 이동
-        }
-      }
-      navigate('/dashboard/data-mapping');
+      navigate(getPostLoginRedirectPath());
     } catch (err) {
       setError(err.response?.data?.detail || '로그인에 실패했습니다');
     } finally {

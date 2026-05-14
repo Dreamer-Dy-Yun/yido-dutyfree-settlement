@@ -13,6 +13,7 @@ This folder contains current documentation for the frontend worktree.
 - Path impact was checked after flattening: tracked source files no longer live under `frontend/`, and deploy/CI docs now target root-level frontend paths.
 - Dependencies were reinstalled with `pnpm install --frozen-lockfile`.
 - `pnpm run lint` passed.
+- `pnpm run test:run` now runs Vitest boundary tests.
 - `VITE_API_BASE_URL=/api pnpm run build` passed.
 
 ## TODO

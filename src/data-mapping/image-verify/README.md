@@ -13,9 +13,11 @@ Image verification modal subcomponents live here.
 | `useImageVerifyDetailState.js` | Detail loading, edit target, form, coordinate, and transient UI state setup. |
 | `useImageVerifyShortcuts.js` | Keyboard shortcut handling for close, confirm, and previous/next navigation. |
 | `imageVerifyRequestBuilders.js` | Pure helpers that resolve verify targets and build API request payloads. |
+| `imageVerifyRequestBuilders.test.js` | Payload builder tests for receipt/passport verification requests. |
 
 ## Boundary
 
 - `ImageVerifyModal.jsx` owns save/delete orchestration and calls backend only through `src/api/tenantApi.js`.
 - Components in this folder render modal UI only and receive data/actions through props.
 - Keyboard behavior stays in `useImageVerifyShortcuts.js`; UI text comes from `src/locales/KO.js`.
+- Request payload changes must update `imageVerifyRequestBuilders.test.js` with the expected API contract.
