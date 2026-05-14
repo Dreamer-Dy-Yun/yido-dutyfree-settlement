@@ -1,31 +1,27 @@
-venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg
-*.egg-info
-dist/
-build/
+# Logs
+logs
 *.log
-.DS_Store
-.idea/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Local POC test scripts (do not commit real API keys)
-POC/test.py
-POC/test copy.py
-POC/test_llm_prompt_yido_image.py
-
-# Nginx 설정 파일 (프로젝트별로 다름)
-nginx/nginx.env
-nginx/nginx.conf.generated
-
-# Local environment files
+node_modules
+dist
+dist-ssr
+*.local
 .env
 .env.*
 !.env.example
 
-# Local tenant upload artifacts
-tenants/
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
