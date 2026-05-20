@@ -25,9 +25,9 @@ Do not modify a hardened module unless the user explicitly allows it for that ta
 
 | Module | Current problem | Preferred split direction |
 | --- | --- | --- |
-| `WEB_SERVER/routers/router_tenant.py` | Multiple API domains and direct DB/service orchestration in one file. | Split by tenant users, EDI upload/unified/export, image OCR/review, matching, receipt/passport verification, usage/info, internal worker APIs. |
-| `WEB_SERVER/routers/router_system_admin.py` | Provider admin APIs, schemas, and DB operations are mixed. | Split tenants, service accounts, LLM API keys, and prompts into separate routers or service modules. |
-| `WEB_SERVER/services/service_email.py` | Transport, templates, account lookup, and email cases are mixed in one large service. | Split SMTP account resolution, message construction, transport adapter, and individual email templates. |
+| `WEB_SERVER/routers/router_tenant.py` | Mostly resolved. File is now an aggregator for tenant-domain sub-routers. | Keep new tenant routes in domain-specific sub-routers; avoid adding route bodies back to the aggregator. |
+| `WEB_SERVER/routers/router_system_admin.py` | Resolved for route grouping. File is now an aggregator for provider-admin sub-routers. | Keep new provider-admin routes in dashboard/tenant/service-account/key/prompt sub-routers. |
+| `WEB_SERVER/services/service_email.py` | Partially resolved. Templates are split by domain; transport and account resolver still remain in the facade module. | Future split: SMTP account resolver and transport adapter, while preserving `EmailService` compatibility wrappers. |
 | `DATABASE/models/tenant_model.py` | Many tenant schema tables live in one file. | Split only with stable re-export from `DATABASE.models` and migration/import compatibility checks. |
 
 ## API Layer Boundary
@@ -60,6 +60,6 @@ Workers consume Redis jobs, call internal API endpoints, and report job status. 
 
 ## Known Open Issues
 
-- `WEB_SERVER/routers/router_registration.py` is present but not registered by the active FastAPI app.
+- `WEB_SERVER/services/service_email.py` still contains SMTP transport and DB account resolution. Split only with compatibility wrappers for existing imports.
 - Several source files contain mojibake in comments or OpenAPI descriptions. Fixing this should be a dedicated encoding/documentation pass.
 - The parent git worktree currently shows broad file moves/deletions outside `backend/`. Backend-only tasks must avoid touching frontend or unrelated parent paths.

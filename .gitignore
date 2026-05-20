@@ -17,5 +17,11 @@ dist/
 *.egg-info/
 
 *.log
+.DS_Store
+.idea/
+.vscode/
+
 tenants/
 DATABASE/dbms.zip
+infra/nginx/nginx.env
+infra/nginx/nginx.conf.generated

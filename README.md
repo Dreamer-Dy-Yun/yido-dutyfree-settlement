@@ -1,16 +1,16 @@
-# Backend Structure
+# YIDO Backend
 
-This folder is the backend-only working area for the YIDO service. It contains the FastAPI API server, SQLAlchemy/PostgreSQL data layer, Redis-backed workers, EDI processors, matching logic, OCR/LLM integration, and shared Python utilities.
+This repository root is the backend-only working area for the YIDO service. It contains the FastAPI API server, SQLAlchemy/PostgreSQL data layer, Redis-backed workers, EDI processors, matching logic, OCR/LLM integration, Docker Compose runtime, nginx infrastructure, and backend-oriented project documentation.
 
 Run backend commands from this folder unless a command explicitly says otherwise.
 
 ## Path Contract
 
-This folder is the backend runtime root. Python imports, pytest, `run.ps1`, and local `.env` loading are expected to run from here.
+This folder is the backend repository root, Python runtime root, Git root, Docker Compose root, and documentation root for backend work.
 
-The Git worktree and Docker Compose root are one level up at `D:\DEV\YIDO`. Compose and nginx infrastructure files stay there because `docker-compose.yml` builds this folder through `build.context: ./backend`.
+The frontend is a separate sibling repository at `D:\DEV\YIDO\frontend`. Backend Compose serves frontend static files from `../frontend/dist` by default through `NGINX_FRONTEND_DIST`.
 
-Current boundary documents live under `..\MD\`. Do not move Compose or infrastructure files into this folder without also rewriting their relative paths.
+Current boundary documents live under `MD/`. Agent workflow documents live under `mulAg/`.
 
 ## Setup
 
@@ -21,7 +21,7 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-The current local checkout also has a parent virtual environment used by existing tests:
+The current local checkout may also have a parent virtual environment used by existing tests:
 
 ```bash
 ..\venv\Scripts\python.exe -m pytest -q
@@ -38,6 +38,7 @@ The current local checkout also has a parent virtual environment used by existin
 | `WEB_SERVER/main_web.py` | Starts `WEB_SERVER.app:app` through uvicorn. Used by `Dockerfile`. |
 | `PROCESSOR_MATCHING/run_match_worker.py` | Consumes Redis match jobs and calls the internal tenant match API. |
 | `PROCESSOR_DATA/run_edi_unified_worker.py` | Consumes Redis EDI unified jobs and calls the internal tenant EDI API. |
+| `docker-compose.yml` | Runs PostgreSQL, Redis, pgAdmin, backend API, nginx, and worker services from this backend root. |
 
 ## Active API Surface
 
@@ -56,25 +57,29 @@ The active app in `WEB_SERVER/app.py` registers these router prefixes:
 
 | Path | Responsibility |
 | --- | --- |
-| `WEB_SERVER/` | HTTP API layer, auth dependencies, routers, service orchestration. |
-| `DATABASE/` | SQLAlchemy models, PostgreSQL manager, repository layer, DB setup, DB-oriented tests. |
-| `PROCESSOR_DATA/` | EDI file parsing, normalization, EDI unified synchronization/export, EDI worker. |
-| `PROCESSOR_MATCHING/` | Receipt-passport matching contracts, concrete matchers, Redis worker. |
+| `WEB_SERVER/` | HTTP API layer, auth dependencies, routers, and service orchestration. |
+| `DATABASE/` | SQLAlchemy models, PostgreSQL manager, repository layer, DB setup, and DB-oriented tests. |
+| `PROCESSOR_DATA/` | EDI file parsing, normalization, EDI unified synchronization/export, and EDI worker. |
+| `PROCESSOR_MATCHING/` | Receipt-passport matching contracts, concrete matchers, and Redis worker. |
 | `PROCESSOR_LLM_RESULT/` | Image OCR runner and LLM OCR result parser. |
 | `PROCESSOR_IMAGE/` | Image helper and POC code. |
-| `LLM/` | LLM abstraction, DTOs, exceptions, ChatGPT implementation, prompt files. |
+| `LLM/` | LLM abstraction, DTOs, exceptions, ChatGPT implementation, and prompt files. |
 | `CUSTOMIZED/` | Shared utilities for logging, hashing, parsing, retry, Excel/ZIP/web helpers. |
 | `POC/` | Local experiments and examples; not part of the active runtime contract. |
 | `app/` | Legacy or alternate FastAPI scaffold; current service flow uses `WEB_SERVER/`. |
+| `infra/nginx/` | nginx config templates, Compose default config, and optional deployment helper. |
+| `MD/` | Current backend structure, module boundary, and maintenance documentation. |
+| `mulAg/` | Multi-agent plan/todo/review/done workflow documents. |
 
-Each major folder has its own `README.md` with file-level responsibility notes.
+Each major backend folder has its own `README.md` with file-level responsibility notes.
 
 ## Boundary Documents
 
-- `../MD/MODULE_BOUNDARIES.md`: hardening status, protected modules, and refactor candidates.
+- `MD/MODULE_BOUNDARIES.md`: hardening status, protected modules, and refactor candidates.
 - `WEB_SERVER/README.md`: API server boundary and active/inactive router status.
 - `DATABASE/README.md`: DB layer boundary and ownership rules.
 - `DATABASE/dbms/postgre/README.md`: `PGDBManager` hardening contract.
+- `mulAg/role-reference-map.md`: multi-agent role document map.
 
 ## Current Refactor Pressure
 
@@ -82,16 +87,14 @@ These files exceed the default 300-line guideline and should be treated delibera
 
 | Path | Current handling |
 | --- | --- |
-| `WEB_SERVER/routers/router_tenant.py` | Split candidate. Separate by tenant users, EDI, image review, matching, verification, usage/info, and internal worker APIs. |
-| `WEB_SERVER/routers/router_system_admin.py` | Split candidate. Separate tenants, service accounts, LLM API keys, and prompts. |
-| `WEB_SERVER/services/service_email.py` | Split candidate. Separate SMTP account resolution, message composition, transport, and templates. |
 | `DATABASE/dbms/postgre/pg_manager.py` | Hardened protection target. Do not split or refactor without explicit user approval. |
 | `DATABASE/models/tenant_model.py` | Schema contract file. Split only with a migration/import compatibility plan. |
+
+Recent cleanup split the tenant router, system-admin router, and email service into smaller boundary files. Keep those aggregators thin and put new logic into the responsible sub-router or service module.
 
 ## Tests
 
 The default test run is unit-level only. DB/Redis integration tests are not collected by default, so the default result should not contain skipped tests.
-The default suite covers shared utilities, DB manager conflict-key selection, LLM DTO validation, EDI parser contracts, OCR result parsing, Redis queue payload contracts, and email composition.
 
 ```bash
 ..\venv\Scripts\python.exe -m pytest -q
@@ -118,16 +121,17 @@ If this folder is used as a standalone repository with a local `.venv`, run:
 
 ## Docker
 
-The backend image is defined by `Dockerfile` and is used by the root compose stack for the API service and workers.
+The backend image is defined by `Dockerfile` and is used by the local Compose stack for the API service and workers.
 
 ```bash
 docker build -t yido-dutyfree-backend:local .
 ```
 
-Run the full stack from the parent worktree root:
+Run the full stack from this backend repository root:
 
 ```bash
-cd ..
 docker compose config --quiet
 docker compose up -d --build
 ```
+
+For local frontend static serving, build the frontend in `D:\DEV\YIDO\frontend` first. The default `NGINX_FRONTEND_DIST` points to `../frontend/dist`.

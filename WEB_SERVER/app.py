@@ -6,6 +6,7 @@ load_dotenv()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from WEB_SERVER.routers.router_auth import router as router_auth
+from WEB_SERVER.routers.router_registration import router as router_registration
 from fastapi.middleware.cors import CORSMiddleware
 from DATABASE.config import db_manager
 
@@ -50,6 +51,7 @@ app.include_router(router_auth)
 # 회사 검색/등록 라우터
 from WEB_SERVER.routers.router_company import router as router_company
 app.include_router(router_company)
+app.include_router(router_registration)
 
 # 테넌트 관리 및 서비스 제공사 관리 라우터
 from WEB_SERVER.routers.router_tenant import router as router_tenant
