@@ -4,7 +4,7 @@ import {
   getPassportList,
   bulkVerifyReceipts,
   bulkVerifyPassports,
-} from '../api/data-mapping/dataMappingApi';
+} from '../api/data-mapping/reviewApi';
 import { normalizeApiError } from '../utils/normalizeApiError';
 import { confirmUserAction, notifyUser } from '../utils/userFeedback';
 import ImageReviewList from './ImageReviewList';

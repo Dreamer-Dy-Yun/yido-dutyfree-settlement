@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { systemAdminLogin } from '../api/auth/authApi';
+import { normalizeApiError } from '../utils/normalizeApiError';
 import './SystemAdminLoginPage.css';
 
 function SystemAdminLoginPage() {
@@ -21,7 +22,7 @@ function SystemAdminLoginPage() {
       // 로그인 성공 시 시스템 어드민 대시보드로 이동
       navigate('/admin');
     } catch (err) {
-      setError(err.response?.data?.detail || '로그인에 실패했습니다');
+      setError(normalizeApiError(err, '로그인에 실패했습니다'));
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getSystemStats } from '../../api/admin/systemAdminApi';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import './SystemAdminDashboard.css';
 
 function SystemAdminDashboard() {
@@ -20,7 +21,7 @@ function SystemAdminDashboard() {
       setStats(data);
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.detail || '통계를 불러오는데 실패했습니다');
+      setError(normalizeApiError(err, '통계를 불러오는데 실패했습니다'));
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getServiceAccountDetail, createServiceAccount, updateServiceAccount } from '../../api/admin/systemAdminApi';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import { notifyUser } from '../../utils/userFeedback';
 import './ServiceAccountDetailPage.css';
 
@@ -35,7 +36,7 @@ function ServiceAccountDetailPage() {
       });
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.detail || '서비스 어카운트 정보를 불러오는데 실패했습니다');
+      setError(normalizeApiError(err, '서비스 어카운트 정보를 불러오는데 실패했습니다'));
     } finally {
       setLoading(false);
     }
@@ -86,7 +87,7 @@ function ServiceAccountDetailPage() {
       
       navigate('/admin/service-accounts');
     } catch (err) {
-      notifyUser(err.response?.data?.detail || '저장에 실패했습니다');
+      notifyUser(normalizeApiError(err, '저장에 실패했습니다'));
     } finally {
       setSaving(false);
     }

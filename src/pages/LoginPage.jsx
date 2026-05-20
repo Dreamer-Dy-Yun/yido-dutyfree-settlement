@@ -7,6 +7,7 @@ import {
   readSelectedTenant,
   storeSelectedTenant,
 } from '../api/auth/tenantSelectionStore';
+import { normalizeApiError } from '../utils/normalizeApiError';
 import './LoginPage.css';
 
 function LoginPage() {
@@ -48,7 +49,7 @@ function LoginPage() {
     } catch (err) {
       // 400: 회사명 또는 사업자번호 미입력 등은 조용히 처리
       if (err.response?.status !== 400) {
-        setError(err.response?.data?.detail || '회사 검색에 실패했습니다');
+        setError(normalizeApiError(err, '회사 검색에 실패했습니다'));
       }
       setCompanyResults([]);
     } finally {
@@ -109,7 +110,7 @@ function LoginPage() {
       await login(email, password, company.id);
       navigate(getPostLoginRedirectPath());
     } catch (err) {
-      setError(err.response?.data?.detail || '로그인에 실패했습니다');
+      setError(normalizeApiError(err, '로그인에 실패했습니다'));
     } finally {
       setLoading(false);
     }

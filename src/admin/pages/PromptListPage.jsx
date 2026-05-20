@@ -7,6 +7,7 @@ import {
 } from '../../api/admin/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
 import { formatRecordTimestamp } from '../../utils/dateFormat';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import { confirmUserAction, notifyUser } from '../../utils/userFeedback';
 import CommonDataTable from '../components/CommonDataTable';
 
@@ -34,7 +35,7 @@ function PromptListPage() {
       });
       setRows(data.prompts || []);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Prompt 목록 조회에 실패했습니다.');
+      setError(normalizeApiError(err, 'Prompt 목록 조회에 실패했습니다.'));
     } finally {
       setLoading(false);
     }
@@ -67,7 +68,7 @@ function PromptListPage() {
       await deletePrompt(row.id);
       await loadRows();
     } catch (err) {
-      notifyUser(err.response?.data?.detail || 'Prompt 삭제에 실패했습니다.');
+      notifyUser(normalizeApiError(err, 'Prompt 삭제에 실패했습니다.'));
     }
   };
 
@@ -76,7 +77,7 @@ function PromptListPage() {
       await updatePrompt(row.id, { is_active: nextActive });
       await loadRows();
     } catch (err) {
-      notifyUser(err.response?.data?.detail || 'Prompt 상태 변경에 실패했습니다.');
+      notifyUser(normalizeApiError(err, 'Prompt 상태 변경에 실패했습니다.'));
     }
   };
 

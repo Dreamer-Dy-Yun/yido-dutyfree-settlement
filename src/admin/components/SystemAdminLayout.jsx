@@ -11,7 +11,8 @@ import useSessionTTL from '../../hooks/useSessionTTL';
 import ProfileModal from '../../components/ProfileModal';
 import Sidebar from '../../components/Sidebar';
 import AppHeader from '../../components/AppHeader';
-import './AppLayout.css';
+import '../../styles/appLayout.css';
+import '../../styles/commonUi.css';
 
 const DEFAULT_TITLE = '구매대행B2C';
 const ADMIN_TITLE = '구매대행B2C-SYSADMIN';

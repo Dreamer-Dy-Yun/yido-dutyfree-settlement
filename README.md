@@ -39,6 +39,7 @@ pnpm run build
 | `src/constants/` | tab and option constants |
 | `src/locales/` | shared UI display text constants, currently Korean strings in `KO.js` |
 | `src/utils/` | frontend utility functions |
+| `src/styles/` | cross-feature layout and common UI styles |
 | `mulAg/` | multi-agent work rules, role references, plan/todo/review/done records |
 
 ## API Boundary

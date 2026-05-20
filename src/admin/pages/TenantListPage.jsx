@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { getTenants, getPendingTenants } from '../../api/admin/systemAdminApi';
 import TenantCard from '../components/TenantCard';
 import CommonTabsRow from '../../components/CommonTabsRow';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import './TenantListPage.css';
 
 function TenantListPage() {
@@ -57,7 +58,7 @@ function TenantListPage() {
       }
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.detail || '테넌트 목록을 불러오는데 실패했습니다');
+      setError(normalizeApiError(err, '테넌트 목록을 불러오는데 실패했습니다'));
     } finally {
       setLoading(false);
     }

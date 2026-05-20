@@ -7,6 +7,7 @@ import {
 } from '../../api/admin/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
 import { formatRecordTimestamp } from '../../utils/dateFormat';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import { confirmUserAction, notifyUser } from '../../utils/userFeedback';
 import CommonDataTable from '../components/CommonDataTable';
 
@@ -33,7 +34,7 @@ function LlmApiKeyListPage() {
       });
       setRows(data.llm_api_keys || []);
     } catch (err) {
-      setError(err.response?.data?.detail || 'LLM API KEY 목록 조회에 실패했습니다.');
+      setError(normalizeApiError(err, 'LLM API KEY 목록 조회에 실패했습니다.'));
     } finally {
       setLoading(false);
     }
@@ -65,7 +66,7 @@ function LlmApiKeyListPage() {
       });
       await loadRows();
     } catch (err) {
-      notifyUser(err.response?.data?.detail || '상태 변경에 실패했습니다.');
+      notifyUser(normalizeApiError(err, '상태 변경에 실패했습니다.'));
     }
   };
 
@@ -80,7 +81,7 @@ function LlmApiKeyListPage() {
       await deleteLlmApiKey(row.id);
       await loadRows();
     } catch (err) {
-      notifyUser(err.response?.data?.detail || 'LLM API KEY 삭제에 실패했습니다.');
+      notifyUser(normalizeApiError(err, 'LLM API KEY 삭제에 실패했습니다.'));
     }
   };
 

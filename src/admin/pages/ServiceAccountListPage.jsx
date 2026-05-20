@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { getServiceAccounts, updateServiceAccount, deleteServiceAccount } from '../../api/admin/systemAdminApi';
 import CommonTabsRow from '../../components/CommonTabsRow';
 import { formatRecordTimestamp } from '../../utils/dateFormat';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import { confirmUserAction, notifyUser } from '../../utils/userFeedback';
 import CommonDataTable from '../components/CommonDataTable';
 import './ServiceAccountListPage.css';
@@ -45,7 +46,7 @@ function ServiceAccountListPage() {
       setAccounts(data.service_accounts || []);
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.detail || '서비스 어카운트 목록을 불러오는데 실패했습니다');
+      setError(normalizeApiError(err, '서비스 어카운트 목록을 불러오는데 실패했습니다'));
     } finally {
       setLoading(false);
     }
@@ -82,7 +83,7 @@ function ServiceAccountListPage() {
       notifyUser('서비스 어카운트가 삭제되었습니다');
       loadAccounts();
     } catch (err) {
-      notifyUser(err.response?.data?.detail || '삭제에 실패했습니다');
+      notifyUser(normalizeApiError(err, '삭제에 실패했습니다'));
     }
   };
 
@@ -94,7 +95,7 @@ function ServiceAccountListPage() {
       notifyUser('서비스 어카운트가 비활성화되었습니다');
       loadAccounts();
     } catch (err) {
-      notifyUser(err.response?.data?.detail || '비활성화에 실패했습니다');
+      notifyUser(normalizeApiError(err, '비활성화에 실패했습니다'));
     }
   };
 
@@ -106,7 +107,7 @@ function ServiceAccountListPage() {
       notifyUser('서비스 어카운트가 활성화되었습니다');
       loadAccounts();
     } catch (err) {
-      notifyUser(err.response?.data?.detail || '활성화에 실패했습니다');
+      notifyUser(normalizeApiError(err, '활성화에 실패했습니다'));
     }
   };
 

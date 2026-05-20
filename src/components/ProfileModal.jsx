@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { normalizeApiError } from '../utils/normalizeApiError';
 import { notifyUser } from '../utils/userFeedback';
 import './ProfileModal.css';
 
@@ -76,7 +77,7 @@ function ProfileModal({
       setModalMode(MODAL_EDIT);
       setPasswordInput('');
     } catch (err) {
-      setModalError(err.response?.data?.detail || '비밀번호가 일치하지 않습니다.');
+      setModalError(normalizeApiError(err, '비밀번호가 일치하지 않습니다.'));
     }
   };
 
@@ -117,8 +118,8 @@ function ProfileModal({
       setPasswordForEdit('');
       closeModal();
       notifyUser('정보가 수정되었습니다.');
-    } catch {
-      const message = '수정에 실패했습니다.';
+    } catch (err) {
+      const message = normalizeApiError(err, '수정에 실패했습니다.');
       setModalError(message);
       notifyUser(message);
     } finally {

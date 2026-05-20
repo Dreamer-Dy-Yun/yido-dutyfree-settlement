@@ -1,6 +1,3 @@
-@import '../admin/pages/CommonUI.css';
-@import '../admin/components/AppLayout.css';
-
 .workspace-content {
   display: flex;
   flex-direction: column;

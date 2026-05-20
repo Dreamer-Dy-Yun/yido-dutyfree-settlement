@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getCurrentUser, logout } from '../api/auth/authApi';
-import { getImageOcrProgress } from '../api/data-mapping/dataMappingApi';
-import Sidebar from '../components/Sidebar';
-import SessionHeader from '../components/SessionHeader';
+import { getImageOcrProgress } from '../api/data-mapping/reviewApi';
+import DashboardShell from '../components/DashboardShell';
 import CommonTabsRow from '../components/CommonTabsRow';
 import { DATA_MAPPING_TABS, DEFAULT_DATA_MAPPING_TAB } from '../constants/dataMappingTabs';
 import EdiUploadPanel from '../data-mapping/EdiUploadPanel';
@@ -11,49 +9,19 @@ import ImageReviewPanel from '../data-mapping/ImageReviewPanel';
 import ImageZipUploadPanel from '../data-mapping/ImageZipUploadPanel';
 import ImageMappingPanel from '../data-mapping/ImageMappingPanel';
 import EdiUnifiedCheckPanel from '../data-mapping/EdiUnifiedCheckPanel';
+import { normalizeApiError } from '../utils/normalizeApiError';
+import '../data-mapping/DataMappingFeedback.css';
 import './DataMappingPage.css';
 
 function DataMappingPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [currentUser, setCurrentUser] = useState(null);
   const [ocrProgress, setOcrProgress] = useState(null);
   const [ocrProgressError, setOcrProgressError] = useState('');
   const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
 
   const searchParams = new URLSearchParams(location.search);
   const activeTab = searchParams.get('tab') || DEFAULT_DATA_MAPPING_TAB;
-  const isAdmin = currentUser?.role === 'admin';
-
-  const fetchCurrentUser = useCallback(async () => {
-    return getCurrentUser();
-  }, []);
-
-  const loadCurrentUser = useCallback(async () => {
-    try {
-      const user = await fetchCurrentUser();
-      setCurrentUser(user);
-    } catch (err) {
-      console.error('Failed to load current user:', err);
-    }
-  }, [fetchCurrentUser]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchCurrentUser()
-      .then((user) => {
-        if (!cancelled) {
-          setCurrentUser(user);
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load current user:', err);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchCurrentUser]);
 
   useEffect(() => {
     if (activeTab !== 'image-review' || isVerifyModalOpen) {
@@ -69,7 +37,7 @@ function DataMappingPage() {
         setOcrProgressError('');
       } catch (err) {
         if (!mounted) return;
-        setOcrProgressError(err.response?.data?.detail || '진행률 조회에 실패했습니다.');
+        setOcrProgressError(normalizeApiError(err, '진행률 조회에 실패했습니다.'));
       }
     };
 
@@ -127,29 +95,15 @@ function DataMappingPage() {
   };
 
   return (
-    <div className="app-layout">
-      <Sidebar isAdmin={isAdmin} />
-      <div className="app-main">
-        <SessionHeader
-          title="데이터 매핑"
-          currentUser={currentUser}
-          onLogout={async () => {
-            await logout();
-          }}
-          onProfileUpdated={loadCurrentUser}
-        />
+    <DashboardShell title="데이터 매핑" contentClassName="data-mapping-content">
+      <CommonTabsRow
+        tabs={DATA_MAPPING_TABS.map((tab) => ({ key: tab.id, label: tab.label }))}
+        activeKey={activeTab}
+        onTabChange={handleTabChange}
+      />
 
-        <main className="app-content data-mapping-content">
-          <CommonTabsRow
-            tabs={DATA_MAPPING_TABS.map((tab) => ({ key: tab.id, label: tab.label }))}
-            activeKey={activeTab}
-            onTabChange={handleTabChange}
-          />
-
-          <div className="common-card page-content">{renderTabContent()}</div>
-        </main>
-      </div>
-    </div>
+      <div className="common-card page-content">{renderTabContent()}</div>
+    </DashboardShell>
   );
 }
 

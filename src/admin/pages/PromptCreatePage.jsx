@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { createPrompt } from '../../api/admin/systemAdminApi';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import { notifyUser } from '../../utils/userFeedback';
 import './PromptCreatePage.css';
 
@@ -85,7 +86,7 @@ function PromptCreatePage() {
       setIsClonedDraft(false);
       navigate('/admin/prompts');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Prompt 등록에 실패했습니다.');
+      setError(normalizeApiError(err, 'Prompt 등록에 실패했습니다.'));
     } finally {
       setSaving(false);
     }

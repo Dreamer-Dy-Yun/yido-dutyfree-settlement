@@ -1,45 +1,16 @@
-import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
-import SessionHeader from '../components/SessionHeader';
 import CommonTabsRow from '../components/CommonTabsRow';
-import { getCurrentUser, logout } from '../api/auth/authApi';
+import DashboardShell from '../components/DashboardShell';
 import { DEFAULT_FEE_TAB, FEE_TABS } from '../constants/feeTabs';
 import './FeePage.css';
 
 function FeePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [currentUser, setCurrentUser] = useState(null);
 
   const searchParams = new URLSearchParams(location.search);
   const tabFromUrl = searchParams.get('tab');
   const activeTab = tabFromUrl || DEFAULT_FEE_TAB;
-
-  const isAdmin = currentUser?.role === 'admin';
-
-  useEffect(() => {
-    let mounted = true;
-    getCurrentUser()
-      .then((user) => {
-        if (mounted) setCurrentUser(user);
-      })
-      .catch((err) => {
-        console.error('Failed to load current user:', err);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const loadCurrentUser = async () => {
-    try {
-      const user = await getCurrentUser();
-      setCurrentUser(user);
-    } catch (err) {
-      console.error('Failed to load current user:', err);
-    }
-  };
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -74,31 +45,17 @@ function FeePage() {
   };
 
   return (
-    <div className="app-layout">
-      <Sidebar isAdmin={isAdmin} />
-      <div className="app-main">
-        <SessionHeader
-          title="수수료"
-          currentUser={currentUser}
-          onLogout={async () => {
-            await logout();
-          }}
-          onProfileUpdated={loadCurrentUser}
-        />
+    <DashboardShell title="수수료" contentClassName="fee-content">
+      <CommonTabsRow
+        tabs={FEE_TABS.map((tab) => ({ key: tab.id, label: tab.label }))}
+        activeKey={activeTab}
+        onTabChange={(tab) => {
+          navigate(`/dashboard/fee?tab=${tab}`);
+        }}
+      />
 
-        <main className="app-content fee-content">
-          <CommonTabsRow
-            tabs={FEE_TABS.map((tab) => ({ key: tab.id, label: tab.label }))}
-            activeKey={activeTab}
-            onTabChange={(tab) => {
-              navigate(`/dashboard/fee?tab=${tab}`);
-            }}
-          />
-
-          <div className="common-card page-content">{renderTabContent()}</div>
-        </main>
-      </div>
-    </div>
+      <div className="common-card page-content">{renderTabContent()}</div>
+    </DashboardShell>
   );
 }
 

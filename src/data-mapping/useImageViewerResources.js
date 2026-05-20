@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getImageBlobByHash } from '../api/data-mapping/dataMappingApi';
+import { getImageBlobByHash } from '../api/data-mapping/imageAssetApi';
 import { ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from './imageViewerGeometry';
 
 export function useContainerSize(containerRef) {

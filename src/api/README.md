@@ -7,7 +7,7 @@ All browser-to-backend calls live behind this folder. Pages, hooks, and UI compo
 | `client/` | Shared axios clients, auth header injection, session TTL updates, and 401 handling. |
 | `auth/` | Login/logout, current-user/profile APIs, token/session storage, and selected tenant persistence. |
 | `tenant/` | Tenant user and usage APIs. |
-| `data-mapping/` | Tenant data-mapping APIs including uploads, OCR review, verification, matching, and EDI unified checks. |
+| `data-mapping/` | Tenant data-mapping APIs split into upload, OCR review, image asset, matching, and EDI unified sub-boundaries. |
 | `admin/` | System-admin dashboard, tenant, service-account, LLM API key, and prompt APIs. |
 
 ## Boundary

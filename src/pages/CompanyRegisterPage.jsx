@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { registerCompany } from '../api/auth/authApi';
+import { normalizeApiError } from '../utils/normalizeApiError';
 import './CompanyRegisterPage.css';
 
 function CompanyRegisterPage() {
@@ -47,7 +48,7 @@ function CompanyRegisterPage() {
       setSuccess(true);
       setCountdown(10);
     } catch (err) {
-      const detail = err.response?.data?.detail;
+      const detail = normalizeApiError(err, '회사 등록에 실패했습니다');
 
       // 이미 등록된 사업자번호인 경우 → 확인 팝업 노출 (HTTP 상태코드는 사용자에게 직접 노출하지 않음)
       if (typeof detail === 'string' && detail.includes('이미 등록된 사업자번호')) {
@@ -58,7 +59,7 @@ function CompanyRegisterPage() {
         }
       }
 
-      setError(detail || '회사 등록에 실패했습니다');
+      setError(detail);
     } finally {
       setLoading(false);
     }

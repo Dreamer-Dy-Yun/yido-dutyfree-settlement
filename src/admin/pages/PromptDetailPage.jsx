@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getPromptDetail } from '../../api/admin/systemAdminApi';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import './PromptDetailPage.css';
 
 function PromptDetailPage() {
@@ -17,7 +18,7 @@ function PromptDetailPage() {
       const data = await getPromptDetail(promptId);
       setRow(data);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Prompt 상세 조회에 실패했습니다.');
+      setError(normalizeApiError(err, 'Prompt 상세 조회에 실패했습니다.'));
     } finally {
       setLoading(false);
     }

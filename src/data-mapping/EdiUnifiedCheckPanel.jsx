@@ -6,6 +6,7 @@ import {
   getEdiUnifiedGroupDetail,
   downloadEdiUnifiedExcel,
 } from '../api/data-mapping/ediUnifiedApi';
+import { normalizeApiError } from '../utils/normalizeApiError';
 import EdiNoteTooltip from './edi-unified/EdiNoteTooltip';
 import EdiUnifiedControls from './edi-unified/EdiUnifiedControls';
 import EdiUnifiedGroupTable from './edi-unified/EdiUnifiedGroupTable';
@@ -65,7 +66,7 @@ export default function EdiUnifiedCheckPanel() {
       setGroups(res.items || []);
       setTotal(res.total || 0);
     } catch (e) {
-      setGroupsError(e.response?.data?.detail || '목록 조회에 실패했습니다.');
+      setGroupsError(normalizeApiError(e, '목록 조회에 실패했습니다.'));
     } finally {
       setLoadingGroups(false);
     }
@@ -113,7 +114,7 @@ export default function EdiUnifiedCheckPanel() {
       });
       setDetailLines(res.items || []);
     } catch (e) {
-      setDetailError(e.response?.data?.detail || '상세 조회에 실패했습니다.');
+      setDetailError(normalizeApiError(e, '상세 조회에 실패했습니다.'));
     } finally {
       setDetailLoading(false);
     }
@@ -145,7 +146,7 @@ export default function EdiUnifiedCheckPanel() {
         }
       } catch (e) {
         if (!mounted) return;
-        setJobError(e.response?.data?.detail || '작업 상태 조회에 실패했습니다.');
+        setJobError(normalizeApiError(e, '작업 상태 조회에 실패했습니다.'));
       }
     };
     timerId = setInterval(poll, 1500);
@@ -165,7 +166,7 @@ export default function EdiUnifiedCheckPanel() {
       setJobStatus(res.job || null);
     } catch (e) {
       setJobRunning(false);
-      setJobError(e.response?.data?.detail || '작업 요청에 실패했습니다.');
+      setJobError(normalizeApiError(e, '작업 요청에 실패했습니다.'));
     }
   };
 
@@ -174,7 +175,7 @@ export default function EdiUnifiedCheckPanel() {
       setDownloadLoading(true);
       await downloadEdiUnifiedExcel({ fromDate, toDate, sources: source });
     } catch (e) {
-      setGroupsError(e.response?.data?.detail || '엑셀 다운로드에 실패했습니다.');
+      setGroupsError(normalizeApiError(e, '엑셀 다운로드에 실패했습니다.'));
     } finally {
       setDownloadLoading(false);
     }

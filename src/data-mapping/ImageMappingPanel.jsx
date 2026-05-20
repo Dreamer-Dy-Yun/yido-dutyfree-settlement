@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getMatchStatus, postMatchAttempt, getMatches, getMatchDetail } from '../api/data-mapping/dataMappingApi';
+import { getMatchStatus, postMatchAttempt, getMatches, getMatchDetail } from '../api/data-mapping/matchingApi';
 import { KO } from '../locales/KO';
 import { notifyUser } from '../utils/userFeedback';
 import ImageMappingStatus from './ImageMappingStatus';

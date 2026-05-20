@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { logout, getCurrentUser } from '../api/auth/authApi';
 import {
   getTenantUsers,
   createTenantUser,
@@ -10,9 +9,9 @@ import {
   resetUserPassword,
   getUsage,
 } from '../api/tenant/tenantApi';
-import Sidebar from '../components/Sidebar';
-import SessionHeader from '../components/SessionHeader';
+import DashboardShell from '../components/DashboardShell';
 import CommonTabsRow from '../components/CommonTabsRow';
+import { normalizeApiError } from '../utils/normalizeApiError';
 import { confirmUserAction, notifyUser } from '../utils/userFeedback';
 import WorkspaceUsersSection from './workspace/WorkspaceUsersSection';
 import WorkspaceUsageSection from './workspace/WorkspaceUsageSection';
@@ -33,10 +32,8 @@ const EMPTY_USER_FORM = {
 function WorkspacePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [currentUser, setCurrentUser] = useState(null);
   const [activeTab, setActiveTab] = useState(new URLSearchParams(location.search).get('tab') || 'users');
 
-  const isAdmin = currentUser?.role === 'admin';
   const [users, setUsers] = useState([]);
   const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -49,15 +46,6 @@ function WorkspacePage() {
   const [editingUser, setEditingUser] = useState(null);
   const [userFormData, setUserFormData] = useState(EMPTY_USER_FORM);
 
-  const loadCurrentUser = useCallback(async () => {
-    try {
-      const user = await getCurrentUser();
-      setCurrentUser(user);
-    } catch (err) {
-      console.error('Failed to load current user:', err);
-    }
-  }, []);
-
   const loadUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -65,7 +53,7 @@ function WorkspacePage() {
       const data = await getTenantUsers();
       setUsers(data.users || data);
     } catch (err) {
-      setError(err.response?.data?.detail || '유저 목록을 불러오는데 실패했습니다');
+      setError(normalizeApiError(err, '유저 목록을 불러오는데 실패했습니다'));
     } finally {
       setLoading(false);
     }
@@ -78,21 +66,11 @@ function WorkspacePage() {
       const data = await getUsage();
       setUsage(data);
     } catch (err) {
-      setError(err.response?.data?.detail || '사용량을 불러오는데 실패했습니다');
+      setError(normalizeApiError(err, '사용량을 불러오는데 실패했습니다'));
     } finally {
       setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    loadCurrentUser();
-  }, [loadCurrentUser]);
-
-  useEffect(() => {
-    if (currentUser && currentUser.role !== 'admin') {
-      navigate('/dashboard/data-mapping', { replace: true });
-    }
-  }, [currentUser, navigate]);
 
   useEffect(() => {
     const nextParams = new URLSearchParams(location.search);
@@ -151,7 +129,7 @@ function WorkspacePage() {
       setShowUserModal(false);
       await loadUsers();
     } catch (err) {
-      setError(err.response?.data?.detail || '유저 저장에 실패했습니다');
+      setError(normalizeApiError(err, '유저 저장에 실패했습니다'));
     }
   };
 
@@ -162,7 +140,7 @@ function WorkspacePage() {
       await userActivate(user.id, !user.is_active);
       await loadUsers();
     } catch (err) {
-      setError(err.response?.data?.detail || '유저 활성 상태 변경에 실패했습니다');
+      setError(normalizeApiError(err, '유저 활성 상태 변경에 실패했습니다'));
     }
   };
 
@@ -189,7 +167,7 @@ function WorkspacePage() {
       closeDeleteConfirmModal();
       await loadUsers();
     } catch (err) {
-      setError(err.response?.data?.detail || '유저 삭제에 실패했습니다');
+      setError(normalizeApiError(err, '유저 삭제에 실패했습니다'));
     } finally {
       setIsDeletingUser(false);
     }
@@ -203,73 +181,61 @@ function WorkspacePage() {
       await resetUserPassword(userId);
       notifyUser('임시 비밀번호가 등록된 이메일로 발송되었습니다');
     } catch (err) {
-      setError(err.response?.data?.detail || '비밀번호 재설정에 실패했습니다');
+      setError(normalizeApiError(err, '비밀번호 재설정에 실패했습니다'));
     }
   };
 
   return (
-    <div className="app-layout">
-      <Sidebar isAdmin={isAdmin} />
-      <div className="app-main">
-        <SessionHeader
-          title="테넌트 관리"
-          currentUser={currentUser}
-          onLogout={logout}
-          onProfileUpdated={loadCurrentUser}
+    <DashboardShell title="테넌트 관리" contentClassName="workspace-content" requireAdmin>
+      <CommonTabsRow
+        tabs={[
+          { key: 'users', label: '유저 관리' },
+          { key: 'usage', label: '사용량 조회' },
+        ]}
+        activeKey={activeTab}
+        onTabChange={(nextTab) => {
+          setActiveTab(nextTab);
+          navigate(nextTab === 'usage' ? '/dashboard?tab=usage' : '/dashboard');
+        }}
+      />
+
+      {error && <div className="workspace-error-message">{error}</div>}
+
+      {activeTab === 'users' && (
+        <WorkspaceUsersSection
+          loading={loading}
+          users={users}
+          onCreateUser={handleCreateUser}
+          onEditUser={handleEditUser}
+          onToggleUserActivation={handleUserActivation}
+          onDeleteUser={handleDeleteUser}
+          onResetPassword={handleResetPassword}
         />
+      )}
 
-        <main className="app-content workspace-content">
-          <CommonTabsRow
-            tabs={[
-              { key: 'users', label: '유저 관리' },
-              { key: 'usage', label: '사용량 조회' },
-            ]}
-            activeKey={activeTab}
-            onTabChange={(nextTab) => {
-              setActiveTab(nextTab);
-              navigate(nextTab === 'usage' ? '/dashboard?tab=usage' : '/dashboard');
-            }}
-          />
+      {activeTab === 'usage' && <WorkspaceUsageSection loading={loading} usage={usage} />}
 
-          {error && <div className="workspace-error-message">{error}</div>}
+      {showUserModal && (
+        <WorkspaceUserModal
+          editingUser={editingUser}
+          userFormData={userFormData}
+          onChangeForm={setUserFormData}
+          onClose={() => setShowUserModal(false)}
+          onSave={handleSaveUser}
+        />
+      )}
 
-          {activeTab === 'users' && (
-            <WorkspaceUsersSection
-              loading={loading}
-              users={users}
-              onCreateUser={handleCreateUser}
-              onEditUser={handleEditUser}
-              onToggleUserActivation={handleUserActivation}
-              onDeleteUser={handleDeleteUser}
-              onResetPassword={handleResetPassword}
-            />
-          )}
-
-          {activeTab === 'usage' && <WorkspaceUsageSection loading={loading} usage={usage} />}
-
-          {showUserModal && (
-            <WorkspaceUserModal
-              editingUser={editingUser}
-              userFormData={userFormData}
-              onChangeForm={setUserFormData}
-              onClose={() => setShowUserModal(false)}
-              onSave={handleSaveUser}
-            />
-          )}
-
-          {showDeleteConfirmModal && deletingUser && (
-            <WorkspaceDeleteConfirmModal
-              deletingUser={deletingUser}
-              deleteConfirmText={deleteConfirmText}
-              isDeletingUser={isDeletingUser}
-              onChangeConfirmText={setDeleteConfirmText}
-              onClose={closeDeleteConfirmModal}
-              onConfirm={handleConfirmDeleteUser}
-            />
-          )}
-        </main>
-      </div>
-    </div>
+      {showDeleteConfirmModal && deletingUser && (
+        <WorkspaceDeleteConfirmModal
+          deletingUser={deletingUser}
+          deleteConfirmText={deleteConfirmText}
+          isDeletingUser={isDeletingUser}
+          onChangeConfirmText={setDeleteConfirmText}
+          onClose={closeDeleteConfirmModal}
+          onConfirm={handleConfirmDeleteUser}
+        />
+      )}
+    </DashboardShell>
   );
 }
 

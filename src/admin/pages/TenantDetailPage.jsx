@@ -5,6 +5,7 @@ import TenantDeleteModal from './tenant-detail/TenantDeleteModal';
 import TenantDetailEditForm from './tenant-detail/TenantDetailEditForm';
 import TenantDetailReadView from './tenant-detail/TenantDetailReadView';
 import TenantRejectModal from './tenant-detail/TenantRejectModal';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import { confirmUserAction, notifyUser } from '../../utils/userFeedback';
 import './TenantDetailPage.css';
 
@@ -47,7 +48,7 @@ function TenantDetailPage() {
       setFormData(toTenantForm(data));
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.detail || '테넌트 정보를 불러오는데 실패했습니다');
+      setError(normalizeApiError(err, '테넌트 정보를 불러오는데 실패했습니다'));
     } finally {
       setLoading(false);
     }
@@ -99,7 +100,7 @@ function TenantDetailPage() {
       await loadTenantDetail();
     } catch (err) {
       console.error('Update error:', err);
-      notifyUser(err.response?.data?.detail || '수정에 실패했습니다');
+      notifyUser(normalizeApiError(err, '수정에 실패했습니다'));
     } finally {
       setSaving(false);
     }
@@ -112,7 +113,7 @@ function TenantDetailPage() {
       notifyUser('승인 완료!');
       await loadTenantDetail();
     } catch (err) {
-      notifyUser(err.response?.data?.detail || '승인에 실패했습니다');
+      notifyUser(normalizeApiError(err, '승인에 실패했습니다'));
     }
   };
 
@@ -131,7 +132,7 @@ function TenantDetailPage() {
       setRejectReason('');
       navigate('/admin/tenants');
     } catch (err) {
-      notifyUser(err.response?.data?.detail || '거부에 실패했습니다');
+      notifyUser(normalizeApiError(err, '거부에 실패했습니다'));
     }
   };
 
@@ -150,7 +151,7 @@ function TenantDetailPage() {
       setDeleteReason('');
       navigate('/admin/tenants');
     } catch (err) {
-      notifyUser(err.response?.data?.detail || '삭제에 실패했습니다');
+      notifyUser(normalizeApiError(err, '삭제에 실패했습니다'));
     } finally {
       setDeleting(false);
     }

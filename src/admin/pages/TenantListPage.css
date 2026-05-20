@@ -1,5 +1,3 @@
-@import './CommonUI.css';
-
 .tenant-list-page .filters {
   justify-content: flex-end;
 }

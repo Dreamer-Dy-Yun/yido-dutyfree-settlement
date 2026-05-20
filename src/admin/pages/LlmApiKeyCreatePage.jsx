@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createLlmApiKey, getLlmApiKeyDetail, updateLlmApiKey } from '../../api/admin/systemAdminApi';
+import { normalizeApiError } from '../../utils/normalizeApiError';
 import { notifyUser } from '../../utils/userFeedback';
 import './LlmApiKeyCreatePage.css';
 
@@ -32,7 +33,7 @@ function LlmApiKeyCreatePage() {
         is_active: Boolean(data.is_active),
       });
     } catch (err) {
-      setError(err.response?.data?.detail || 'API KEY 정보를 불러오지 못했습니다.');
+      setError(normalizeApiError(err, 'API KEY 정보를 불러오지 못했습니다.'));
     } finally {
       setLoading(false);
     }
@@ -90,7 +91,7 @@ function LlmApiKeyCreatePage() {
       }
       navigate('/admin/llm-api-keys');
     } catch (err) {
-      setError(err.response?.data?.detail || `API KEY ${isEdit ? '수정' : '등록'}에 실패했습니다.`);
+      setError(normalizeApiError(err, `API KEY ${isEdit ? '수정' : '등록'}에 실패했습니다.`));
     } finally {
       setSaving(false);
     }
