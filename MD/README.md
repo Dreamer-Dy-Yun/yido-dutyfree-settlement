@@ -30,3 +30,4 @@ This folder contains current documentation for the frontend worktree.
 | `README.md` | frontend documentation index and worktree state |
 | `FRONTEND_GITHUB_ACTIONS_DEPLOY_PLAN.md` | frontend GitHub Actions static build/deploy implementation guide |
 | `PATH_FLATTEN_IMPACT.md` | impact checklist for the move from nested `frontend/` source paths to the repository root |
+| `../mulAg/README.md` | multi-agent operation rules and plan/todo/review/done workflow index |
